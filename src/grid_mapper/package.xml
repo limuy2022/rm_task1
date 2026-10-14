@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>grid_mapper</name>
+  <version>0.1.0</version>
+  <description>场地描述 field.yaml -&gt; 栅格化 -&gt; map.yaml/map.pgm/PNG，并发布 /map/grid 与 /map/ray_grid</description>
+  <maintainer email="gimbal@example.com">gimbal_team</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>gimbal_common</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
