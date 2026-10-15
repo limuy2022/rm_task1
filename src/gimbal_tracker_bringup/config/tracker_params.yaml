@@ -1,0 +1,232 @@
+# src/gimbal_tracker_bringup/config/tracker_params.yaml
+# 全部可调参数（DESIGN §6.13 全表）。
+# ROS 2 参数文件不支持嵌套映射，故一律用「命名空间.参数」的点分扁平键。
+# launch 通过 `/**:` 通配符把整份文件注入所有节点；每个节点只声明自己用到的键。
+/**:
+  ros__parameters:
+    # ---------------- serial（串口链路）----------------
+    # 比赛机上云台串口是 /dev/ttyUSB* 或 /dev/ttyACM*（主办方已 chmod 777），
+    # 上场前用 `ls /dev/ttyUSB* /dev/ttyACM*` 确认实际设备名。
+    serial.port: /dev/ttyUSB*
+    serial.baud: 921600
+    serial.exclusive: true              # 独占打开，失败即 FATAL 退出
+    serial.read_timeout_s: 0.01
+    serial.read_chunk: 256
+    serial.rx_rate_hz: 200.0              # 收包轮询频率（读线程等价物，定时器实现）
+    serial.cmd_rate_hz: 100.0             # 0x30 下发频率
+    serial.omega_max: 2.0               # rad/s，自己先限幅再下发
+    serial.fault_silence_s: 0.6         # > 下位机要求的 0.5s
+    serial.shutdown_zero_frames: 5
+    serial.cmd_fresh_s: 0.5             # 超过该时长没有新指令则发 (0,0) 保活
+    serial.imu_timeout_s: 1.0           # ACTIVE 后多久没收到 0x01 记 WARN
+    serial.bad_frame_window_s: 1.0      # 连续校验错统计窗口
+    serial.bad_frame_limit: 50          # 窗口内 frames_bad 增量超过此值进故障
+    serial.frame_origin_xyz: [0.0, 0.0, 0.0]   # TF world->gimbal_link 的平移（默认原点）
+
+    # ---------------- gimbal（云台限位与故障判据）----------------
+    gimbal.pitch_sign: -1.0             # ⚠ 修正 1：唯一入口
+    gimbal.yaw_limits: [-2.8, 2.8]
+    gimbal.pitch_limits: [-0.5, 0.35]   # 协议域（低头为正）
+    gimbal.limit_margin: 0.20
+    gimbal.limit_fault_margin: 0.10
+    gimbal.runaway_factor: 1.5
+    gimbal.err_thresh: 0.5
+    gimbal.runaway_hold_s: 0.2
+
+    # ---------------- control（云台控制律）----------------
+    control.kp_yaw: 6.0
+    control.kp_pitch: 6.0
+    control.kd_yaw: 0.5
+    control.kd_pitch: 0.5
+    control.ff_gain: 1.0
+    control.omega_max_yaw: 2.0
+    control.omega_max_pitch: 2.0
+    control.omega_slew: 15.0
+    control.rate_hz: 100.0
+    control.lost_timeout_s: 0.3
+    control.search_after_s: 0.5
+    control.search_amp_yaw: 0.25
+    control.search_freq: 0.5
+    control.wide_search_after_s: 5.0
+    control.wide_amp_yaw: 1.4
+    control.wide_search_freq: 0.25
+    control.wide_amp_pitch: 0.2
+    control.aim_mode: cur               # cur | pred
+    control.height_cutoff_hz: 8.0       # 目标高度 z 的低通截止（P0 辅助通道，见 T03 说明）
+    # 水平半视场：搜索幅值上限的来源。**不在此处写死内参**（DESIGN §8.6 单一数据源）。
+    # 0 = 自动从 config.virtual.yaml 的 camera.width/camera.fx 计算 atan(width/2/fx)；
+    # 两个都 >0 时才作为显式覆盖（调试用）。
+    control.camera_fx: 0.0
+    control.camera_width: 0.0
+
+    # ---------------- perception（视觉感知）----------------
+    # 官方规定码边长 0.1 m（DICT_4X4_50）。⚠ 上场前必须用尺子复核，
+    # 这个数直接进 PnP，错了会让 cur_x/cur_y（权重合计 0.3）整体偏一个比例。
+    perception.marker_size_m: 0.10
+    perception.camera_info_source: yaml # yaml | topic
+    perception.reproj_max_px: 2.0
+    perception.depth_min: 0.05
+    perception.depth_max: 30.0
+    perception.id_filter_mode: "off"    # off | on；⚠ 必须带引号：裸 off/on 会被
+                                        # YAML 解析成布尔 false/true（丢引号 = 节点
+                                        # 拿到 False → 报「未知 id_filter_mode」）
+    perception.corner_noise_px: 0.5
+    perception.k_lat_floor: 5.0e-4
+    perception.k_depth_floor: 4.0e-3
+    perception.force_k_lat: 0.0         # >0 生效
+    perception.force_k_depth: 0.0       # >0 生效
+    perception.r_min_sigma: 0.002
+    # 实机：角点由 aruco_detector_node 从 /image_raw 检出后发到
+    # /perception/marker_corners；仿真时用 /virtual_gimbal/marker_corners。
+    perception.marker_corners_topic: /perception/marker_corners
+    perception.camera_info_topic: /camera_info
+    # --- aruco_detector_node（新增的图像前端）-------------------------
+    perception.image_topic: /image_raw   # reliable + KEEP_LAST + depth 1
+    perception.corners_frame_id: camera_optical_frame
+    perception.aruco_dict: DICT_4X4_50   # 官方规定
+    perception.target_digit: 0           # ⚠ 赛前由主办方告知的 marker ID；**唯一定义处**
+    perception.detect_rate_hz: 30.0      # 评分 10 Hz，30 Hz 足够
+    perception.do_subpix: true           # 亚像素精化，显著降低 cur 项误差
+    perception.subpix_win: 3
+    perception.publish_empty_on_lost: true
+
+    # ---------------- estimation（目标状态估计）----------------
+    estimation.jerk_std: 1.0
+    estimation.predict_dt: 0.1
+    estimation.max_dt: 0.5
+    estimation.nis_gate: 16.81
+    estimation.reinit_jump_m: 1.0
+    estimation.p_max_trace: 100.0
+    estimation.init_sigma_p: 0.05
+    estimation.init_sigma_v: 1.0
+    estimation.init_sigma_a: 5.0
+    estimation.rate_hz: 100.0
+    estimation.cv_degrade_enable: false # P1
+    # track_status 的观测新鲜度阶梯（DESIGN §4.2）：
+    #   age ≤ track_fresh_s → 1（新鲜）；≤ lost_timeout_s → 2（外推）；> → 0（丢失）
+    estimation.track_fresh_s: 0.3
+    estimation.lost_timeout_s: 0.5
+
+    # ---------------- localization（底盘与 map 系）----------------
+    localization.base_pose_source: odom # mock | odom（正式赛用 odom）
+    localization.odom_topic: /odom
+    localization.odom_source: topic     # topic | tf（tf 为 P1）
+    localization.odom_timeout_s: 0.5
+    localization.publish_base_tf: true  # odom 模式下默认 false
+    localization.publish_map_odom: true # 静态 TF map->odom
+    localization.publish_world_odom: true
+    localization.mock_motion: static    # static | sine | circle
+    localization.mock_origin_xy: [0.0, 0.0]
+    localization.mock_yaw0: 0.0
+    localization.mock_amp_xy: [1.0, 0.5]
+    localization.mock_radius: 1.5
+    localization.mock_freq: 0.1
+    localization.world_odom_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    localization.gimbal_mount_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # 赛题一：给定点 = 回放起点（/judge/replay_start）时底盘的位姿
+    localization.origin_mode: judge_replay_start  # judge_replay_start | base_init | world | marker
+    localization.origin_timeout_s: 5.0            # 超时未收到 → 回退 base_init
+    localization.origin_settle_s: 0.5
+    localization.base_pose_rate_hz: 50.0
+
+    # ---------------- chassis（底盘建议）----------------
+    chassis.v_max: 0.5
+    chassis.d_slow: 1.0
+    chassis.d_stop: 0.15
+    chassis.w_ang: 1.0
+    chassis.w_obs: 100.0
+    chassis.w_unk: 10.0
+    chassis.n_dirs: 13
+    chassis.dir_span_deg: 75.0
+    chassis.lookahead_m: 1.0
+    chassis.a_max: 1.0
+    chassis.lp_cutoff_hz: 5.0
+    chassis.lost_decay_s: 2.0
+    chassis.cmd_frame: map              # map | base_link
+    chassis.rate_hz: 50.0
+    # --- 赛题一方向项（权重 0.2，误差(度)/180）-------------------------
+    chassis.dir_mode: analytic          # analytic（连续解析）| quantized（旧 13 方向 12.5°）
+    chassis.dir_lookahead_m: 1.0        # 官方规定射线最长 1 m
+    chassis.dir_block_unknown: false    # 评分标准方向按真值地图算 → 未知格不算障碍
+    chassis.dir_use_pred: false         # false=朝目标当前位置，true=朝预测位置
+    chassis.v_floor: 0.30               # 远离目标时 |v| 下限（官方 <0.02 判停车记满分误差）
+    chassis.stop_radius_m: 0.45         # 与官方 0.5 m 判据留 0.05 m 余量
+
+    # ---------------- grid（栅格地图）----------------
+    grid.resolution: 0.05
+    grid.width_m: 12.0
+    grid.height_m: 12.0
+    grid.origin_xyz: [-6.0, -6.0, 0.0]
+    grid.inflation_radius_m: 0.10
+    # 官方要求"参赛队伍自行对比赛场地建图"→ 实机用导航栈 SLAM 的 /map 作为输入，
+    # 由 grid_mapper 重采样成 0.05 m/cell 的 12×12 m 三态栅格并生成膨胀图。
+    # 仿真/离线回放时才切回 config（按 field.yaml 造一张假场地）。
+    grid.map_source: topic              # topic（实机）| config（仿真）
+    grid.map_topic: /map                # map_source=topic 时订阅（导航栈 SLAM 输出）
+    grid.field_yaml: ""                 # 空 = 由 launch 显式注入绝对路径（推荐）；
+                                        # 仅当留空且未经 launch 时，节点才回退到自动定位
+    grid.out_dir: maps                  # 地图产物目录（赛前建图与收尾复写都用它）
+    # 建图是渐进的：必须周期性重发，否则晚启动的 judge_io / chassis_advisor
+    # 只能拿到开赛瞬间那张（可能还是空的）地图。
+    grid.republish_period_s: 2.0
+    grid.write_preview_png: true        # 是否绘制 map_preview.png
+
+    # ---------------- csv（数据落盘）----------------
+    csv.out_dir: outputs
+    csv.run_id: latest
+    csv.rate_hz: 20.0
+    csv.csv_extra_cols: false           # ⚠ 修正 2：默认严格 8 列
+    csv.flush_period_s: 1.0
+    csv.write_after_first_estimate: true
+
+    # ---------------- judge（赛题一输出契约）----------------
+    # 路径：~/ws_championship/output/<队伍编号>.csv 与 <队伍编号>_map.pgm/.yaml
+    judge.team_id: 41
+    judge.output_dir: ~/ws_championship/output
+    judge.emit_t_tick: false            # ⚠ 官方评分要求 8 列 → 默认 false
+                                        # 改 true 才会追加第 9 列 t_tick（用于自检拍号）
+    judge.fresh_run: true               # 启动时把上轮产物归档为 .bak.<时间戳>
+                                        # 改 false 会**追加**到旧文件 → 新旧行混在一起
+                                        # （8 列没有 t_tick 可区分）→ 行数与实际拍数不符
+                                        # → 很可能整份作废，只在手动续跑时关
+    judge.enforce_v_floor: true         # 防止 |v|<0.02 被判停车记满分误差
+    judge.v_floor: 0.30
+    judge.stop_radius_m: 0.45
+    judge.watchdog_period_s: 0.2
+    judge.late_warn_s: 0.05             # 单行写盘耗时告警（作废线 0.15 s）
+    judge.map_save_period_s: 10.0       # 周期保存，防意外中断
+    judge.map_idle_save_s: 0.7          # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
+    judge.map_occupied_thresh: 0.65
+    judge.map_free_thresh: 0.196
+
+    # ---------------- mission（任务窗口）----------------
+    # 赛题一 tick 持续 180 s，评分节点启动后约 3 s 才发第 0 拍，
+    # 最后一拍后 1 s 才复制 CSV 与地图 → 必须活过 184 s。
+    mission.run_duration_s: 210.0
+    mission.shutdown_grace_s: 5.0
+
+    # ---------------- debug（P1，唯一订阅真值的包）----------------
+    # 真值话题名只写在 gimbal_debug 内部常量里（DESIGN §8.7 / T-C8：
+    # `src/` 下除 gimbal_debug 之外不得出现该话题名字面量），故此处不设 gt_topic 键。
+    debug.enable_gt_monitor: false
+    debug.convergence_window_s: 2.0     # 收敛「保持」窗口 = 收敛时间上限
+    debug.convergence_tol_deg: 2.0      # 收敛容差
+    debug.rms_max_deg: 2.0
+    debug.max_deg: 5.0
+    debug.duration_s: 30.0
+    debug.min_samples: 50
+    debug.sample_rate_hz: 100.0         # 采样与 /debug/angle_error_deg 发布频率
+    debug.post_convergence_skip_s: 2.0  # RMS/max 统计跳过收敛段（PRD §6.1）
+    debug.require_swing: false          # true 时摆幅 < 半视场判 invalid（hardware_spec §5）
+    debug.error_topic: /debug/angle_error_deg
+    debug.path_topic: /debug/target_path
+    debug.gimbal_origin_xyz: [0.0, 0.0, 0.0]   # 云台原点在 world 的位置（虚拟云台为原点）
+
+    # ---------------- 配置文件路径（相对于 bringup 包 share 目录）----------------
+    config.virtual_yaml: virtual.yaml
+    config.field_yaml: field.yaml
+    config.maps_dir: maps
+    config.outputs_dir: outputs
+
+    # ---------------- 时钟（DESIGN §8.2 第 4 条）----------------
+    use_sim_time: false

@@ -1,0 +1,29 @@
+# src/gimbal_tracker_bringup/config/virtual.yaml
+# 相机内参与外参的**唯一数据源**（与官方文档同一份，禁止二次手抄）。
+# 用虚拟云台必须走 virtual 外参（camera_xyz/rpy 全 0），否则 2m 处 pitch 有约 1.4° 系统偏差。
+camera:
+  width: 1440
+  height: 1080
+  fx: 1793.4122
+  fy: 1790.13694
+  cx: 694.26575
+  cy: 572.57131
+  distortion: [-0.093761, 0.065474, 0.00207, -0.002596, 0.0] # 5 参数，k1 k2 p1 p2 k3
+extrinsics:
+  source: virtual                             # virtual | default，默认 virtual
+  camera_xyz: [0.0, 0.0, 0.0]
+  camera_rpy: [0.0, 0.0, 0.0]
+  frames:
+    gimbal: gimbal_link
+    camera: camera_link
+    optical: camera_optical_frame
+protocol:
+  head: 0xAA
+  addr_pc2mcu: 0xEE
+  addr_mcu2pc: 0xFF
+  func_omega_cmd: 0x30
+  func_imu: 0x01
+  accel_scale: 0.00718260498046875
+  gyro_scale: 0.00106526443603169529841533860381
+  quat_scale: 32760.0
+  baud: 921600
