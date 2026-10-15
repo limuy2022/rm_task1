@@ -165,7 +165,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     rviz_enabled = _as_bool(LaunchConfiguration('rviz').perform(context), False)
     enable_legacy_csv = _as_bool(
         LaunchConfiguration('enable_legacy_csv').perform(context), False)
-    team_id = str(LaunchConfiguration('team_id').perform(context)).strip() or 'T0'
+    team_id = str(LaunchConfiguration('team_id').perform(context)).strip()
     output_dir = str(LaunchConfiguration('output_dir').perform(context)).strip()
     mount_tf = _as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
     run_duration = _as_float(LaunchConfiguration('run_duration_s').perform(context), 30.0)
@@ -173,7 +173,8 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 
     overrides = _overrides_from_json(LaunchConfiguration('overrides_json').perform(context))
     # 队伍编号 / 输出目录：官方路径 ~/ws_championship/output/<队伍编号>.csv
-    overrides['judge.team_id'] = team_id
+    if team_id:
+        overrides['judge.team_id'] = team_id
     if output_dir:
         overrides['judge.output_dir'] = output_dir
     if not enable_gt:
@@ -276,10 +277,10 @@ def generate_launch_description() -> LaunchDescription:
                               description='是否启动 RViz2'),
         DeclareLaunchArgument('publish_mount_tf', default_value='true',
                               description='是否发布 base_link → gimbal_mount 静态 TF'),
-        DeclareLaunchArgument('team_id', default_value='T0',
+        DeclareLaunchArgument('team_id', default_value='',
                               description='队伍编号（决定 CSV/地图文件名）'),
         DeclareLaunchArgument('output_dir',
-                              default_value='~/ws_championship/output',
+                              default_value='',
                               description='官方输出目录（留空用参数文件里的值）'),
         DeclareLaunchArgument('enable_legacy_csv', default_value='false',
                               description='是否同时起旧 20Hz 8 列写出器（默认关）'),

@@ -181,14 +181,10 @@
 
     # ---------------- judge（赛题一输出契约）----------------
     # 路径：~/ws_championship/output/<队伍编号>.csv 与 <队伍编号>_map.pgm/.yaml
-    judge.team_id: 41
+    judge.team_id: "47"
     judge.output_dir: ~/ws_championship/output
-    judge.emit_t_tick: false            # ⚠ 官方评分要求 8 列 → 默认 false
-                                        # 改 true 才会追加第 9 列 t_tick（用于自检拍号）
-    judge.fresh_run: true               # 启动时把上轮产物归档为 .bak.<时间戳>
-                                        # 改 false 会**追加**到旧文件 → 新旧行混在一起
-                                        # （8 列没有 t_tick 可区分）→ 行数与实际拍数不符
-                                        # → 很可能整份作废，只在手动续跑时关
+    judge.emit_t_tick: true           # 当前环境文档九列；最终规则需主办方确认
+    judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
     judge.enforce_v_floor: true         # 防止 |v|<0.02 被判停车记满分误差
     judge.v_floor: 0.30
     judge.stop_radius_m: 0.45

@@ -1,17 +1,14 @@
 """赛题一 CSV 行写出（tick 驱动，每行立即 flush）。
 
-列序：前 8 列是**评分契约**，第 9 列 ``t_tick`` 仅在需要自证拍号时追加：
-
-- **8 列（默认，官方评分要求）**：``pred_x, pred_y, cur_x, cur_y, base_x, base_y, vx, vy``
-- **9 列**：上面 8 列 + ``t_tick``（该拍 ``/judge/tick`` 的 ``stamp``，``%.6f``）
-  —— 用于自检"有没有丢拍"。官方按**行号**对齐时不需要它。
-  由 ``with_tick=True`` 开启（工程侧开关 `judge.emit_t_tick`）。
+默认九列：pred_x,pred_y,cur_x,cur_y,base_x,base_y,vx,vy,t_tick。
+t_tick 为评分拍时间戳，固定六位小数。八列仅作为显式兼容选项，
+不符合当前环境文档；最终规则以主办方发布链接为准。
 
 其余硬规则（主办方，与权重无关）：
 - 路径：``~/ws_championship/output/<队伍编号>.csv``
 - 每收到一拍写一行，**立即 flush**；只追加，已写过的行**不能回头改**
 - ``t_tick`` 必须是该拍 ``/judge/tick`` 的 ``stamp``（秒），``%.6f`` 固定小数位
-- 迟到（比所属拍晚 >0.15 s 出现）的行作废 → 该拍按缺失计
+- 迟到（比所属拍晚 >0.08 s 出现）的行作废 → 该拍按缺失计
 - 数值列写 ``nan`` 会被读作 NaN → 该拍对应项记**最大误差 1**
 - ``t_tick`` 必须是有限数，否则整行匹配不上拍
 
@@ -75,7 +72,7 @@ def format_row(pred: Sequence[float],
         t_tick: 该拍 tick 的 stamp（秒）。
         with_tick: True 时追加第 9 列 ``t_tick``；False 时只写 8 列数据。
             本函数默认 True 只是为了保持纯函数的中性；
-            **工程默认是 8 列**（`judge.emit_t_tick=false`，官方评分要求）。
+            **工程默认是 9 列**（`judge.emit_t_tick=true`，当前环境文档要求）。
 
     Returns:
         str: 逗号分隔的一行（不含换行符）。非有限数值写成 ``nan``。
@@ -98,7 +95,7 @@ def header_line(with_tick: bool = True) -> str:
 
 
 class TickCsvWriter:
-    """按拍写出 CSV（**工程默认 8 列**；`with_tick=True` 时 9 列）。
+    """按拍写出 CSV（**工程默认 9 列**；`with_tick=True` 时 9 列）。
 
     Attributes:
         path: 主文件路径。
@@ -240,14 +237,14 @@ class TickCsvWriter:
         try:
             self._fh.write(line + '\n')
             self._fh.flush()
-            os.fsync(self._fh.fileno())
         except Exception as exc:
-            # fsync 在部分文件系统不可用：退化为只 flush，绝不能因此丢行
+            # 写入失败时尽力 flush；错误仍记录在日志中。
             try:
                 self._fh.flush()
             except Exception:
                 pass
             self._emit('error', 'CSV 写行异常(已尽力 flush): %r' % (exc,))
+            return False
         self._rows += 1
         return True
 

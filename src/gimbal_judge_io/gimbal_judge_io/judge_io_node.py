@@ -13,9 +13,8 @@
 | `/chassis/advice` | `gimbal_interfaces/ChassisAdvice` | SENSOR（depth 10） |
 | `/map/grid` | `nav_msgs/OccupancyGrid` | TRANSIENT_LOCAL + depth 1 |
 
-每收到一拍 → 立即组行（默认 **8 列**，官方评分要求；`judge.emit_t_tick=true`
-才追加第 9 列 `t_tick`）→ 写盘 →
-**flush**（迟到 >0.15 s 的行作废）。
+每收到一拍 → 立即组行（默认九列，包含 t_tick）→ 写盘 →
+**flush**（迟到 >0.08 s 的行作废）。
 
 产物：
 
@@ -75,11 +74,11 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     # --- 身份与路径 ---------------------------------------------------------
     'judge.team_id': 'T0',
     'judge.output_dir': '~/ws_championship/output',
-    # ⚠ 官方评分要求 8 列 → 默认 false；true 才追加第 9 列 t_tick（自检用）
-    'judge.emit_t_tick': False,
+    # 当前环境文档要求九列；最终赛制以主办方发布链接为准。
+    'judge.emit_t_tick': True,
     # 启动时把上一轮的同名产物改名归档（.bak.<时间戳>），本次从空文件开始写。
     # 关闭后会**追加**到旧文件 → 新旧行混在一起 → 行数与实际拍数不符 → 很可能作废。
-    'judge.fresh_run': True,
+    'judge.fresh_run': False,
     # --- 运行时 -------------------------------------------------------------
     'judge.enforce_v_floor': True,     # 防止 |v|<0.02 被判"停车"记满分误差
     'judge.v_floor': 0.30,             # 距离目标较远时的建议速度大小（m/s）
@@ -281,7 +280,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                                      t_tick)
         dt = time.monotonic() - t0
         if dt > float(self._params['judge.late_warn_s']):
-            self._log.warning('第 %d 拍写盘耗时 %.1f ms（>%.0f ms，逼近 150 ms 作废线）'
+            self._log.warning('第 %d 拍写盘耗时 %.1f ms（>%.0f ms，逼近 80 ms 作废线）'
                               % (idx, dt * 1e3,
                                  float(self._params['judge.late_warn_s']) * 1e3))
         if not ok:

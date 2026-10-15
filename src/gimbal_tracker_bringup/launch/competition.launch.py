@@ -244,6 +244,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     over['mission.shutdown_grace_s'] = float(shutdown_grace)
 
     # ---- 按需覆盖（留空 = 沿用 tracker_params.yaml）
+    _put_if_set(over, 'judge.team_id', LaunchConfiguration('team_id').perform(context))
     _put_if_set(over, 'serial.port',
                 LaunchConfiguration('serial_port').perform(context))
     _put_if_set(over, 'localization.base_pose_source',
@@ -325,6 +326,7 @@ def generate_launch_description() -> LaunchDescription:
                               description='场地边界与障碍；显式注入 grid.field_yaml（空 = 用 config.field_yaml）'),
         DeclareLaunchArgument('maps_dir', default_value='',
                               description='地图输出目录（空 = 用参数文件 config.maps_dir / grid.out_dir）'),
+        DeclareLaunchArgument('team_id', default_value='', description='队号；空则沿用参数文件'),
         DeclareLaunchArgument('serial_port', default_value='',
                               description='串口路径（空 = 用参数值；正式赛填 /dev/gimbal）'),
         DeclareLaunchArgument('base_pose_source', default_value='',

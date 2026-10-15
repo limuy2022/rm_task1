@@ -95,3 +95,22 @@ def test_guard_uses_last_valid(tmp_path):
     assert r2[0] == 1.0 and r2[1] == 1.0      # pred 用了上一次有效值
     assert r2[2] == 3.0                        # cur 用本次
     assert w.n_guarded == 1
+
+
+def test_write_failure_not_counted_as_success():
+    """磁盘写入或flush失败时，外层必须收到失败，不能增加成功行数。"""
+    class BrokenFile:
+        def __init__(self, fail_at):
+            self.fail_at = fail_at
+        def write(self, text):
+            if self.fail_at == 'write':
+                raise OSError('simulated write failure')
+            return len(text)
+        def flush(self):
+            if self.fail_at == 'flush':
+                raise OSError('simulated flush failure')
+    for fail_at in ('write', 'flush'):
+        writer = TickCsvWriter('unused.csv')
+        writer._fh = BrokenFile(fail_at)
+        assert writer.write_tick((1,2), (3,4), (5,6), (.3,.4), 100.) is False
+        assert writer.rows == 0
