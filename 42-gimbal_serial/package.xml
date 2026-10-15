@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>gimbal_serial_42</name>
+  <version>1.0.0</version>
+  <description>
+    Serial bridge for the teaching gimbal kit (OffboardLink 0x01 IMU in, optional 0x30 rate command out).
+    Publishes the configurable imu_topic (default /red_standard_robot1/gimbal, sensor_msgs/Imu) and TF world to gimbal_link. Protocol: protocol/PROTOCOL.md v1.4.
+    The optional Hikvision camera driver is NOT included in this copy; WITH_HIK_CAMERA defaults to OFF.
+  </description>
+  <maintainer email="nowiused@outlook.com">gimbal-edu</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_msgs</depend>
+  <depend>rclcpp_components</depend>
+  <depend>image_transport</depend>
+  <depend>camera_info_manager</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,559 @@
+# golden_frames.txt  PROTOCOL.md v1.4  2026-09-30
+# 由 protocol/gen_golden.py 确定性生成，请勿手改。
+#
+# 格式：文本，UTF-8，LF 换行。以 '#' 开头的行是注释；空行忽略。
+# 每个用例是一个块，字段一行一个，写作 "key: value"，以单独一行 "end" 结束。
+# 字段固定顺序：case dir func expect reason group hex decoded state note
+#   case    用例名（[a-z0-9_]+）
+#   dir     pc2mcu（addr=0xEE，0x30 指令）或 mcu2pc（addr=0xFF，0x01 IMU）
+#   func    帧里的功能号，十六进制
+#   expect  accept 或 reject。reject 表示接收方必须丢弃，不产生任何输出
+#   reason  reject 的原因说明（bad_checksum bad_len non_finite bad_quat bad_head bad_addr unknown_func），
+#           只作说明；测试只比较 accept/reject。accept 时为 '-'
+#   group   成组用例的组名，无则 '-'。同一组内的用例按文件顺序相邻出现
+#   hex     整帧字节，大写十六进制，空格分隔，含 AA 头和两个校验字节
+#   decoded accept 时为空格分隔的 key=value；reject 时为 '-'
+#           0x30: yaw_omega pitch_omega                       （rad/s，float32 精确值）
+#           0x01: seq stamp_us ax_raw..qz_raw（整数）与 ax ay az（m/s^2）gx gy gz（rad/s）qw qx qy qz
+#           浮点按 %.9g 打印。比较容差：绝对 1e-6（整数字段必须完全相等）
+#   state   物理用例的关节状态 "psi=.. theta=.. psid=.. thetad=.."（rad、rad/s，%.9g），无则 '-'。
+#           虚拟云台按同一物理模型由 state 生成的帧，每个 raw 与 hex 相差不超过 1 LSB。
+#           psi=yaw，theta=pitch（低头为正），psid、thetad 是各自的关节角速度。physical_* 组必须带 state
+#   note    英文说明
+# 组与检查（细节见 PROTOCOL.md 第 9 节）：
+#   static              accel 约等于 R(q)^T(0,0,+g)
+#   physical_yaw_pos    2 帧：gz>0，q 的 yaw 增大，且 dyaw = gz/cos(pitch)*dt
+#   physical_pitch_pos  2 帧：gy>0，q 的 pitch 增大，且 dpitch = gy*dt
+#   wrap_pair           2 帧：seq 65535->0，stamp_us 回绕；dseq=1，dt_us=2000（无符号减法）
+#   reset_pair          2 帧都是 accept：seq 5000->0，stamp_us 60000000->2000000（倒退）。
+#                       接收方判定 MCU 已复位：重设 prev_seq/prev_stamp、重置滤波器，不计丢帧，不求 dt
+# 流式测试：同一 dir 的全部块按文件顺序拼接，前面加垃圾字节 55 00 AA 12 99，逐字节喂给解析器，
+#   输出（状态机加应用层解码之后的帧）必须恰好是该 dir 中 expect=accept 的帧，顺序相同。
+
+case: cmd_zero
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 00 00 00 00 00 00 D0 5A
+decoded: yaw_omega=0 pitch_omega=0
+state: -
+note: both zero; also the stop command
+end
+
+case: cmd_yaw_pos
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 C0 3F 00 00 00 00 CF 15
+decoded: yaw_omega=1.5 pitch_omega=0
+state: -
+note: yaw only, positive
+end
+
+case: cmd_pitch_neg
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 00 00 00 00 00 BF 8F 19
+decoded: yaw_omega=0 pitch_omega=-0.5
+state: -
+note: pitch only, negative
+end
+
+case: cmd_both_pos
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 40 3F 00 00 80 3E 0D 53
+decoded: yaw_omega=0.75 pitch_omega=0.25
+state: -
+note: -
+end
+
+case: cmd_both_neg
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 10 C0 00 00 80 BF DF 39
+decoded: yaw_omega=-2.25 pitch_omega=-1
+state: -
+note: -
+end
+
+case: cmd_mixed
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 40 40 00 00 00 BE 0E D8
+decoded: yaw_omega=3 pitch_omega=-0.125
+state: -
+note: -
+end
+
+case: cmd_decimal
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 CD CC CC 3D 9A 99 99 BE FC 72
+decoded: yaw_omega=0.100000001 pitch_omega=-0.300000012
+state: -
+note: values not exact in binary; compare as float32
+end
+
+case: cmd_large_frame_ok
+dir: pc2mcu
+func: 0x30
+expect: accept
+reason: -
+group: -
+hex: AA EE 30 08 00 00 C8 42 00 00 C8 C2 64 A6
+decoded: yaw_omega=100 pitch_omega=-100
+state: -
+note: valid at frame layer; the application must clamp to omega_max, not reject
+end
+
+case: imu_static_level
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: static
+hex: AA FF 01 1A 00 00 40 42 0F 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 26 B5
+decoded: seq=0 stamp_us=1000000 ax_raw=0 ay_raw=0 az_raw=1365 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0 ay=0 az=9.8042558 gx=0 gy=0 gz=0 qw=1 qx=0 qy=0 qz=0
+state: psi=0 theta=0 psid=0 thetad=0
+note: rest and level: accel~(0,0,+g), q=identity, gyro=0
+end
+
+case: imu_static_tilt_pitch
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: static
+hex: AA FF 01 1A 01 00 10 4A 0F 00 F1 FE 00 00 3A 05 00 00 00 00 00 00 54 7F 00 00 C7 0C 00 00 02 25
+decoded: seq=1 stamp_us=1002000 ax_raw=-271 ay_raw=0 az_raw=1338 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32596 qx_raw=0 qy_raw=3271 qz_raw=0 ax=-1.94648595 ay=0 az=9.61032546 gx=0 gy=0 gz=0 qw=0.994993895 qx=0 qy=0.0998473748 qz=0
+state: psi=0 theta=0.2 psid=0 thetad=0
+note: rest, pitch=0.2 rad (nose down): accel~(-g*sin,0,g*cos), qy>0
+end
+
+case: imu_static_noisy
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: static
+hex: AA FF 01 1A 02 00 E0 51 0F 00 02 00 00 00 58 05 FE FF FF FF FF FF F8 7F 00 00 00 00 00 00 D5 47
+decoded: seq=2 stamp_us=1004000 ax_raw=2 ay_raw=0 az_raw=1368 gx_raw=-2 gy_raw=-1 gz_raw=-1 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0.01436521 ay=0 az=9.82580361 gx=-0.00213052887 gy=-0.00106526444 gz=-0.00106526444 qw=1 qx=0 qy=0 qz=0
+state: -
+note: level with small deterministic noise and gyro bias, q=identity
+end
+
+case: phys_yaw_pos_a
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: physical_yaw_pos
+hex: AA FF 01 1A 64 00 80 84 1E 00 F1 FE 00 00 3A 05 D1 FD 00 00 C8 0A E6 7D 17 FE A2 0C 07 13 58 33
+decoded: seq=100 stamp_us=2000000 ax_raw=-271 ay_raw=0 az_raw=1338 gx_raw=-559 gy_raw=0 gz_raw=2760 qw_raw=32230 qx_raw=-489 qy_raw=3234 qz_raw=4871 ax=-1.94648595 ay=0 az=9.61032546 gx=-0.59548282 gy=0 gz=2.94012984 qw=0.983821734 qx=-0.0149267399 qy=0.0987179487 qz=0.148687424
+state: psi=0.3 theta=0.2 psid=3 thetad=0
+note: frame 1 of 2: yaw rate +3.0 rad/s about world z, pitch fixed 0.2
+end
+
+case: phys_yaw_pos_b
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: physical_yaw_pos
+hex: AA FF 01 1A 65 00 50 8C 1E 00 F1 FE 00 00 3A 05 D1 FD 00 00 C8 0A D8 7D 0E FE A0 0C 68 13 79 99
+decoded: seq=101 stamp_us=2002000 ax_raw=-271 ay_raw=0 az_raw=1338 gx_raw=-559 gy_raw=0 gz_raw=2760 qw_raw=32216 qx_raw=-498 qy_raw=3232 qz_raw=4968 ax=-1.94648595 ay=0 az=9.61032546 gx=-0.59548282 gy=0 gz=2.94012984 qw=0.983394383 qx=-0.0152014652 qy=0.0986568987 qz=0.151648352
+state: psi=0.306 theta=0.2 psid=3 thetad=0
+note: frame 2 of 2: gz>0 and yaw(q) larger than frame 1
+end
+
+case: phys_pitch_pos_a
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: physical_pitch_pos
+hex: AA FF 01 1A C8 00 C0 C6 2D 00 78 FF 00 00 4F 05 00 00 55 07 00 00 D6 7B 6B FE 32 06 9F 1F 16 2E
+decoded: seq=200 stamp_us=3000000 ax_raw=-136 ay_raw=0 az_raw=1359 gx_raw=0 gy_raw=1877 gz_raw=0 qw_raw=31702 qx_raw=-405 qy_raw=1586 qz_raw=8095 ax=-0.976834277 ay=0 az=9.76116017 gx=0 gy=1.99950135 gz=0 qw=0.967704518 qx=-0.0123626374 qy=0.0484126984 qz=0.247100122
+state: psi=0.5 theta=0.1 psid=0 thetad=2
+note: frame 1 of 2: pitch rate +2.0 rad/s about +y (nose down)
+end
+
+case: phys_pitch_pos_b
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: physical_pitch_pos
+hex: AA FF 01 1A C9 00 90 CE 2D 00 72 FF 00 00 4E 05 00 00 55 07 00 00 D3 7B 5B FE 72 06 9E 1F 14 7E
+decoded: seq=201 stamp_us=3002000 ax_raw=-142 ay_raw=0 az_raw=1358 gx_raw=0 gy_raw=1877 gz_raw=0 qw_raw=31699 qx_raw=-421 qy_raw=1650 qz_raw=8094 ax=-1.01992991 ay=0 az=9.75397756 gx=0 gy=1.99950135 gz=0 qw=0.967612943 qx=-0.0128510379 qy=0.0503663004 qz=0.247069597
+state: psi=0.5 theta=0.104 psid=0 thetad=2
+note: frame 2 of 2: gy>0 and pitch(q) larger than frame 1
+end
+
+case: imu_wrap_a
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: wrap_pair
+hex: AA FF 01 1A FF FF F0 FA FF FF 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 7B 15
+decoded: seq=65535 stamp_us=4294966000 ax_raw=0 ay_raw=0 az_raw=1365 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0 ay=0 az=9.8042558 gx=0 gy=0 gz=0 qw=1 qx=0 qy=0 qz=0
+state: -
+note: seq=65535, stamp_us=4294966000 (about 1296 us before the u32 wrap)
+end
+
+case: imu_wrap_b
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: wrap_pair
+hex: AA FF 01 1A 00 00 C0 02 00 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 57 AB
+decoded: seq=0 stamp_us=704 ax_raw=0 ay_raw=0 az_raw=1365 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0 ay=0 az=9.8042558 gx=0 gy=0 gz=0 qw=1 qx=0 qy=0 qz=0
+state: -
+note: seq=0, stamp_us=704 : dt_us=(704-4294966000) mod 2^32=2000, dseq=1
+end
+
+case: imu_reset_a
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: reset_pair
+hex: AA FF 01 1A 88 13 00 87 93 03 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 4D 2A
+decoded: seq=5000 stamp_us=60000000 ax_raw=0 ay_raw=0 az_raw=1365 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0 ay=0 az=9.8042558 gx=0 gy=0 gz=0 qw=1 qx=0 qy=0 qz=0
+state: psi=0 theta=0 psid=0 thetad=0
+note: before MCU reset: seq=5000, stamp_us=60000000 (60 s uptime)
+end
+
+case: imu_reset_b
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: reset_pair
+hex: AA FF 01 1A 00 00 80 84 1E 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 B7 ED
+decoded: seq=0 stamp_us=2000000 ax_raw=0 ay_raw=0 az_raw=1365 gx_raw=0 gy_raw=0 gz_raw=0 qw_raw=32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=0 ay=0 az=9.8042558 gx=0 gy=0 gz=0 qw=1 qx=0 qy=0 qz=0
+state: psi=0 theta=0 psid=0 thetad=0
+note: after MCU reset: seq=0, stamp_us=2000000 (backwards): reset, not lost frames, no dt
+end
+
+case: imu_extreme_raw
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: extreme
+hex: AA FF 01 1A 01 80 01 00 00 80 00 80 FF 7F FF FF FF 7F 00 80 FF 00 08 80 00 00 00 00 00 00 47 34
+decoded: seq=32769 stamp_us=2147483649 ax_raw=-32768 ay_raw=32767 az_raw=-1 gx_raw=32767 gy_raw=-32768 gz_raw=255 qw_raw=-32760 qx_raw=0 qy_raw=0 qz_raw=0 ax=-235.3596 ay=235.352417 az=-0.00718260498 gx=34.9055198 gy=-34.906585 gz=0.271642431 qw=-1 qx=0 qy=0 qz=0
+state: -
+note: seq>=0x8000, stamp_us>=0x80000000, int16 extremes, q=(-1,0,0,0)
+end
+
+case: imu_negative_mix
+dir: mcu2pc
+func: 0x01
+expect: accept
+reason: -
+group: extreme
+hex: AA FF 01 1A 2C 01 40 4B 4C 00 18 FC D0 07 48 F4 9C FF C8 00 D4 FE 36 78 BA 0B 74 17 2F 23 74 28
+decoded: seq=300 stamp_us=5000000 ax_raw=-1000 ay_raw=2000 az_raw=-3000 gx_raw=-100 gy_raw=200 gz_raw=-300 qw_raw=30774 qx_raw=3002 qy_raw=6004 qz_raw=9007 ax=-7.18260498 ay=14.36521 az=-21.5478149 gx=-0.106526444 gy=0.213052887 gz=-0.319579331 qw=0.939377289 qx=0.0916361416 qy=0.183272283 qz=0.27493895
+state: -
+note: mixed signs; accel and q are not mutually consistent, frame-layer test only
+end
+
+case: rej_cmd_bad_sum
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA EE 30 08 00 00 40 40 00 00 00 BE 0F D8
+decoded: -
+state: -
+note: sum byte flipped
+end
+
+case: rej_cmd_bad_sum_sum
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA EE 30 08 00 00 40 40 00 00 00 BE 0E D9
+decoded: -
+state: -
+note: sum_sum byte flipped
+end
+
+case: rej_cmd_data_bit_flip
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA EE 30 08 00 00 50 40 00 00 00 BE 0E D8
+decoded: -
+state: -
+note: one data bit flipped, checksum unchanged
+end
+
+case: rej_cmd_len4
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_len
+group: -
+hex: AA EE 30 04 00 00 80 3F 8B 45
+decoded: -
+state: -
+note: len=4 with a valid checksum
+end
+
+case: rej_cmd_len12
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_len
+group: -
+hex: AA EE 30 0C 00 00 80 3F 00 00 00 40 00 00 40 40 53 05
+decoded: -
+state: -
+note: len=12 with a valid checksum
+end
+
+case: rej_cmd_len0
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_len
+group: -
+hex: AA EE 30 00 C8 D2
+decoded: -
+state: -
+note: len=0 with a valid checksum
+end
+
+case: rej_cmd_len55_over60
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_len
+group: -
+hex: AA EE 30 37 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 17 11 12 13 14 15 16 48 42
+decoded: -
+state: -
+note: len=55 -> frame 61 bytes, over the 60 byte limit
+end
+
+case: rej_cmd_nan_yaw
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: non_finite
+group: -
+hex: AA EE 30 08 00 00 C0 7F 00 00 00 3F 4E 94
+decoded: -
+state: -
+note: yaw=quiet NaN, pitch=0.5, valid checksum
+end
+
+case: rej_cmd_snan_pitch
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: non_finite
+group: -
+hex: AA EE 30 08 00 00 00 3F 00 00 A0 7F 2E 54
+decoded: -
+state: -
+note: pitch=signaling NaN
+end
+
+case: rej_cmd_posinf_pitch
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: non_finite
+group: -
+hex: AA EE 30 08 00 00 00 00 00 00 80 7F CF D9
+decoded: -
+state: -
+note: pitch=+inf
+end
+
+case: rej_cmd_neginf_yaw
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: non_finite
+group: -
+hex: AA EE 30 08 00 00 80 FF 00 00 00 00 4F 55
+decoded: -
+state: -
+note: yaw=-inf
+end
+
+case: rej_cmd_bad_head
+dir: pc2mcu
+func: 0x30
+expect: reject
+reason: bad_head
+group: -
+hex: AB EE 30 08 00 00 80 3F 00 00 80 3F 4F E0
+decoded: -
+state: -
+note: first byte 0xAB instead of 0xAA, valid checksum
+end
+
+case: rej_cmd_unknown_func
+dir: pc2mcu
+func: 0x31
+expect: reject
+reason: unknown_func
+group: -
+hex: AA EE 31 08 00 00 80 3F 00 00 80 3F 4F DE
+decoded: -
+state: -
+note: func=0x31 is not defined by this kit
+end
+
+case: rej_imu_addr_ee
+dir: pc2mcu
+func: 0x01
+expect: reject
+reason: bad_addr
+group: -
+hex: AA EE 01 1A 01 00 01 00 00 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 86 C2
+decoded: -
+state: -
+note: 0x01 sent with addr 0xEE
+end
+
+case: rej_imu_bad_sum
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA FF 01 1A 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 8F B3
+decoded: -
+state: -
+note: sum byte flipped
+end
+
+case: rej_imu_bad_sum_sum
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA FF 01 1A 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 8E B2
+decoded: -
+state: -
+note: sum_sum byte flipped
+end
+
+case: rej_imu_data_bit_flip
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_checksum
+group: -
+hex: AA FF 01 1A 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 40 00 F8 7F 00 00 00 00 00 00 8E B3
+decoded: -
+state: -
+note: one data bit flipped, checksum unchanged
+end
+
+case: rej_imu_len24
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_len
+group: -
+hex: AA FF 01 18 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 8C 65
+decoded: -
+state: -
+note: len=24 (short) with a valid checksum
+end
+
+case: rej_imu_len28
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_len
+group: -
+hex: AA FF 01 1C 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 01 02 93 0D
+decoded: -
+state: -
+note: len=28 (long) with a valid checksum
+end
+
+case: rej_imu_bad_head
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_head
+group: -
+hex: AB FF 01 1A 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 8F D1
+decoded: -
+state: -
+note: first byte 0xAB, valid checksum
+end
+
+case: rej_imu_unknown_func
+dir: mcu2pc
+func: 0x31
+expect: reject
+reason: unknown_func
+group: -
+hex: AA FF 31 1A 90 01 80 8D 5B 00 00 00 00 00 55 05 00 00 00 00 00 00 F8 7F 00 00 00 00 00 00 BE F3
+decoded: -
+state: -
+note: func=0x31 is not defined by this kit
+end
+
+case: rej_cmd_addr_ff
+dir: mcu2pc
+func: 0x30
+expect: reject
+reason: bad_addr
+group: -
+hex: AA FF 30 08 00 00 80 3F 00 00 80 3F 5F 8F
+decoded: -
+state: -
+note: 0x30 sent with addr 0xFF
+end
+
+case: rej_imu_q_zero
+dir: mcu2pc
+func: 0x01
+expect: reject
+reason: bad_quat
+group: -
+hex: AA FF 01 1A F4 01 C0 CF 6A 00 00 00 00 00 55 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0C DA
+decoded: -
+state: -
+note: valid checksum and len, q=(0,0,0,0): frame layer accepts, application must drop (|q|<0.5)
+end

@@ -1,0 +1,3 @@
+[submodule "gimbal-edu-tools"]
+	path = gimbal-edu-tools
+	url = https://git.secaumene.com/secaumene/gimbal-edu-tools.git

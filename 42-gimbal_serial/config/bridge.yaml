@@ -1,0 +1,31 @@
+# gimbal_serial 参数。契约见 protocol/PROTOCOL.md 第 2、7、8 节。
+/**:
+  ros__parameters:
+    # 串口设备。
+    #   auto（默认）：环境变量 RM_SIM_SERIAL 非空则用它（虚拟云台的兼容做法），
+    #                 否则 /dev/gimbal（setup/99-gimbal.rules），否则第一个 /dev/ttyUSB*、/dev/ttyACM*。
+    #   写成具体路径：原样使用，此时 RM_SIM_SERIAL 被忽略（日志里会提醒）。
+    # 虚拟云台是 /tmp/ttyVGIMBAL。
+    port: auto
+    baudrate: 921600          # 8N1，无流控（第 2 节）
+
+    # IMU 发布话题。赛题一要求云台 IMU 发布在 /red_standard_robot1/gimbal。
+    imu_topic: /red_standard_robot1/gimbal
+
+    # 只作用于 accel 和 gyro，不作用于 q。本套件固定为 [1, 1, 1]（第 7 节）。
+    imu_axis_sign: [1, 1, 1]
+
+    # 是否发布 TF world -> gimbal_link（父 world，平移 0）。TF 只能由 IMU 一方发布（第 7 节）：
+    # 课 5 由学员节点直接读串口并自己发布，那两节课不启动 bridge。
+    publish_tf: true
+
+    # 可选：订阅 Twist，把 angular.z（yaw）、angular.y（pitch）当作关节角速度转发成 0x30。
+    # 每收到一条新消息发一帧，不做保活；持续跟踪要自己持续发布话题。
+    subscribe_cmd_vel: false
+    cmd_vel_topic: /offboardlink/cmd_vel_gimbal
+    # PC 侧发送前乘的符号（第 8 节），默认 +1，只在相机安装或控制律约定不同时才改。
+    yaw_sign: 1
+    pitch_sign: 1
+
+    # 超过这么多秒没有收到第一帧 0x01 时提示一次（只提示，不退出）。必须明显大于固件上电标定时间 N。
+    imu_wait_warn_s: 15.0
