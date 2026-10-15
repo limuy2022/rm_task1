@@ -1,0 +1,257 @@
+#include "gimbal_serial/bridge_node.hpp"
+
+#include <glob.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <stdexcept>
+#include <vector>
+
+#include "gimbal_serial/imu_convert.hpp"
+
+using namespace std::chrono_literals;
+
+namespace gimbal_serial
+{
+namespace
+{
+
+// 在 /dev 下按名字排序枚举 ttyUSB*、ttyACM*。
+std::vector<std::string> scanSerialCandidates()
+{
+  std::vector<std::string> out;
+  for (const char * pattern : {"/dev/ttyUSB*", "/dev/ttyACM*"}) {
+    glob_t g{};
+    if (glob(pattern, 0, nullptr, &g) == 0) {
+      for (std::size_t i = 0; i < g.gl_pathc; ++i) {out.emplace_back(g.gl_pathv[i]);}
+    }
+    globfree(&g);
+  }
+  return out;
+}
+
+rcl_interfaces::msg::ParameterDescriptor dynamicDescriptor(const std::string & text)
+{
+  rcl_interfaces::msg::ParameterDescriptor d;
+  d.description = text;
+  d.dynamic_typing = true;  // yaml 里写 1 还是 1.0 都接受
+  return d;
+}
+
+}  // namespace
+
+BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("robo_bridge", options)
+{
+  const std::string port_param = declare_parameter<std::string>("port", "auto");
+  const int baud = static_cast<int>(declare_parameter<int>("baudrate", 921600));
+  publish_tf_ = declare_parameter<bool>("publish_tf", true);
+  const bool sub_cmd = declare_parameter<bool>("subscribe_cmd_vel", false);
+  imu_topic_ = declare_parameter<std::string>("imu_topic", "/red_standard_robot1/gimbal");
+  const std::string cmd_topic =
+    declare_parameter<std::string>("cmd_vel_topic", "/offboardlink/cmd_vel_gimbal");
+  imu_wait_warn_s_ = declare_parameter<double>("imu_wait_warn_s", 15.0);
+
+  axis_sign_ = readAxisSign();
+  yaw_sign_ = readSign("yaw_sign");
+  pitch_sign_ = readSign("pitch_sign");
+
+  // 串口：显式参数 > RM_SIM_SERIAL > /dev/gimbal > 枚举。
+  const char * env = std::getenv("RM_SIM_SERIAL");
+  const std::string env_port = env ? env : "";
+  const PortChoice choice = selectPort(
+    port_param, env_port, access("/dev/gimbal", F_OK) == 0, scanSerialCandidates());
+  if (choice.path.empty()) {
+    throw std::runtime_error(
+            "未找到串口：port 参数为 auto，RM_SIM_SERIAL 未设置，/dev/gimbal 不存在，"
+            "也没有 /dev/ttyUSB*、/dev/ttyACM*");
+  }
+  if (choice.source == "param" && !env_port.empty()) {
+    RCLCPP_WARN(
+      get_logger(), "port 参数显式设为 %s，环境变量 RM_SIM_SERIAL=%s 被忽略（port 设为 auto 才会使用它）",
+      choice.path.c_str(), env_port.c_str());
+  }
+  std::string err;
+  if (!serial_.open(choice.path, baud, err)) {
+    throw SerialOpenError(
+            "打开串口失败：" + err, SerialPort::isDeviceAbsentErrno(serial_.lastErrno()));
+  }
+  RCLCPP_INFO(
+    get_logger(), "串口 %s（来源 %s），%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
+    choice.path.c_str(), choice.source.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+
+  imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(
+    imu_topic_, rclcpp::QoS(rclcpp::KeepLast(200)).reliable().durability_volatile());
+  if (publish_tf_) {tf_br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);}
+  RCLCPP_INFO(
+    get_logger(), "IMU 将发布到 %s（QoS reliable, keep_last 200），TF world -> gimbal_link%s",
+    imu_topic_.c_str(), publish_tf_ ? "" : "（publish_tf=false，不发布）");
+
+  if (sub_cmd) {
+    // 与 best_effort、reliable 两类发布者都能匹配。
+    cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      cmd_topic, rclcpp::QoS(rclcpp::KeepLast(10)).best_effort(),
+      std::bind(&BridgeNode::onCmdVel, this, std::placeholders::_1));
+    RCLCPP_INFO(
+      get_logger(),
+      "订阅 %s：angular.z -> yaw_omega，angular.y -> pitch_omega（关节角速度，rad/s），"
+      "每条消息转发一帧 0x30，不做保活。yaw_sign=%g pitch_sign=%g",
+      cmd_topic.c_str(), yaw_sign_, pitch_sign_);
+  }
+
+  start_ = std::chrono::steady_clock::now();
+  diag_timer_ = create_wall_timer(1s, std::bind(&BridgeNode::onDiagTimer, this));
+  RCLCPP_INFO(
+    get_logger(),
+    "等待 IMU。固件上电后要等到温和标定完成才发第一帧 0x01（约 N 秒，见 PROTOCOL.md 5.2 节）。");
+
+  running_ = true;
+  reader_ = std::thread(&BridgeNode::readLoop, this);
+}
+
+BridgeNode::~BridgeNode()
+{
+  running_ = false;
+  if (reader_.joinable()) {reader_.join();}
+  if (cmd_sub_ && serial_.isOpen()) {
+    // 第 3.5 节：退出时补几帧零指令。固件即使一帧都没收到，也会在 500 ms 后减速。
+    const auto zero = proto::encodeCmd(0.0f, 0.0f);
+    for (int i = 0; i < 3; ++i) {serial_.writeAll(zero.data(), zero.size());}
+  }
+  serial_.close();
+}
+
+proto::AxisSign BridgeNode::readAxisSign()
+{
+  declare_parameter(
+    "imu_axis_sign", rclcpp::ParameterValue(std::vector<int64_t>{1, 1, 1}),
+    dynamicDescriptor("只作用于 accel 和 gyro，不作用于 q；本套件固定为 (1, 1, 1)"));
+  const rclcpp::Parameter p = get_parameter("imu_axis_sign");
+  std::vector<double> v;
+  if (p.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER_ARRAY) {
+    for (auto x : p.as_integer_array()) {v.push_back(static_cast<double>(x));}
+  } else if (p.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY) {
+    v = p.as_double_array();
+  } else {
+    throw std::runtime_error("imu_axis_sign 必须是长度为 3 的数组，元素为 1 或 -1");
+  }
+  if (v.size() != 3) {throw std::runtime_error("imu_axis_sign 必须恰好有 3 个元素");}
+  for (double x : v) {
+    if (x != 1.0 && x != -1.0) {throw std::runtime_error("imu_axis_sign 的元素必须是 1 或 -1");}
+  }
+  return {{v[0], v[1], v[2]}};
+}
+
+double BridgeNode::readSign(const std::string & name)
+{
+  declare_parameter(
+    name, rclcpp::ParameterValue(1),
+    dynamicDescriptor("PC 侧发送前乘的符号（第 8 节），只对 cmd_vel_gimbal 转发生效，1 或 -1"));
+  const rclcpp::Parameter p = get_parameter(name);
+  double v = 0.0;
+  if (p.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+    v = static_cast<double>(p.as_int());
+  } else if (p.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+    v = p.as_double();
+  }
+  if (v != 1.0 && v != -1.0) {throw std::runtime_error(name + " 必须是 1 或 -1");}
+  return v;
+}
+
+void BridgeNode::readLoop()
+{
+  std::uint8_t buf[4096];
+  while (running_ && rclcpp::ok()) {
+    const ssize_t n = serial_.readSome(buf, sizeof buf, 100);
+    if (n < 0) {
+      RCLCPP_ERROR(get_logger(), "串口读取失败（设备被拔出或对端关闭），bridge 退出");
+      rclcpp::shutdown();
+      return;
+    }
+    for (ssize_t i = 0; i < n; ++i) {
+      parser_.feed(buf[i], [this](const std::uint8_t * f, std::size_t len) {onFrame(f, len);});
+    }
+    if (n > 0) {
+      n_bad_checksum_ = parser_.stats().bad_checksum;
+      n_bad_app_ = parser_.stats().bad_app;
+    }
+  }
+}
+
+void BridgeNode::onFrame(const std::uint8_t * frame, std::size_t /*n*/)
+{
+  // 第 7 节：帧通过校验之后立刻取主机接收时刻，Imu 与 TF 用同一个值，不加偏移。
+  const builtin_interfaces::msg::Time stamp = now();
+
+  proto::ImuSample s;
+  if (!proto::decodeImu(frame, s)) {return;}  // 解析器已检查过，这里只是防御
+
+  const proto::ImuStep step = tracker_.update(s.seq, s.stamp_us);
+  if (step.first) {
+    RCLCPP_INFO(get_logger(), "收到第一帧 0x01：IMU 已就绪，开始发布 %s 和 TF", imu_topic_.c_str());
+  } else if (step.reset) {
+    // 第 6.3 节：重设 prev，重置滤波器（bridge 自身没有滤波器，下游用 header.stamp 差的节点
+    // 需要自己处理），这一帧不计丢帧、不求 dt，但照常发布。
+    ++n_resets_;
+    RCLCPP_WARN(get_logger(), "检测到 MCU 复位（seq=%u stamp_us=%u），此帧不计丢帧", s.seq, s.stamp_us);
+  } else {
+    if (step.dropped > 0) {n_dropped_ += step.dropped;}
+    if (step.gap) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000, "IMU 断流 %.1f ms（dt > 100 ms）", step.dt_us / 1000.0);
+    }
+  }
+  ++n_imu_;
+
+  imu_pub_->publish(makeImuMsg(s, axis_sign_, stamp));
+  if (tf_br_) {tf_br_->sendTransform(makeTf(s, stamp));}
+}
+
+void BridgeNode::onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
+{
+  const double y = yaw_sign_ * msg->angular.z;
+  const double p = pitch_sign_ * msg->angular.y;
+  if (!std::isfinite(y) || !std::isfinite(p)) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "cmd_vel_gimbal 含非有限值，已丢弃");
+    return;
+  }
+  const auto f = proto::encodeCmd(static_cast<float>(y), static_cast<float>(p));
+  if (!std::isfinite(proto::readF32(&f[4])) || !std::isfinite(proto::readF32(&f[8]))) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "cmd_vel_gimbal 超出 float 范围，已丢弃");
+    return;
+  }
+  if (!serial_.writeAll(f.data(), f.size())) {
+    RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "串口写入失败");
+  }
+}
+
+void BridgeNode::onDiagTimer()
+{
+  const std::uint64_t cur[4] = {
+    n_bad_checksum_.load(), n_bad_app_.load(), n_resets_.load(), n_dropped_.load()};
+  bool changed = false;
+  for (int i = 0; i < 4; ++i) {changed = changed || cur[i] != last_reported_[i];}
+  if (changed) {
+    RCLCPP_WARN(
+      get_logger(), "累计：校验错 %lu，应用层丢弃（NaN/inf/q 范数）%lu，MCU 复位 %lu，丢帧 %lu",
+      static_cast<unsigned long>(cur[0]), static_cast<unsigned long>(cur[1]),
+      static_cast<unsigned long>(cur[2]), static_cast<unsigned long>(cur[3]));
+    for (int i = 0; i < 4; ++i) {last_reported_[i] = cur[i];}
+  }
+  // 只提示，不判故障，也不退出（5.2 节：等待时间必须明显大于上电标定时间 N）。
+  if (n_imu_.load() == 0 && !warned_no_imu_) {
+    const double waited =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count();
+    if (waited > imu_wait_warn_s_) {
+      warned_no_imu_ = true;
+      RCLCPP_WARN(
+        get_logger(),
+        "已等待 %.0f 秒仍没有 0x01。检查：固件是否上电并完成标定、TX/RX 是否交叉、共地、波特率 921600、"
+        "串口是否被别的进程占用。bridge 继续等待。", waited);
+    }
+  }
+}
+
+}  // namespace gimbal_serial
