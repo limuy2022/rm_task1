@@ -253,8 +253,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._origin_frozen = True
         try:
             out = Header()
-            out.stamp = self.get_clock().now().to_msg()
-            out.frame_id = 'replay_start'
+            out.stamp = src_msg.stamp
+            out.frame_id = src_msg.frame_id
             self._pub_origin_freeze.publish(out)
         except Exception as exc:  # pragma: no cover
             self._log.error('origin_freeze 发布失败: %r' % (exc,))
@@ -328,6 +328,10 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             arr = np.asarray(msg.data, dtype=np.int8).reshape((h, w)).T.copy()
             self._grid = arr                       # (W, H)
             self._grid_res = float(msg.info.resolution) or 0.05
+            q = msg.info.origin.orientation
+            yaw = math.atan2(2.0 * (q.w*q.z + q.x*q.y),
+                             1.0 - 2.0 * (q.y*q.y + q.z*q.z))
+            self._grid_yaw = yaw
             o = msg.info.origin.position
             self._grid_origin = np.array([float(o.x), float(o.y)], dtype=float)
         except Exception as exc:  # pragma: no cover
@@ -402,7 +406,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                                image=self._map_image_name,
                                resolution=self._grid_res,
                                origin_xyz=(float(self._grid_origin[0]),
-                                           float(self._grid_origin[1]), 0.0),
+                                           float(self._grid_origin[1]), self._grid_yaw),
                                occupied_thresh=float(
                                    self._params['judge.map_occupied_thresh']),
                                free_thresh=float(
@@ -441,8 +445,9 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             'image: %s' % self._map_image_name,
             'mode: trinary',
             'resolution: %s' % ('%g' % self._grid_res),
-            'origin: [%s, %s, 0]' % ('%g' % float(self._grid_origin[0]),
-                                     '%g' % float(self._grid_origin[1])),
+            'origin: [%s, %s, %s]' % ('%g' % float(self._grid_origin[0]),
+                                     '%g' % float(self._grid_origin[1]),
+                                     '%g' % self._grid_yaw),
             'negate: 0',
             'occupied_thresh: %s' % ('%g' % float(
                 self._params['judge.map_occupied_thresh'])),

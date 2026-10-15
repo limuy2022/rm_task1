@@ -12,6 +12,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -29,7 +30,7 @@ target_include_directories(${PROJECT_NAME}_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(${PROJECT_NAME}_core PUBLIC ${PROJECT_NAME}_serial)
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
-  rclcpp sensor_msgs geometry_msgs builtin_interfaces tf2_ros)
+  rclcpp sensor_msgs std_msgs geometry_msgs builtin_interfaces tf2_ros)
 
 add_executable(robo_bridge_node src/robo_bridge_node_main.cpp)
 target_link_libraries(robo_bridge_node ${PROJECT_NAME}_core)

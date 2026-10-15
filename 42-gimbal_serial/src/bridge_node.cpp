@@ -18,6 +18,12 @@ namespace gimbal_serial
 namespace
 {
 
+std::int64_t steadyNowNs()
+{
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 // 在 /dev 下按名字排序枚举 ttyUSB*、ttyACM*。
 std::vector<std::string> scanSerialCandidates()
 {
@@ -84,6 +90,11 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
 
   imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(
     imu_topic_, rclcpp::QoS(rclcpp::KeepLast(200)).reliable().durability_volatile());
+  reset_pub_ = create_publisher<std_msgs::msg::UInt64>(
+    "/task1/gimbal_reset_epoch", rclcpp::QoS(1).reliable().transient_local());
+  std_msgs::msg::UInt64 epoch;
+  epoch.data = 0;
+  reset_pub_->publish(epoch);
   if (publish_tf_) {tf_br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);}
   RCLCPP_INFO(
     get_logger(), "IMU 将发布到 %s（QoS reliable, keep_last 200），TF world -> gimbal_link%s",
@@ -115,7 +126,9 @@ BridgeNode::~BridgeNode()
 {
   running_ = false;
   if (reader_.joinable()) {reader_.join();}
-  if (cmd_sub_ && serial_.isOpen()) {
+  const auto shutdown_ns = steadyNowNs();
+  if (cmd_sub_ && serial_.isOpen() && n_commands_.load() > 0 &&
+    shutdown_ns >= command_ready_ns_.load() && shutdown_ns - last_imu_ns_.load() <= 100000000) {
     // 第 3.5 节：退出时补几帧零指令。固件即使一帧都没收到，也会在 500 ms 后减速。
     const auto zero = proto::encodeCmd(0.0f, 0.0f);
     for (int i = 0; i < 3; ++i) {serial_.writeAll(zero.data(), zero.size());}
@@ -188,13 +201,23 @@ void BridgeNode::onFrame(const std::uint8_t * frame, std::size_t /*n*/)
   proto::ImuSample s;
   if (!proto::decodeImu(frame, s)) {return;}  // 解析器已检查过，这里只是防御
 
+  std::lock_guard<std::mutex> guard(command_gate_mutex_);
   const proto::ImuStep step = tracker_.update(s.seq, s.stamp_us);
+  const auto receive_ns = steadyNowNs();
+  if (step.first || step.reset) {
+    command_ready_ns_ = receive_ns + 600000000;  // 首帧/复位后保留0.6秒有效指令静默
+    n_commands_ = 0;
+  }
+  last_imu_ns_ = receive_ns;
   if (step.first) {
     RCLCPP_INFO(get_logger(), "收到第一帧 0x01：IMU 已就绪，开始发布 %s 和 TF", imu_topic_.c_str());
   } else if (step.reset) {
     // 第 6.3 节：重设 prev，重置滤波器（bridge 自身没有滤波器，下游用 header.stamp 差的节点
     // 需要自己处理），这一帧不计丢帧、不求 dt，但照常发布。
     ++n_resets_;
+    std_msgs::msg::UInt64 epoch;
+    epoch.data = n_resets_.load();
+    reset_pub_->publish(epoch);
     RCLCPP_WARN(get_logger(), "检测到 MCU 复位（seq=%u stamp_us=%u），此帧不计丢帧", s.seq, s.stamp_us);
   } else {
     if (step.dropped > 0) {n_dropped_ += step.dropped;}
@@ -211,6 +234,10 @@ void BridgeNode::onFrame(const std::uint8_t * frame, std::size_t /*n*/)
 
 void BridgeNode::onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
 {
+  std::lock_guard<std::mutex> guard(command_gate_mutex_);
+  const auto command_ns = steadyNowNs();
+  if (n_imu_.load() == 0 || command_ns < command_ready_ns_.load() ||
+    command_ns - last_imu_ns_.load() > 100000000) {return;}
   const double y = yaw_sign_ * msg->angular.z;
   const double p = pitch_sign_ * msg->angular.y;
   if (!std::isfinite(y) || !std::isfinite(p)) {
@@ -224,6 +251,8 @@ void BridgeNode::onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
   }
   if (!serial_.writeAll(f.data(), f.size())) {
     RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "串口写入失败");
+  } else {
+    ++n_commands_;
   }
 }
 

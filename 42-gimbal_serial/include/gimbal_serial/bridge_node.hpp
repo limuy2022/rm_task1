@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -12,6 +13,7 @@
 #include "gimbal_serial/protocol.hpp"
 #include "gimbal_serial/serial_port.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "std_msgs/msg/u_int64.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 
 namespace gimbal_serial
@@ -51,12 +53,17 @@ private:
   proto::AxisSign readAxisSign();
   double readSign(const std::string & name);
 
+  std::mutex command_gate_mutex_;
   SerialPort serial_;
   proto::FrameParser parser_{proto::Direction::ToPc};
   proto::ImuTracker tracker_;
   proto::AxisSign axis_sign_{{1.0, 1.0, 1.0}};
 
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+  rclcpp::Publisher<std_msgs::msg::UInt64>::SharedPtr reset_pub_;
+  std::atomic<std::int64_t> last_imu_ns_{0};
+  std::atomic<std::int64_t> command_ready_ns_{0};
+  std::atomic<std::uint64_t> n_commands_{0};
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_br_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::TimerBase::SharedPtr diag_timer_;

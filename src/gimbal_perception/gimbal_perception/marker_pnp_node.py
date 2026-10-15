@@ -163,9 +163,16 @@ class MarkerPnpNode:
     def _on_corners(self, msg: PolygonStamped) -> None:
         """收到角点 → 过滤 → PnP → 发布 ``MarkerObservation``。"""
         try:
+            target = int(self._node.get_parameter('perception.target_digit').value)
+            if target < 0:
+                return
+            self._params['perception.target_digit'] = target
+            self._source.target_digit = target
+            self._input_stamp = msg.header.stamp
             t_mono = TU.now()
             raw = self._source.on_polygon(msg, marker_id=int(self._params['perception.target_digit']),
                                           t_mono=t_mono)
+            self._source.poll()  # 本节点同步消费raw，不累积另一份待处理队列
             if raw is None:
                 # 空/长度≠4/id 不匹配 —— 正常路径，不报错
                 return
@@ -188,7 +195,7 @@ class MarkerPnpNode:
                  depth: float, reproj: float, valid: bool) -> None:
         """发布一条 ``MarkerObservation``。"""
         msg = MarkerObservation()
-        msg.header.stamp = self._node.get_clock().now().to_msg()
+        msg.header.stamp = self._input_stamp
         msg.header.frame_id = 'camera_optical_frame'
         msg.marker_id = int(marker_id)
         msg.x = float(tvec[0])

@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'vgimbal_bridge_node = gimbal_serial_bridge.vgimbal_bridge_node:main',
+            'hardware_adapter_node = gimbal_serial_bridge.hardware_adapter_node:main',
         ],
     },
 )

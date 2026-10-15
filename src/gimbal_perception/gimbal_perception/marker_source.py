@@ -95,7 +95,8 @@ class SingleTopicMarkerSource(MarkerSource):
             import time as _time
             t_mono = _time.monotonic()
         try:
-            pts = list(msg.points)
+            polygon = getattr(msg, 'polygon', msg)
+            pts = list(polygon.points)
             frame_id = str(getattr(getattr(msg, 'header', None), 'frame_id', '')
                            or 'camera_optical_frame')
         except AttributeError:

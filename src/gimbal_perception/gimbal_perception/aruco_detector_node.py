@@ -271,6 +271,15 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         """按 detect_rate_hz 处理最新一帧。"""
         if not getattr(self, '_ok', False):
             return
+        # ROS参数服务可在启动后设置ID；负数表示尚未收到赛前ID。
+        target = int(self.get_parameter('perception.target_digit').value)
+        if target != self._target_digit:
+            self._target_digit = target
+            self._params['perception.target_digit'] = target
+            self._latest = None  # 不使用切换前的缓存图像
+            self._log.info('目标ID更新为 %d' % target)
+        if target < 0:
+            return
         msg = self._latest
         if msg is None:
             _throttled(self._log, 'warn', '还没有收到 /image_raw',

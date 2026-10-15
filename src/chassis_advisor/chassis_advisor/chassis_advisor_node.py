@@ -45,6 +45,7 @@ try:
     from rclpy.qos import QoSDurabilityPolicy
     from rclpy.qos import QoSHistoryPolicy
     from rclpy.qos import QoSProfile
+    from rclpy.qos import QoSReliabilityPolicy
     from nav_msgs.msg import OccupancyGrid, Odometry
     from gimbal_interfaces.msg import ChassisAdvice, TargetState
 except Exception:  # pragma: no cover - Windows 无 ROS2
@@ -64,6 +65,7 @@ except Exception:  # pragma: no cover - Windows 无 ROS2
     QoSProfile = _QoSProfile  # type: ignore[assignment]
     QoSDurabilityPolicy = None  # type: ignore[assignment]
     QoSHistoryPolicy = None  # type: ignore[assignment]
+    QoSReliabilityPolicy = None  # type: ignore[assignment]
 
 try:  # 优先用 T01 的 gimbal_common
     from gimbal_common.time_utils import now
@@ -200,6 +202,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             return _SENSOR_QOS_DEPTH
         try:
             return QoSProfile(depth=_SENSOR_QOS_DEPTH,
+                              reliability=QoSReliabilityPolicy.BEST_EFFORT,
                               history=QoSHistoryPolicy.KEEP_LAST)
         except Exception:  # pragma: no cover
             return QoSProfile(depth=_SENSOR_QOS_DEPTH)

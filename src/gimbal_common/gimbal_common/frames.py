@@ -282,7 +282,7 @@ def yaw_of_mat(R: np.ndarray) -> float:
 def freeze_T_map_odom(x: float, y: float, yaw: float) -> np.ndarray:
     """由 t0 时刻底盘位姿冻结 ``T_map←odom``（DESIGN §2.1）。
 
-    ``T_map←odom = Translate(−P_base_odom(t0)) ∘ RotZ(−yaw_base_odom(t0))``
+    ``T_map←odom = RotZ(−yaw_base_odom(t0)) ∘ Translate(−P_base_odom(t0))``
 
     Args:
         x: t0 时刻底盘在 odom 系的 x（m）。

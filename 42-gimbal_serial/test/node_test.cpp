@@ -236,6 +236,42 @@ TEST(BridgeNode, PublishesImuAndTf)
   }
 }
 
+// 持续模拟新鲜IMU；析构自动停止，不依赖真实设备。
+struct FreshImuFeed
+{
+  Pty & pty;
+  std::atomic<bool> running{true};
+  std::thread thread;
+  explicit FreshImuFeed(Pty & p) : pty(p), thread([this]() {
+    std::uint16_t seq = 0;
+    std::uint32_t stamp = 0;
+    while (running) {
+      const auto frame = imuFrame(seq++, stamp, {0,0,1365}, {0,0,0}, {32760,0,0,0});
+      ::write(pty.master, frame.data(), frame.size());
+      stamp += 20000;
+      std::this_thread::sleep_for(20ms);
+    }
+  }) {}
+  ~FreshImuFeed() {running = false; thread.join();}
+};
+
+TEST(BridgeNode, NoCommandBeforeFirstImuOrOnUnusedShutdown)
+{
+  Pty pty;
+  auto bridge = std::make_shared<BridgeNode>(bridgeOptions(pty.slave, {
+    rclcpp::Parameter("subscribe_cmd_vel", true)}));
+  Probe probe("probe_no_imu");
+  {
+    Spinner sp; sp.add(bridge); sp.add(probe.node); sp.start();
+    ASSERT_TRUE(waitMatched(probe));
+    geometry_msgs::msg::Twist command; command.angular.z = 1.0;
+    probe.cmd_pub->publish(command);
+    EXPECT_TRUE(pty.readAtLeast(1, 200ms).empty());
+  }
+  bridge.reset();
+  EXPECT_TRUE(pty.readAtLeast(1, 200ms).empty());
+}
+
 TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
 {
   Pty pty;
@@ -244,6 +280,7 @@ TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
     rclcpp::Parameter("subscribe_cmd_vel", true),
     rclcpp::Parameter("yaw_sign", -1)}));
   Probe probe("probe_cmd");
+  FreshImuFeed feed(pty);
   {
     Spinner sp;
     sp.add(bridge);
@@ -254,6 +291,10 @@ TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
     geometry_msgs::msg::Twist t;
     t.angular.z = 3.0;    // yaw
     t.angular.y = -0.125; // pitch
+    // 首帧后0.6秒内仍静默，确保已经接收过IMU再开始计等待窗口。
+    ASSERT_TRUE(probe.waitImus(1, 3s));
+    EXPECT_TRUE(pty.readAtLeast(1, 50ms).empty());
+    std::this_thread::sleep_for(650ms);
     probe.cmd_pub->publish(t);
     // yaw_sign = -1：线上 yaw_omega = -3.0；angular.y 对应 pitch
     auto got = pty.readAtLeast(proto::kCmdFrameLen, 3s);

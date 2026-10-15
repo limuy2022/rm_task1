@@ -252,6 +252,7 @@ class GimbalControllerNode(Node):
         d('control.omega_max_pitch', DEFAULT_OMEGA_MAX_PITCH)
         d('control.omega_slew', DEFAULT_OMEGA_SLEW)
         d('control.rate_hz', 100.0)
+        d('control.imu_timeout_s', 0.1)
         d('control.lost_timeout_s', 0.3)
         d('control.search_after_s', 0.5)
         d('control.wide_search_after_s', DEFAULT_WIDE_AFTER_S)
@@ -329,6 +330,8 @@ class GimbalControllerNode(Node):
 
         # ---------------------------------------------------------- 运行时状态
         self._gimbal_state: Optional[GimbalState] = None
+        self._t_last_gimbal: Optional[float] = None
+        self._imu_timeout_s = max(0.01, float(p('control.imu_timeout_s').value))
         self._target: Optional[TargetState] = None
         self._base_pos_odom = np.zeros(3, dtype=np.float64)
         self._R_odom_base = np.eye(3, dtype=np.float64)
@@ -402,6 +405,7 @@ class GimbalControllerNode(Node):
         """缓存最新云台姿态与陀螺。"""
         try:
             self._gimbal_state = msg
+            self._t_last_gimbal = now()
         except Exception as exc:  # pragma: no cover
             throttled(self._log, 'error', 'on_gimbal_state 异常: %s' % exc, 'gs_exc', 1.0)
 
@@ -535,12 +539,13 @@ class GimbalControllerNode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = 'gimbal_link'
 
-            if self._gimbal_state is None:
+            if (self._gimbal_state is None or self._t_last_gimbal is None
+                    or t - self._t_last_gimbal > self._imu_timeout_s):
                 msg.yaw_omega = 0.0
                 msg.pitch_omega = 0.0
                 msg.valid = False
                 self._pub.publish(msg)
-                throttled(self._log, 'warn', '尚无 /gimbal/state，发零指令保活', 'no_state', 1.0)
+                throttled(self._log, 'warn', '云台姿态缺失或过期，输出无效零指令', 'no_state', 1.0)
                 return
 
             age = self._target_age(t)

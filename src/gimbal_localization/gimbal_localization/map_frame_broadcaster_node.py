@@ -160,10 +160,9 @@ class MapFrameBroadcasterNode:
             if self._freeze_requested:
                 self._freeze(x, y, yaw, t_mono)
             elif (t_mono - self._t_first_valid) >= self._origin_timeout_s:
-                self._log.warning(
-                    '等待 /judge/replay_start 超时 %.1fs，回退 base_init 冻结'
-                    % self._origin_timeout_s)
-                self._origin_mode = 'base_init'
+                LU.throttled(self._log, 'warning',
+                             '等待回放起点信号；保持未冻结，不回退程序启动位置',
+                             'waiting_replay_start', 5.0)
             return
 
         if (t_mono - self._t_first_valid) >= self._settle_s:

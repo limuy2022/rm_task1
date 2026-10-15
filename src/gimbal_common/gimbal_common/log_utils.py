@@ -38,6 +38,20 @@ def _emit(logger: Any, level: Union[str, int], msg: str) -> None:
         logger.info(msg)
 
 
+class _FormatLogger:
+    """把既有logging风格的格式参数转成rclpy要求的单个消息字符串。"""
+    def __init__(self, logger):
+        self._logger = logger
+
+    def __getattr__(self, name):
+        fn = getattr(self._logger, name)
+        if name not in ('debug', 'info', 'warning', 'warn', 'error', 'fatal', 'critical'):
+            return fn
+        def emit(message, *args, **kwargs):
+            return fn(message % args if args else message, **kwargs)
+        return emit
+
+
 def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
     """取得带节点前缀的 logger。
 
@@ -55,7 +69,7 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
         base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
         return _logging.getLogger(f'{base}.{name}')
     base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
-    return _rclpy_logging.get_logger(f'{base}.{name}')
+    return _FormatLogger(_rclpy_logging.get_logger(f'{base}.{name}'))
 
 
 def throttled(logger: Any, level: Union[str, int], msg: str, key: str,
