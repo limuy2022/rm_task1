@@ -1,6 +1,6 @@
 # src/gimbal_tracker_bringup/config/tracker_params.yaml
 # 全部可调参数（DESIGN §6.13 全表）。
-# ROS 2 参数文件不支持嵌套映射，故一律用「命名空间.参数」的点分扁平键。
+# 本文件采用「命名空间.参数」点分键，便于各节点共享读取。
 # launch 通过 `/**:` 通配符把整份文件注入所有节点；每个节点只声明自己用到的键。
 /**:
   ros__parameters:
@@ -38,7 +38,10 @@
     control.kp_pitch: 6.0
     control.kd_yaw: 0.5
     control.kd_pitch: 0.5
-    control.ff_gain: 1.0
+    control.enabled: false
+    control.search_enabled: false
+    control.world_geometry_verified: false
+    control.ff_gain: 0.0
     control.omega_max_yaw: 2.0
     control.omega_max_pitch: 2.0
     control.omega_slew: 15.0
@@ -84,7 +87,7 @@
     perception.image_topic: /image_raw   # reliable + KEEP_LAST + depth 1
     perception.corners_frame_id: camera_optical_frame
     perception.aruco_dict: DICT_4X4_50   # 官方规定
-    perception.target_digit: 0           # ⚠ 赛前由主办方告知的 marker ID；**唯一定义处**
+    perception.target_digit: -1           # ⚠ 赛前由主办方告知的 marker ID；**唯一定义处**
     perception.detect_rate_hz: 30.0      # 评分 10 Hz，30 Hz 足够
     perception.do_subpix: true           # 亚像素精化，显著降低 cur 项误差
     perception.subpix_win: 3
@@ -104,7 +107,9 @@
     estimation.cv_degrade_enable: false # P1
     # track_status 的观测新鲜度阶梯（DESIGN §4.2）：
     #   age ≤ track_fresh_s → 1（新鲜）；≤ lost_timeout_s → 2（外推）；> → 0（丢失）
-    estimation.track_fresh_s: 0.3
+    estimation.geometry_confirmed: false
+    estimation.max_observation_delay_s: 0.3
+    estimation.track_fresh_s: 0.1
     estimation.lost_timeout_s: 0.5
 
     # ---------------- localization（底盘与 map 系）----------------
@@ -114,7 +119,7 @@
     localization.odom_timeout_s: 0.5
     localization.publish_base_tf: true  # odom 模式下默认 false
     localization.publish_map_odom: true # 静态 TF map->odom
-    localization.publish_world_odom: true
+    localization.publish_world_odom: false
     localization.mock_motion: static    # static | sine | circle
     localization.mock_origin_xy: [0.0, 0.0]
     localization.mock_yaw0: 0.0
@@ -124,8 +129,8 @@
     localization.world_odom_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     localization.gimbal_mount_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     # 赛题一：给定点 = 回放起点（/judge/replay_start）时底盘的位姿
-    localization.origin_mode: judge_replay_start  # judge_replay_start | base_init | world | marker
-    localization.origin_timeout_s: 5.0            # 超时未收到 → 回退 base_init
+    localization.origin_mode: judge_replay_start  # judge_replay_start | base_init(显式仿真)
+    localization.origin_timeout_s: 5.0            # 保留兼容参数，不做超时原点回退
     localization.origin_settle_s: 0.5
     localization.base_pose_rate_hz: 50.0
 
@@ -159,7 +164,7 @@
     grid.origin_xyz: [-6.0, -6.0, 0.0]
     grid.inflation_radius_m: 0.10
     # 官方要求"参赛队伍自行对比赛场地建图"→ 实机用导航栈 SLAM 的 /map 作为输入，
-    # 由 grid_mapper 重采样成 0.05 m/cell 的 12×12 m 三态栅格并生成膨胀图。
+    # 由grid_mapper保留输入分辨率/尺寸并换算原点，另生成膨胀图。
     # 仿真/离线回放时才切回 config（按 field.yaml 造一张假场地）。
     grid.map_source: topic              # topic（实机）| config（仿真）
     grid.map_topic: /map                # map_source=topic 时订阅（导航栈 SLAM 输出）
@@ -175,7 +180,7 @@
     csv.out_dir: outputs
     csv.run_id: latest
     csv.rate_hz: 20.0
-    csv.csv_extra_cols: false           # ⚠ 修正 2：默认严格 8 列
+    csv.csv_extra_cols: false           # 旧调试输出；不是正式九列提交
     csv.flush_period_s: 1.0
     csv.write_after_first_estimate: true
 
@@ -183,13 +188,13 @@
     # 路径：~/ws_championship/output/<队伍编号>.csv 与 <队伍编号>_map.pgm/.yaml
     judge.team_id: "47"
     judge.output_dir: ~/ws_championship/output
-    judge.emit_t_tick: true           # 当前环境文档九列；最终规则需主办方确认
+    judge.emit_t_tick: true           # 已确认九列
     judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
     judge.enforce_v_floor: true         # 防止 |v|<0.02 被判停车记满分误差
     judge.v_floor: 0.30
     judge.stop_radius_m: 0.45
     judge.watchdog_period_s: 0.2
-    judge.late_warn_s: 0.05             # 单行写盘耗时告警（作废线 0.15 s）
+    judge.late_warn_s: 0.05             # 单行写盘耗时告警（官方作废线80ms；此项只测回调写盘耗时）
     judge.map_save_period_s: 10.0       # 周期保存，防意外中断
     judge.map_idle_save_s: 0.7          # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
     judge.map_occupied_thresh: 0.65
@@ -201,7 +206,7 @@
     mission.run_duration_s: 210.0
     mission.shutdown_grace_s: 5.0
 
-    # ---------------- debug（P1，唯一订阅真值的包）----------------
+    # ---------------- debug（仅自有仿真使用，正式比赛不启动）----------------
     # 真值话题名只写在 gimbal_debug 内部常量里（DESIGN §8.7 / T-C8：
     # `src/` 下除 gimbal_debug 之外不得出现该话题名字面量），故此处不设 gt_topic 键。
     debug.enable_gt_monitor: false

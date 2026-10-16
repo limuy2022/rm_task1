@@ -1,11 +1,11 @@
 std_msgs/Header header
-float64 yaw              # 协议域 rad，绕 +z 逆时针为正
-float64 pitch            # 协议域 rad，低头为正  (= PITCH_SIGN * atan2(z_up, horiz))
-float64 omega_yaw        # 关节角速度（协议域），由 gz/cos(pitch) 反解
-float64 omega_pitch      # 关节角速度（协议域），= gyro.y
+float64 yaw              # IMU惯性yaw，rad；不是机械关节角，不得用于机械限位
+float64 pitch            # IMU惯性pitch，rad，低头为正；不是机械关节角
+float64 omega_yaw        # 关节速度未知时NaN；惯性gyro不能直接当关节速度
+float64 omega_pitch      # 关节速度未知时NaN
 float64[3] gyro          # gimbal_link 系 rad/s  (x,y,z)
 float64[3] accel         # gimbal_link 系 m/s^2（比力，静止水平 ≈ (0,0,9.8)）
-float64[4] quat          # w,x,y,z   world -> gimbal_link，已归一化
+float64[4] quat          # w,x,y,z，R_world<-gimbal_link，将gimbal向量转至IMU世界
 uint8   link_state       # 0=IDLE 1=ACTIVE 2=FAULT_SILENT 3=SHUTDOWN
 bool    enabled
 uint32  frames_ok

@@ -149,7 +149,9 @@ class _FakeOdom:
         self.twist = type('T', (), {})()
         self.twist.twist = type('TT', (), {})()
         self.twist.twist.linear = type('L', (), {'x': vx, 'y': vy, 'z': 0.0})()
-        self.header = type('H', (), {'frame_id': frame, 'stamp': None})()
+        self.twist.twist.angular = type('A', (), {'x': 0., 'y': 0., 'z': 0.})()
+        self.header = type('H', (), {'frame_id': frame,
+            'stamp': type('Stamp', (), {'sec': 10, 'nanosec': 0})()})()
         self.child_frame_id = child
 
 
@@ -161,7 +163,9 @@ def test_odom_source_poll_and_timeout():
     assert p.valid
     assert (p.x, p.y) == pytest.approx((1.0, 2.0))
     assert p.yaw == pytest.approx(0.5, abs=1e-9)
-    assert (p.vx, p.vy) == pytest.approx((0.1, -0.2))
+    # nav_msgs/Odometry twist is in child/base frame, not its parent frame.
+    assert (p.vx, p.vy) == pytest.approx((math.cos(.5)*.1+math.sin(.5)*.2,
+                                         math.sin(.5)*.1-math.cos(.5)*.2))
     assert src.frame_id == 'odom' and src.child_frame_id == 'base_link'
     # 超时失效
     assert src.poll(11.0).valid is False

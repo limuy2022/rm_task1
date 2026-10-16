@@ -45,11 +45,12 @@ EXPECTED_ORDER: List[Tuple[str, str]] = [
     ('gimbal_localization', 'base_pose_provider_node'),
     ('gimbal_localization', 'map_frame_broadcaster_node'),
     ('gimbal_serial_bridge', 'vgimbal_bridge_node'),
+    ('gimbal_perception', 'aruco_detector_node'),
     ('gimbal_perception', 'marker_pnp_node'),
     ('gimbal_estimation', 'target_estimator_node'),
     ('gimbal_control', 'gimbal_controller_node'),
     ('chassis_advisor', 'chassis_advisor_node'),
-    ('gimbal_dataio', 'csv_writer_node'),
+    ('gimbal_judge_io', 'judge_io_node'),
     ('gimbal_dataio', 'trajectory_annotator_node'),
 ]
 
@@ -529,7 +530,8 @@ def _has_real_ros2() -> bool:
 @pytest.mark.skipif(not _has_real_ros2(),
                     reason='需 Ubuntu + ROS2：本机无 ROS2，无法执行 ros2 launch / ament 解析')
 @pytest.mark.parametrize('launch_name', ['competition.launch.py', 'sim.launch.py',
-                                         'mapping.launch.py'])
+                                         'mapping.launch.py', 'processing.launch.py',
+                                         'vision.launch.py', 'submission.launch.py', 'lio_only.launch.py'])
 def test_ros2_launch_show_args(launch_name):
     """真机冒烟：`ros2 launch <pkg> <file> --show-args` 必须能解析并列出参数。
 
@@ -550,7 +552,9 @@ def test_ros2_launch_show_args(launch_name):
         pytest.skip('需 Ubuntu + ROS2：请先 colcon build --symlink-install 并 '
                     'source install/setup.bash')
     assert proc.returncode == 0, '--show-args 失败:\n%s' % out
-    assert 'params_file' in out, '未列出 params_file 参数'
+    required = {'processing.launch.py':'vehicle_config', 'vision.launch.py':'target_id',
+                'submission.launch.py':'team_id'}.get(launch_name,'params_file')
+    assert required in out, '未列出入口参数'
 
 
 @pytest.mark.skipif(not _has_real_ros2(),

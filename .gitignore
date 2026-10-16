@@ -7,6 +7,11 @@ __pycache__/
 MvSdkLog/
 output/
 outputs/
+/maps/
 *.bag
 *.db3
 *.mcap
+
+# Isolated offline development runtime
+.venv/
+.pytest_cache/

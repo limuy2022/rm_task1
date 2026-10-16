@@ -1,31 +1,12 @@
 # -*- coding: utf-8 -*-
-"""云台控制节点 —— DESIGN.md §3.8 / §6.8。
+"""Guarded world-frame aiming node for Ubuntu 22.04 / ROS 2 Humble.
 
-100Hz 单调定时器 → 计算 ``(yaw_omega, pitch_omega)`` → 发布 ``/gimbal/cmd_omega``。
-
-订阅：
-* ``/estimation/target_state``：KF 输出的 map 系 XY（当前/预测 + 速度）
-* ``/gimbal/state``：云台姿态四元数 + 机体系陀螺
-* ``/gimbal/t_map_world``：``T_map←world``（锁存，一次性）
-* ``/gimbal/base_pose_raw``：底盘位姿（odom 系），用于算云台原点（§6.9）
-* ``/perception/marker_cam``：**辅助**，仅取目标的 world 系高度 z（见下方"设计缺口"说明）
-
-⏱ 时钟约定（主理人拍板 1）：dt / 超时 / 定时器周期 → ``gimbal_common.time_utils.now()``
-（``time.monotonic()``）；``header.stamp`` → ``self.get_clock().now()``；
-外部话题的 ``header.stamp`` **不参与任何运算**。
-
-⚠ 设计缺口与处置（已回报架构师/主理人）：
-DESIGN §6.7 的 CA-KF 与 ``TargetState`` 都是 **map 系 2D**（px,py,vx,vy,ax,ay），
-但 §6.8 的控制律需要 **3D** 视线向量 ``r = p_t − p_gimbal_world``。
-2D 状态无法给出目标高度，若强行令 ``z=0``，目标在 pitch 方向的 ±0.25 rad
-（hardware_spec §4）运动会完全无法跟踪，pitch 误差将达 14° 量级（远超 2° 预算）。
-处置：XY 仍严格取 KF 输出（cur/pred，由 ``aim_mode`` 决定），
-**z 轴**用 ``/perception/marker_cam`` 的 3D 观测经同一套 §6.6 换算得到，
-经 :class:`HeightTracker` 做一阶低通 + 有限差分速度估计，丢失期间保持最后有效值。
-若后续 ``gimbal_interfaces`` 允许给 ``TargetState`` 增加 ``cur_z``，应改回官方通道。
-
-⚠ 待验证：本文件依赖 ``rclpy`` / ``gimbal_interfaces``，
-    需在 **Ubuntu 24.04 + ROS 2 Jazzy** 上 ``colcon build`` 后编译/运行验证（Windows 无 ROS2）。
+Disabled by default. A world-alignment flag is an operator assertion after actual
+calibration, not an automatic calibration. This legacy world controller assumes
+an aligned camera/gimbal x axis and a planar base. No real joint feedback means
+no control; IMU world yaw/pitch cannot be used as encoder positions. Search also
+requires an explicit opt-in and a previously observed target. The separate pure
+BearingControlLaw can be exercised offline without inventing world transforms.
 """
 
 from __future__ import annotations
@@ -48,6 +29,7 @@ from rclpy.qos import (
 
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 
 from gimbal_interfaces.msg import GimbalOmegaCmd, GimbalState, MarkerObservation, TargetState
 
@@ -97,6 +79,7 @@ TOPIC_T_MAP_WORLD = '/gimbal/t_map_world'
 TOPIC_BASE_POSE_RAW = '/gimbal/base_pose_raw'
 TOPIC_MARKER_CAM = '/perception/marker_cam'
 TOPIC_CMD_OMEGA = '/gimbal/cmd_omega'
+TOPIC_JOINT_STATE = '/gimbal/joint_states'
 
 MODE_TRACK = 'track'
 MODE_COAST = 'coast'
@@ -243,6 +226,14 @@ class GimbalControllerNode(Node):
 
         # ---------------------------------------------------------- 参数声明
         d = self.declare_parameter
+        d('control.enabled', False)
+        d('control.search_enabled', False)
+        d('control.world_geometry_verified', False)
+        d('control.input_timeout_s', 0.15)
+        d('control.sync_tolerance_s', 0.02)
+        d('control.camera_xyz_rpy', [0.0] * 6)
+        d('control.joint_yaw_name', 'yaw')
+        d('control.joint_pitch_name', 'pitch')
         d('control.kp_yaw', DEFAULT_KP_YAW)
         d('control.kp_pitch', DEFAULT_KP_PITCH)
         d('control.kd_yaw', DEFAULT_KD_YAW)
@@ -333,11 +324,23 @@ class GimbalControllerNode(Node):
         self._t_last_gimbal: Optional[float] = None
         self._imu_timeout_s = max(0.01, float(p('control.imu_timeout_s').value))
         self._target: Optional[TargetState] = None
+        self._joint_angles = None
+        self._t_last_joint = None
+        self._t_last_base = None
+        self._base_source_time = None
+        self._base_velocity_world = None
+        self._base_omega_world = None
+        self._t_last_marker = None
+        self._gimbal_source_time = None
+        self._camera_xyz_rpy = np.asarray(p('control.camera_xyz_rpy').value, dtype=float).reshape(6)
+        self._input_timeout_s = max(0.01, float(p('control.input_timeout_s').value))
+        self._sync_tolerance_s = max(0.0, float(p('control.sync_tolerance_s').value))
         self._base_pos_odom = np.zeros(3, dtype=np.float64)
         self._R_odom_base = np.eye(3, dtype=np.float64)
         self._have_base = False
         self._T_map_world: Optional[np.ndarray] = None
         self._height = HeightTracker(cutoff_hz=float(p('control.height_cutoff_hz').value))
+        self._marker_id = None
 
         self._t_start = now()
         self._t_last_cmd: Optional[float] = None
@@ -350,6 +353,7 @@ class GimbalControllerNode(Node):
         self._pub = self.create_publisher(GimbalOmegaCmd, TOPIC_CMD_OMEGA, QOS_SENSOR)
         self.create_subscription(TargetState, TOPIC_TARGET_STATE, self.on_target_state, QOS_SENSOR)
         self.create_subscription(GimbalState, TOPIC_GIMBAL_STATE, self.on_gimbal_state, QOS_SENSOR)
+        self.create_subscription(JointState, TOPIC_JOINT_STATE, self.on_joint_state, QOS_SENSOR)
         self.create_subscription(TransformStamped, TOPIC_T_MAP_WORLD, self.on_t_map_world, QOS_LATCHED)
         self.create_subscription(Odometry, TOPIC_BASE_POSE_RAW, self.on_base_pose, QOS_SENSOR)
         self.create_subscription(MarkerObservation, TOPIC_MARKER_CAM, self.on_marker, QOS_SENSOR)
@@ -401,39 +405,124 @@ class GimbalControllerNode(Node):
         return DEFAULT_HALF_FOV_RAD
 
     # ------------------------------------------------------------------ 回调
-    def on_gimbal_state(self, msg: GimbalState) -> None:
-        """缓存最新云台姿态与陀螺。"""
+    def _source_time(self, msg, timeout=None):
+        """Reject old/future/zero ROS stamps; reception alone is not freshness."""
         try:
+            stamp = msg.header.stamp
+            source = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+            ros_now = float(self.get_clock().now().nanoseconds) * 1e-9
+            age = ros_now - source
+            allowed = self._input_timeout_s if timeout is None else timeout
+            if source <= 0.0 or not math.isfinite(source) or not -0.03 <= age <= allowed:
+                return None
+            return source
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _source_age(self, source_t):
+        return max(0.0, self.get_clock().now().nanoseconds * 1e-9 - source_t)
+
+    def on_joint_state(self, msg: JointState) -> None:
+        """Only explicitly named, independently measured mechanical positions."""
+        self._joint_angles = None
+        self._t_last_joint = None
+        try:
+            source_t = self._source_time(msg)
+            if source_t is None:
+                return
+            names = list(msg.name)
+            yaw_name = str(self.get_parameter('control.joint_yaw_name').value)
+            pitch_name = str(self.get_parameter('control.joint_pitch_name').value)
+            if names.count(yaw_name) != 1 or names.count(pitch_name) != 1:
+                return
+            angles = np.array([msg.position[names.index(yaw_name)],
+                               msg.position[names.index(pitch_name)]], dtype=float)
+            if not np.all(np.isfinite(angles)):
+                return
+            self._joint_angles = angles
+            self._t_last_joint = now() - self._source_age(source_t)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return
+
+    def on_gimbal_state(self, msg: GimbalState) -> None:
+        self._gimbal_state = None
+        self._t_last_gimbal = None
+        self._gimbal_source_time = None
+        try:
+            stamp = self._source_time(msg, self._imu_timeout_s)
+            q = np.asarray(msg.quat, dtype=float).reshape(4)
+            gyro = np.asarray(msg.gyro, dtype=float).reshape(3)
+            if (stamp is None or str(msg.header.frame_id) != 'gimbal_link'
+                    or not np.all(np.isfinite(q)) or np.linalg.norm(q) < 0.5
+                    or not np.all(np.isfinite(gyro))):
+                return
             self._gimbal_state = msg
-            self._t_last_gimbal = now()
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'on_gimbal_state 异常: %s' % exc, 'gs_exc', 1.0)
+            self._t_last_gimbal = now() - self._source_age(stamp)
+            self._gimbal_source_time = stamp
+        except (AttributeError, TypeError, ValueError):
+            return
 
     def on_base_pose(self, msg: Odometry) -> None:
-        """缓存底盘位姿（frame=odom）。"""
+        """Differentiate source-stamped poses; never assume Odometry twist frame."""
         try:
+            source_t = self._source_time(msg)
             pos = msg.pose.pose.position
-            if not all(math.isfinite(v) for v in (pos.x, pos.y, pos.z)):
-                return
-            self._base_pos_odom = np.array([pos.x, pos.y, pos.z], dtype=np.float64)
+            xyz = np.array([pos.x, pos.y, pos.z], dtype=float)
             o = msg.pose.pose.orientation
-            q = np.array([o.w, o.x, o.y, o.z], dtype=np.float64)
-            if np.all(np.isfinite(q)) and float(np.linalg.norm(q)) >= 0.5:
-                self._R_odom_base = np.asarray(
-                    frames.quat_to_mat(q / float(np.linalg.norm(q))), dtype=np.float64).reshape(3, 3)
+            q = np.array([o.w, o.x, o.y, o.z], dtype=float)
+            if (source_t is None or str(msg.header.frame_id) != 'odom'
+                    or not np.all(np.isfinite(xyz))
+                    or not np.all(np.isfinite(q)) or np.linalg.norm(q) < 0.5):
+                self._t_last_base = None
+                self._base_velocity_world = self._base_omega_world = None
+                return
+            R = np.asarray(frames.quat_to_mat(q / np.linalg.norm(q)), dtype=float).reshape(3, 3)
+            # Keep the planar-base assumption explicit rather than applying a
+            # yaw-only formula to a tilted mount/base.
+            if np.linalg.norm(R[2, :2]) > 1e-3:
+                self._t_last_base = None
+                self._base_velocity_world = self._base_omega_world = None
+                return
+            if self._base_source_time is not None:
+                delta_t = source_t - self._base_source_time
+                if 1e-4 < delta_t <= self._input_timeout_s:
+                    # Differentiating the full origin includes omega x mount.
+                    old_origin = self.gimbal_origin_world()
+                    old_yaw = float(frames.yaw_of_mat(self._R_odom_base))
+                    new_yaw = float(frames.yaw_of_mat(R))
+                    self._base_pos_odom, self._R_odom_base = xyz, R
+                    self._base_velocity_world = (self.gimbal_origin_world() - old_origin) / delta_t
+                    yaw_rate = math.atan2(math.sin(new_yaw - old_yaw),
+                                          math.cos(new_yaw - old_yaw)) / delta_t
+                    self._base_omega_world = self._R_world_odom @ np.array([0.0, 0.0, yaw_rate])
+                else:
+                    self._base_velocity_world = self._base_omega_world = None
+            self._base_pos_odom, self._R_odom_base = xyz, R
+            self._base_source_time = source_t
+            self._t_last_base = now() - self._source_age(source_t)
             self._have_base = True
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'on_base_pose 异常: %s' % exc, 'bp_exc', 1.0)
+        except (AttributeError, TypeError, ValueError):
+            self._t_last_base = None
+            self._base_velocity_world = self._base_omega_world = None
 
     def on_t_map_world(self, msg: TransformStamped) -> None:
         """接收锁存的 ``T_map←world``。"""
         try:
             if self._T_map_world is not None:
                 return
+            q_test = np.array([msg.transform.rotation.w, msg.transform.rotation.x,
+                               msg.transform.rotation.y, msg.transform.rotation.z], dtype=float)
+            if not np.all(np.isfinite(q_test)) or np.linalg.norm(q_test) < 0.5:
+                return
             tr = msg.transform
             t = np.array([tr.translation.x, tr.translation.y, tr.translation.z], dtype=np.float64)
             q = np.array([tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z], dtype=np.float64)
             R = np.asarray(frames.quat_to_mat(q), dtype=np.float64).reshape(3, 3)
+            if (str(msg.header.frame_id), str(msg.child_frame_id)) not in (
+                    ('map', 'world'), ('world', 'map')):
+                return
+            if np.linalg.norm(R[2, :2]) > 1e-3:
+                return
             if not (np.all(np.isfinite(t)) and np.all(np.isfinite(R))):
                 return
             if str(msg.child_frame_id or '') == 'map':
@@ -448,24 +537,45 @@ class GimbalControllerNode(Node):
             throttled(self._log, 'error', 'on_t_map_world 异常: %s' % exc, 'tmw_exc', 1.0)
 
     def on_target_state(self, msg: TargetState) -> None:
-        """缓存最新的目标状态。"""
+        """Estimator publication must not renew the last real observation."""
+        self._target = None
         try:
+            stamp = self._source_time(msg)
+            obs_age = float(msg.last_obs_age)
+            values = (msg.cur_x, msg.cur_y, msg.pred_x, msg.pred_y, msg.vel_x, msg.vel_y)
+            if (stamp is None or str(msg.header.frame_id) != 'map'
+                    or not bool(msg.valid) or int(msg.track_status) not in (1, 2)
+                    or not all(math.isfinite(float(v)) for v in values)
+                    or not math.isfinite(obs_age) or obs_age < 0.0):
+                return
+            transport_age = max(0.0, self.get_clock().now().nanoseconds * 1e-9 - stamp)
+            age = obs_age + transport_age
             self._target = msg
-            if bool(msg.valid) and int(msg.track_status) != 0:
-                self._t_last_target = now()      # ⏱ 单调时钟
+            self._t_last_target = now() - age
+            if age <= self._lost_timeout_s:
                 self._have_ever_tracked = True
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'on_target_state 异常: %s' % exc, 'ts_exc', 1.0)
+        except (AttributeError, TypeError, ValueError):
+            return
 
     def on_marker(self, msg: MarkerObservation) -> None:
         """**辅助**：从 3D 观测提取目标的 world 系高度 z（见文件头"设计缺口"）。"""
         try:
-            if not bool(msg.valid):
+            self._t_last_marker = None
+            marker_time = self._source_time(msg)
+            if (not bool(msg.valid) or marker_time is None
+                    or str(msg.header.frame_id) != 'camera_optical_frame'):
+                self._height.reset()
                 return
-            if self._gimbal_state is None:
+            marker_id = int(msg.marker_id)
+            if self._marker_id != marker_id:
+                self._height.reset()
+                self._marker_id = marker_id
+            if (self._gimbal_state is None or self._gimbal_source_time is None
+                    or self._t_last_base is None or now() - self._t_last_base > self._input_timeout_s
+                    or abs(marker_time - self._gimbal_source_time) > self._sync_tolerance_s):
                 return
             p_opt = np.array([msg.x, msg.y, msg.z], dtype=np.float64)
-            if not np.all(np.isfinite(p_opt)):
+            if not np.all(np.isfinite(p_opt)) or p_opt[2] <= 0.0:
                 return
             q = np.asarray(self._gimbal_state.quat, dtype=np.float64).reshape(4)
             n = float(np.linalg.norm(q))
@@ -473,10 +583,13 @@ class GimbalControllerNode(Node):
                 return
             R_wg = np.asarray(frames.quat_to_mat(q / n), dtype=np.float64).reshape(3, 3)
             # optical → gimbal_link → world：只关心 z，用与 §6.6 完全相同的链路
-            p_world = self.gimbal_origin_world() + (R_wg @ r_gimbal_from_opt()) @ p_opt
+            p_gimbal = self._camera_xyz_rpy[:3] + (
+                _rpy_to_mat(self._camera_xyz_rpy[3:]) @ r_gimbal_from_opt()) @ p_opt
+            p_world = self.gimbal_origin_world() + R_wg @ p_gimbal
             if not math.isfinite(float(p_world[2])):
                 return
             self._height.update(float(p_world[2]), now())
+            self._t_last_marker = now() - self._source_age(marker_time)
         except Exception as exc:  # pragma: no cover
             throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc', 1.0)
 
@@ -501,14 +614,13 @@ class GimbalControllerNode(Node):
         return max(0.0, t - ref)
 
     def _mode_of_age(self, age: float) -> str:
-        """按 DESIGN §6.8 丢失阶梯判定工作模式。"""
-        if age <= self._lost_timeout_s:
+        if (self._target is not None and bool(self._target.valid)
+                and math.isfinite(age) and age <= self._lost_timeout_s):
             return MODE_TRACK
-        if age <= self._search_after_s:
-            return MODE_COAST
-        if age <= self._wide_after_s:
-            return MODE_SEARCH
-        return MODE_WIDE
+        if (not bool(self.get_parameter('control.search_enabled').value)
+                or not self._have_ever_tracked or age <= self._search_after_s):
+            return MODE_IDLE
+        return MODE_SEARCH if age <= self._wide_after_s else MODE_WIDE
 
     def _theta_map_world(self) -> float:
         """``T_map←world`` 的偏航角 θ。"""
@@ -527,6 +639,13 @@ class GimbalControllerNode(Node):
         Rot2 = R[0:2, 0:2]
         return Rot2.T @ (np.asarray(xy_map, dtype=np.float64).reshape(2) - t[0:2])
 
+    def _stop(self, msg) -> None:
+        self._law.reset()
+        self._search_entry_t = None
+        msg.yaw_omega = msg.pitch_omega = 0.0
+        msg.valid = False
+        self._pub.publish(msg)
+
     # ------------------------------------------------------------------ 定时
     def tick(self) -> None:
         """100Hz 单调定时器：算 ω → 发布 ``GimbalOmegaCmd``。"""
@@ -539,12 +658,28 @@ class GimbalControllerNode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = 'gimbal_link'
 
+            # No command becomes valid merely because the node was launched.
+            # On every disable/invalid-input stop discard slew history, so a
+            # later enable cannot resume a stale nonzero output.
+            if (not bool(self.get_parameter('control.enabled').value)
+                    or not bool(self.get_parameter('control.world_geometry_verified').value)
+                    or self._joint_angles is None or self._t_last_joint is None
+                    or t - self._t_last_joint > self._input_timeout_s
+                    or self._T_map_world is None or self._t_last_base is None
+                    or t - self._t_last_base > self._input_timeout_s
+                    or self._base_velocity_world is None or self._base_omega_world is None
+                    or not np.all(np.isfinite(self._camera_xyz_rpy))
+                    or np.linalg.norm(self._camera_xyz_rpy[3:]) > 1e-6
+                    or np.linalg.norm(self._R_world_odom[2, :2]) > 1e-3):
+                self._stop(msg)
+                return
+
             if (self._gimbal_state is None or self._t_last_gimbal is None
                     or t - self._t_last_gimbal > self._imu_timeout_s):
                 msg.yaw_omega = 0.0
                 msg.pitch_omega = 0.0
                 msg.valid = False
-                self._pub.publish(msg)
+                self._stop(msg)
                 throttled(self._log, 'warn', '云台姿态缺失或过期，输出无效零指令', 'no_state', 1.0)
                 return
 
@@ -559,13 +694,13 @@ class GimbalControllerNode(Node):
                 msg.yaw_omega = 0.0
                 msg.pitch_omega = 0.0
                 msg.valid = False
-                self._pub.publish(msg)
+                self._stop(msg)
                 return
             quat = quat / qn
 
-            # 当前姿态角（软限位衰减需要；pitch 走 frames 单点函数）
+            # World attitude is used for geometry only; limits use JointState.
             R = np.asarray(frames.quat_to_mat(quat), dtype=np.float64).reshape(3, 3)
-            yaw_c, pitch_c = current_angles(R[:, 0])
+            yaw_c, pitch_c = self._joint_angles
 
             if mode in (MODE_TRACK, MODE_COAST) and self._target is not None \
                     and bool(self._target.valid):
@@ -574,6 +709,10 @@ class GimbalControllerNode(Node):
                     self._law.reset()
                     self._log.info('重新捕获目标（age=%.3fs），退出搜索，KF 不重置', age)
 
+                if (self._t_last_marker is None or t - self._t_last_marker > self._input_timeout_s
+                        or self._height.z is None):
+                    self._stop(msg)
+                    return
                 if self._aim_mode == 'pred':
                     xy_map = np.array([self._target.pred_x, self._target.pred_y], dtype=np.float64)
                 else:
@@ -591,8 +730,8 @@ class GimbalControllerNode(Node):
                 v_world = np.array([v_world_xy[0], v_world_xy[1], self._height.vz],
                                    dtype=np.float64)
                 if not (np.all(np.isfinite(p_world)) and np.all(np.isfinite(v_world))):
-                    p_world = np.nan_to_num(p_world, nan=0.0, posinf=0.0, neginf=0.0)
-                    v_world = np.nan_to_num(v_world, nan=0.0, posinf=0.0, neginf=0.0)
+                    self._stop(msg)
+                    return
 
                 out = self._law.compute(
                     target_world=p_world,
@@ -600,12 +739,23 @@ class GimbalControllerNode(Node):
                     quat=quat,
                     gyro=gyro,
                     dt=dt,
-                    gimbal_origin_world=self.gimbal_origin_world(),
+                    # Aim from the CAMERA centre. The IMU-camera lever arm
+                    # also contributes omega x r to origin translation.
+                    gimbal_origin_world=self.gimbal_origin_world() + R @ self._camera_xyz_rpy[:3],
                     mode=mode,
+                    joint_angles=self._joint_angles,
+                    origin_velocity_world=(self._base_velocity_world
+                                           + R @ np.cross(gyro, self._camera_xyz_rpy[:3])),
+                    base_angular_velocity_world=self._base_omega_world,
                 )
+                if not out.valid:
+                    self._stop(msg)
+                    return
                 w_yaw, w_pitch = out.yaw_omega, out.pitch_omega
-            elif mode in (MODE_SEARCH, MODE_WIDE) or self._target is None \
-                    or not bool(self._target.valid):
+            elif mode in (MODE_SEARCH, MODE_WIDE):
+                if self._half_fov_rad <= 0.0:
+                    self._stop(msg)
+                    return
                 if self._search_entry_t is None:
                     self._search_entry_t = t
                     self._law.reset()
@@ -614,8 +764,9 @@ class GimbalControllerNode(Node):
                 w_yaw, w_pitch = pat.sample(tau)
                 w_yaw, w_pitch = self._law.limit(w_yaw, w_pitch, yaw_c, pitch_c, dt)
                 mode = MODE_WIDE if mode == MODE_WIDE else MODE_SEARCH
-            else:  # pragma: no cover - 兜底
-                w_yaw, w_pitch = self._law.limit(0.0, 0.0, yaw_c, pitch_c, dt)
+            else:
+                self._stop(msg)
+                return
 
             if mode != self._last_mode:
                 self._log.warn('控制模式切换: %s → %s（age=%.3fs）', self._last_mode, mode, age)
@@ -626,6 +777,7 @@ class GimbalControllerNode(Node):
             msg.valid = True
             self._pub.publish(msg)
         except Exception as exc:  # pragma: no cover - 定时器异常不得中断回路
+            self._law.reset()
             throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc', 1.0)
             try:
                 safe = GimbalOmegaCmd()

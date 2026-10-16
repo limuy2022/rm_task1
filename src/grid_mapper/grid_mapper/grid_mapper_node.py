@@ -12,23 +12,24 @@
 两种地图来源（`grid.map_source`）：
 
 * `config`：读 `field.yaml` 栅格化（12×12 m @ 0.05 m/cell，给定点居中）——赛前离线建图/仿真。
-* `topic`：订阅自己的 SLAM `/map`（`pb2025_sentry_nav` + `small_gicp_relocalization`），
+* `topic`：订阅自己的 SLAM `/map`（`pb2025_sentry_nav` 的 slam_toolbox 地图生产链），
   **原样采用其 resolution/origin**，只额外按 `grid.inflation_radius_m` 生成 `ray_grid`。
 
 ⚠ 写 `map.yaml` 的 origin 一律取**栅格自身**的 `origin_xy`（见 `resolve_map_origin`），
 不套 `grid.origin_xyz`——否则 topic 模式下整张图会按两者的差值平移。
 
 时钟约定（主理人拍板 1，混合时钟）：
-- `header.stamp` 用 **ROS 系统时钟** `node.get_clock().now()`（**不替换 node clock**）
+- 外部地图原样保留 `header.stamp`；配置图才使用当前 ROS 时钟
 - 所有 dt / 超时 / 定时器周期计算用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
 
-⚠ **待 Ubuntu 24.04 + ROS2 Jazzy 编译验证**：本机为 Windows，无 ROS2，
+⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
 本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
 """
 
 from __future__ import annotations
 
 import os
+import math
 import sys
 from typing import Any
 from typing import Dict
@@ -42,6 +43,10 @@ try:
     from rclpy.qos import QoSDurabilityPolicy
     from rclpy.qos import QoSHistoryPolicy
     from rclpy.qos import QoSProfile
+    from rclpy.qos import QoSReliabilityPolicy
+    from rclpy.time import Time
+    from rclpy.duration import Duration
+    from tf2_ros import Buffer, TransformListener
     from nav_msgs.msg import OccupancyGrid
 except Exception as _e:  # pragma: no cover - Windows 无 ROS2
     rclpy = None  # type: ignore[assignment]
@@ -68,6 +73,7 @@ from .field_config import FieldConfig
 from .grid_builder import GridMap
 from .pgm_io import write_map
 from .png_draw import draw_preview
+from .grid_geometry import planar_quaternion_yaw, compose_grid_origin
 
 # 默认参数（与 DESIGN §6.13 的 `grid.*` 命名空间一致）
 DEFAULTS: Dict[str, Any] = {
@@ -78,7 +84,12 @@ DEFAULTS: Dict[str, Any] = {
     'grid.inflation_radius_m': 0.10,
     'grid.map_source': 'config',          # config | topic
     'grid.field_yaml': '',                # 空 = 用默认场地
-    'grid.map_topic': '/map',             # map_source=topic 时订阅
+    'grid.map_topic': '/map',
+    'grid.source_frame': '',             # empty: validate nonempty incoming header, then resolve TF
+    'grid.output_frame': 'map',
+    'grid.external_map_transient_local': True,
+    'grid.output_basename': 'map',        # competition uses <team>_map
+             # map_source=topic 时订阅
     'grid.out_dir': 'maps',               # 落盘目录
     'grid.republish_period_s': 0.0,       # >0 时周期性重发（默认只发一次）
     'grid.write_preview_png': True,
@@ -138,7 +149,7 @@ def resolve_map_origin(grid_map: Any,
         (origin_xyz, warning)：`origin_xyz` 为 `[x, y, yaw]`；一致时 `warning` 为空串。
     """
     try:
-        got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), 0.0]
+        got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), float(getattr(grid_map, 'origin_yaw', 0.0))]
     except Exception:  # pragma: no cover - 兜底
         return [0.0, 0.0, 0.0], ''
     try:
@@ -146,7 +157,7 @@ def resolve_map_origin(grid_map: Any,
                 float(params_origin_xyz[2]) if len(params_origin_xyz) > 2 else 0.0]
     except Exception:
         return got, ''
-    if abs(got[0] - want[0]) > 1e-9 or abs(got[1] - want[1]) > 1e-9:
+    if any(abs(got[i]-want[i]) > 1e-9 for i in range(3)):
         return got, ('grid.origin_xyz=%s 与栅格实际 origin=%s 不一致'
                      '（map_source=topic 时外部地图自带 origin）→ map.yaml 按栅格 origin 写'
                      % (want, got))
@@ -166,17 +177,34 @@ class GridMapperNode(Node):  # type: ignore[misc]
 
         self._grid_map: Optional[GridMap] = None
         self._field: Optional[FieldConfig] = None
+        self._source_stamp = None
+        self._source_load_time = None
+        self._pending_external = None
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+        self._output_frame = str(self._params['grid.output_frame'])
+        if not self._output_frame:
+            raise ValueError('grid.output_frame must be nonempty')
+        basename = str(self._params['grid.output_basename'])
+        if not basename or os.path.basename(basename) != basename or basename in ('.', '..'):
+            raise ValueError('grid.output_basename must be a plain filename stem')
+
 
         # --- 地图来源 -------------------------------------------------------
         source = str(self._params['grid.map_source']).lower()
         if source == 'topic':
-            latched = self._latched_qos()
+            latched = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                                 durability=(QoSDurabilityPolicy.TRANSIENT_LOCAL
+                                     if self._params['grid.external_map_transient_local']
+                                     else QoSDurabilityPolicy.VOLATILE))
             self.create_subscription(
                 OccupancyGrid, str(self._params['grid.map_topic']),
                 self._on_external_map, latched)
             self._log.info('map_source=topic: 等待外部地图 %s'
                            % str(self._params['grid.map_topic']))
         else:
+            if source != 'config':
+                raise ValueError('grid.map_source must be config or topic')
             self._build_from_config()
 
         self._pub_grid = self.create_publisher(OccupancyGrid, '/map/grid',
@@ -186,6 +214,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         if self._grid_map is not None:
             self._publish_all()
 
+        self.create_timer(0.1, self._retry_pending_external)
         period = float(self._params['grid.republish_period_s'])
         if period > 0.0:
             self.create_timer(period, self._on_republish)
@@ -207,6 +236,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         try:
             return QoSProfile(
                 depth=1,
+                reliability=QoSReliabilityPolicy.RELIABLE,
                 history=QoSHistoryPolicy.KEEP_LAST,
                 durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             )
@@ -248,7 +278,9 @@ class GridMapperNode(Node):  # type: ignore[misc]
         if warn:
             self._log.warn(warn)
         try:
-            paths = write_map(out_dir, self._grid_map, origin_xyz=origin_xyz)
+            stem = str(self._params['grid.output_basename'])
+            paths = write_map(out_dir, self._grid_map, image_name=stem+'.pgm',
+                              yaml_name=stem+'.yaml', origin_xyz=origin_xyz)
             self._log.info('地图已落盘: %s, %s' % (paths['pgm'], paths['yaml']))
         except Exception as exc:  # 落盘失败不能拖垮整图，但要明确报错
             self._log.error('地图落盘失败: %r' % (exc,))
@@ -271,22 +303,46 @@ class GridMapperNode(Node):  # type: ignore[misc]
 
     # -- 回调 -----------------------------------------------------------------
     def _on_external_map(self, msg: Any) -> None:
-        """`map_source=topic`：接收外部 OccupancyGrid 后建图落盘。
+        """Compose source map origin into output frame; never just relabel it.
 
-        ⚠ 原样采用外部地图的 `resolution` / `origin`（不重采样、不套参数），
-        只按 `grid.inflation_radius_m` 额外生成「含膨胀」的 `ray_grid` 供避障；
-        `/map/grid`（未膨胀）保持原始三态，方向项解析求解用它。
+        Keep only the newest pending map while the replay origin TF is not yet
+        available. A later timer retries, so a single latched map received before
+        /judge/replay_start is not permanently lost.
         """
+        self._pending_external = msg
+        self._retry_pending_external()
+
+    def _retry_pending_external(self) -> None:
+        msg = self._pending_external
+        if msg is None:
+            return
         try:
+            source = str(msg.header.frame_id)
+            expected = str(self._params['grid.source_frame'])
+            if not source or (expected and source != expected):
+                raise ValueError(f'地图 frame_id={source!r} 与声明来源 {expected!r} 不符')
             info = msg.info
-            self._grid_map = GridMap.from_occupancy_grid(
-                int(info.width), int(info.height), float(info.resolution),
-                [float(info.origin.position.x), float(info.origin.position.y)],
-                list(msg.data),
-                inflation_radius_m=float(self._params['grid.inflation_radius_m']))
+            q = info.origin.orientation
+            yaw = planar_quaternion_yaw([q.x, q.y, q.z, q.w])
+            origin = [float(info.origin.position.x), float(info.origin.position.y)]
+            if source != self._output_frame:
+                tf = self._tf_buffer.lookup_transform(self._output_frame, source,
+                    Time.from_msg(msg.header.stamp), timeout=Duration(seconds=0.0))
+                tr, rq = tf.transform.translation, tf.transform.rotation
+                origin, yaw = compose_grid_origin(origin, yaw,
+                    [tr.x, tr.y, tr.z], [rq.x, rq.y, rq.z, rq.w])
+            gm = GridMap.from_occupancy_grid(
+                int(info.width), int(info.height), float(info.resolution), origin,
+                list(msg.data), inflation_radius_m=float(self._params['grid.inflation_radius_m']),
+                origin_yaw=yaw)
+            self._grid_map = gm
+            self._source_stamp = msg.header.stamp
+            self._source_load_time = getattr(info, 'map_load_time', None)
+            self._pending_external = None
             self._save_outputs()
+            self._publish_all()
         except Exception as exc:
-            throttled(self._log, 'error', '外部地图解析失败: %r' % (exc,),
+            throttled(self._log, 'warning', f'地图暂未接入（等待有效地图/对应时刻TF）: {exc!r}',
                       'grid_mapper.ext_map_err', 1.0)
 
     def _on_republish(self) -> None:
@@ -306,17 +362,20 @@ class GridMapperNode(Node):  # type: ignore[misc]
                       'grid_mapper.pub_err', 1.0)
 
     def _to_msg(self, gm: GridMap, use_ray: bool) -> Any:
-        """GridMap → nav_msgs/OccupancyGrid。header.stamp 用 ROS 系统时钟。"""
+        """GridMap → OccupancyGrid，外部图保留源stamp和栅格原点yaw。"""
         msg = OccupancyGrid()
-        msg.header.frame_id = 'map'
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self._output_frame
+        msg.header.stamp = self._source_stamp if self._source_stamp is not None else self.get_clock().now().to_msg()
+        if self._source_load_time is not None:
+            msg.info.map_load_time = self._source_load_time
         msg.info.resolution = float(gm.resolution)
         msg.info.width = int(gm.width)
         msg.info.height = int(gm.height)
         msg.info.origin.position.x = float(gm.origin_xy[0])
         msg.info.origin.position.y = float(gm.origin_xy[1])
         msg.info.origin.position.z = 0.0
-        msg.info.origin.orientation.w = 1.0
+        msg.info.origin.orientation.z = math.sin(gm.origin_yaw/2)
+        msg.info.origin.orientation.w = math.cos(gm.origin_yaw/2)
         msg.data = gm.to_occupancy_data(use_ray=use_ray)
         return msg
 
@@ -334,7 +393,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
     if rclpy is None:  # pragma: no cover - Windows 无 ROS2
-        print('[grid_mapper_node] FATAL rclpy 不可用（需要 ROS2 Jazzy）')
+        print('[grid_mapper_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
         return 1
     rclpy.init(args=args)
     node = GridMapperNode()

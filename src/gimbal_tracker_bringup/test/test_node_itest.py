@@ -223,7 +223,7 @@ def test_wiring(stub_ros, tmp_path):
     cam = CL.load_yaml(VIRTUAL_YAML, required=True)['camera']
     expect = math.atan((float(cam['width']) * 0.5) / float(cam['fx']))
     assert app._half_fov == pytest.approx(expect)
-    assert math.degrees(app._half_fov) == pytest.approx(30.0, abs=0.1)
+    assert 0.0 < app._half_fov < math.pi/2  # use calibrated K, not the former synthetic 60deg FOV
 
 
 def test_skips_until_data_arrives(stub_ros, tmp_path):

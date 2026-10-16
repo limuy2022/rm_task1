@@ -24,7 +24,7 @@
 ⚠ 水平半视场**不在本文件写死**（DESIGN §8.6：唯一数据源是 ``config/virtual.yaml`` 的
 ``camera.width`` / ``camera.fx``）。正确用法是由调用方（``gimbal_controller_node``）
 读 YAML 后算出 ``half_fov = atan(width/2 / fx)``，通过 ``half_fov_rad`` 形参注入。
-本模块只保留一个**保守兜底值** :data:`DEFAULT_HALF_FOV_RAD`，仅在未注入时使用。
+本模块只保留一个**保守兜底值** :data:`DEFAULT_HALF_FOV_RAD`，仅在未注入时使用；此时为零，不能猜测相机视场。
 
 纯 Python 实现，**不依赖 ROS**，可直接单测。
 """
@@ -51,8 +51,8 @@ DEFAULT_WIDE_AMP_PITCH = 0.2
 #: 仅在调用方既没有注入 ``half_fov_rad``、也不存在 ``virtual.yaml`` 时使用。
 #: 真实值一律由 ``atan(camera.width/2 / camera.fx)`` 计算后注入
 #: （禁止在本文件写死内参派生量，见 DESIGN §8.6）。
-#: 0.5 rad 取略小于真实值（≈0.52）的保守下界，宁小不大。
-DEFAULT_HALF_FOV_RAD = 0.5
+#: 未知视场无法保证任意非零值保守；回退 0，并由节点拒绝搜索。
+DEFAULT_HALF_FOV_RAD = 0.0
 
 TWO_PI = 2.0 * math.pi
 
@@ -111,7 +111,7 @@ class SearchPattern:
         pitch_freq: pitch 扫掠频率（Hz）；``None`` 时与 yaw 同频。
         half_fov_rad: 水平半视场（rad）。**应由调用方从 ``virtual.yaml`` 内参算出后注入**
             （``atan(width/2 / fx)``）；``None`` 或非法时回退
-            :data:`DEFAULT_HALF_FOV_RAD`（保守兜底）。
+            :data:`DEFAULT_HALF_FOV_RAD`（未知即零）。
         clamp_amp_to_half_fov: ``True`` 时把 ``amp_yaw`` 限制到 ``0.5 × half_fov_rad``
             以内（DESIGN §6.8 的原始约束）。小幅搜索应开启；全范围扫描**故意**
             要扫出视场外，故保持 ``False``。
@@ -175,7 +175,7 @@ class SearchPattern:
         """同 :meth:`sample`，但额外返回角度偏移（便于绘制/调试）。"""
         tau = float(t)
         if not math.isfinite(tau) or tau < 0.0:
-            tau = 0.0
+            return SearchSample()
 
         w_y = TWO_PI * self.freq
         yaw_offset = self.amp_yaw * math.sin(w_y * tau)

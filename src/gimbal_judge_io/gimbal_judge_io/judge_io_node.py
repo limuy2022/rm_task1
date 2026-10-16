@@ -21,12 +21,10 @@
 - `~/ws_championship/output/<队伍编号>.csv`（无表头，只追加）
 - `~/ws_championship/output/<队伍编号>_map.pgm` / `_map.yaml`（map_saver_cli 格式）
 
-⚠️ **`judge.fresh_run`（默认 true）**：CSV 是**追加**写的（为了节点中途崩溃重启不丢
-已有行），但因此有个陷阱 —— 如果上一次跑的 `<队号>.csv` 还在，新一轮的 `t_tick`
-会和上一轮重复，**整个文件很可能被判作废**（实测：同一场景跑两遍，
-`tools/check_csv.py` 立刻报「t_tick 非单调递增」）。
-所以启动时会**把上一轮产物改名归档**成 `<队号>.csv.bak.<时间戳>`，本次从空文件开始。
-设 `fresh_run=false` 可退回纯追加（仅当你要手动续跑时用）。
+CSV默认追加，进程重启不得归档/覆盖已提交行。fresh_run=true只能在明确的新轮
+开始前使用；正式部署保持false，旧半行或损坏文件由写出器报错，不修改历史记录。
+目标和底盘按源stamp缓存，tick到来时外推到该tick及tick+0.1秒；过期或无效输入不继续
+冒充有效状态。建议只有来源有效时才使用，不在缺少绕障解时强造朝目标的速度。
 
 给定点（map 系原点）冻结：`/judge/replay_start` 到达（或兜底：第 0 拍）时向
 `/gimbal/origin_freeze` 发一条锁存 `Header`，由 `map_frame_broadcaster_node`
@@ -67,17 +65,21 @@ except Exception:  # pragma: no cover - Windows 无 ROS2
     QoSDurabilityPolicy = None  # type: ignore[assignment]
 
 from .tick_csv import V_STOP, TickCsvWriter
+from .tick_sampler import TickSampler
+from gimbal_common import frames
+from gimbal_common.time_buffer import stamp_seconds
 
 NODE_NAME = 'judge_io_node'
 
 PARAM_DEFAULTS: Dict[str, Any] = {
     # --- 身份与路径 ---------------------------------------------------------
-    'judge.team_id': 'T0',
+    'judge.team_id': '47',
     'judge.output_dir': '~/ws_championship/output',
-    # 当前环境文档要求九列；最终赛制以主办方发布链接为准。
+    # 已确认当前赛题一输出九列。
     'judge.emit_t_tick': True,
-    # 启动时把上一轮的同名产物改名归档（.bak.<时间戳>），本次从空文件开始写。
-    # 关闭后会**追加**到旧文件 → 新旧行混在一起 → 行数与实际拍数不符 → 很可能作废。
+    'judge.state_timeout_s': 0.2,
+    'judge.observation_timeout_s': 0.5,
+    # 正式提交只能追加；新轮清理由主办方负责。自行测试使用新目录。
     'judge.fresh_run': False,
     # --- 运行时 -------------------------------------------------------------
     'judge.enforce_v_floor': True,     # 防止 |v|<0.02 被判"停车"记满分误差
@@ -144,16 +146,17 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._map_yaml = os.path.join(out_dir, '%s_map.yaml' % team)
         self._map_image_name = '%s_map.pgm' % team
 
-        # --- 新跑一轮：先归档上一轮产物（绝不把新行追加到旧文件上）---------
+        # --- 不允许对既有提交做启动归档；测试轮使用新目录 -----------------
         if bool(self._params['judge.fresh_run']):
-            self._archive_previous()
+            raise ValueError('禁止启动时改名既有提交；测试请选择新的output_dir，正式轮由主办方清理')
 
         self._writer = TickCsvWriter(self._csv_path, logger=self._log,
                                      with_tick=bool(
                                          self._params['judge.emit_t_tick']))
-        self._writer.open()
+        if not self._writer.open():
+            raise RuntimeError("CSV打不开，拒绝启动；不修改原有提交")
 
-        # --- 数据快照（最新值，tick 到来时直接取用）-------------------------
+        # --- 按源stamp缓存，tick选择不晚于自身时刻的状态 ------------------
         self._pred = np.zeros(2, dtype=float)
         self._cur = np.zeros(2, dtype=float)
         self._base = np.zeros(2, dtype=float)
@@ -161,6 +164,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._has_target = False
         self._has_base = False
         self._has_advice = False
+        self._sampler = TickSampler(float(self._params['judge.state_timeout_s']),
+                                    float(self._params['judge.observation_timeout_s']))
 
         # --- 拍状态 ---------------------------------------------------------
         self._tick_index: int = -1
@@ -172,6 +177,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._grid: Optional[np.ndarray] = None       # (W, H) int8
         self._grid_res: float = 0.05
         self._grid_origin = np.zeros(2, dtype=float)
+        self._grid_yaw = 0.0
         self._t_last_map_save: float = 0.0
         self._map_saved_final: bool = False
 
@@ -199,36 +205,6 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._log.info('judge_io_node 启动: team=%s 列数=%d csv=%s map=%s'
                        % (team, self._writer.n_cols, self._csv_path,
                           self._map_pgm))
-
-    # -- 新旧产物隔离 ---------------------------------------------------------
-    def _archive_previous(self) -> int:
-        """把上一轮的同名产物改名归档，保证本次从空文件开始写。
-
-        改名（而不是删除）——旧数据留着赛后复盘，同时避免"新旧 t_tick 混在一个
-        文件里"这种整份作废的后果。归档名：``<原名>.bak.<YYYYmmdd-HHMMSS>``。
-
-        Returns:
-            int：归档的文件数。
-        """
-        stamp = time.strftime('%Y%m%d-%H%M%S')
-        n = 0
-        for path in (self._csv_path, self._map_pgm, self._map_yaml):
-            try:
-                if os.path.exists(path) and os.path.getsize(path) > 0:
-                    bak = '%s.bak.%s' % (path, stamp)
-                    os.replace(path, bak)
-                    n += 1
-                    self._log.warning('上一轮产物已归档: %s → %s'
-                                      % (os.path.basename(path),
-                                         os.path.basename(bak)))
-            except Exception as exc:  # pragma: no cover
-                # 归档失败不能挡住本次运行，但必须让人看见
-                self._log.error('归档旧产物失败 %s: %r（本次仍会追加写！）'
-                                % (path, exc))
-        if n:
-            self._log.warning('共归档 %d 个上一轮产物（judge.fresh_run=true）；'
-                              '本次 CSV 从空文件开始写' % n)
-        return n
 
     # -- 参数 -----------------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
@@ -270,11 +246,20 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._n_tick += 1
         self._t_last_tick_mono = t0
 
-        # 兜底：没收到 replay_start 时，第 0 拍同样冻结给定点
+        # 第一拍不一定等于回放起点，不能擅自据此改变比赛原点。
         if idx == 0 and not self._origin_frozen:
-            self._freeze_origin(msg)
+            self._log.error('尚未收到replay_start；等待正式起点，不能用第一拍替代')
 
         t_tick = _stamp_to_sec(msg.stamp)
+        snap = self._sampler.sample(t_tick)
+        self._pred, self._cur, self._base, self._vel = (
+            snap.prediction, snap.current, snap.base, snap.advice)
+        self._has_target, self._has_base, self._has_advice = (
+            snap.target_valid, snap.base_valid, snap.advice_valid)
+        if not all((self._has_target, self._has_base, self._has_advice)):
+            if idx % 20 == 0:
+                self._log.warning('tick状态缺失/过期：target=%s base=%s advice=%s；仍按时写行'
+                                  % (self._has_target,self._has_base,self._has_advice))
         vel = self._safe_velocity()
         ok = self._writer.write_tick(self._pred, self._cur, self._base, vel,
                                      t_tick)
@@ -288,85 +273,82 @@ class JudgeIoNode(Node):  # type: ignore[misc]
 
     # -- 数据回调 -------------------------------------------------------------
     def _on_target(self, msg: Any) -> None:
-        """缓存目标状态（map 系）。"""
         try:
-            if not bool(msg.valid):
-                return
-            self._pred = np.array([float(msg.pred_x), float(msg.pred_y)],
-                                  dtype=float)
-            self._cur = np.array([float(msg.cur_x), float(msg.cur_y)],
-                                 dtype=float)
-            self._has_target = True
-        except Exception as exc:  # pragma: no cover
-            self._log.error('target_state 解析失败: %r' % (exc,))
+            if msg.header.frame_id != 'map': return
+            self._sampler.put_target(stamp_seconds(msg.header.stamp),
+                [msg.cur_x,msg.cur_y],[msg.vel_x,msg.vel_y],[msg.acc_x,msg.acc_y],
+                valid=bool(msg.valid) and int(msg.track_status)!=0,
+                observation_age=float(msg.last_obs_age))
+        except (AttributeError,TypeError,ValueError) as exc:
+            self._log.error('target_state解析失败: %r' % (exc,))
 
     def _on_base_pose(self, msg: Any) -> None:
-        """缓存底盘位姿（map 系 = 给定点系）。"""
         try:
-            p = msg.pose.pose.position
-            self._base = np.array([float(p.x), float(p.y)], dtype=float)
-            self._has_base = True
-        except Exception as exc:  # pragma: no cover
-            self._log.error('base_pose 解析失败: %r' % (exc,))
+            if msg.header.frame_id != 'map' or msg.child_frame_id != 'base_link': return
+            p=msg.pose.pose.position;q=msg.pose.pose.orientation
+            quat=np.array([q.w,q.x,q.y,q.z],float)
+            v=msg.twist.twist.linear
+            if not np.all(np.isfinite(quat)) or np.linalg.norm(quat)<.5:return
+            # nav_msgs/Odometry twist is in child/base coordinates.
+            velocity=frames.quat_to_mat(quat)@np.array([v.x,v.y,v.z],float)
+            self._sampler.put_base(stamp_seconds(msg.header.stamp),[p.x,p.y],velocity[:2])
+        except (AttributeError,TypeError,ValueError) as exc:
+            self._log.error('base_pose解析失败: %r' % (exc,))
 
     def _on_advice(self, msg: Any) -> None:
-        """缓存底盘建议速度（map 系）。"""
         try:
-            self._vel = np.array([float(msg.cmd_vx), float(msg.cmd_vy)],
-                                 dtype=float)
-            self._has_advice = True
-        except Exception as exc:  # pragma: no cover
-            self._log.error('advice 解析失败: %r' % (exc,))
+            if msg.header.frame_id != 'map': return
+            self._sampler.put_advice(stamp_seconds(msg.header.stamp),[msg.cmd_vx,msg.cmd_vy],
+                                    valid=bool(msg.valid))
+        except (AttributeError,TypeError,ValueError) as exc:
+            self._log.error('advice解析失败: %r' % (exc,))
 
     def _on_grid(self, msg: Any) -> None:
         """缓存栅格地图（干净三态，用于落盘）。"""
         try:
-            w = int(msg.info.width)
-            h = int(msg.info.height)
-            if w <= 0 or h <= 0:
-                return
-            arr = np.asarray(msg.data, dtype=np.int8).reshape((h, w)).T.copy()
+            if msg.header.frame_id != 'map':
+                raise ValueError('提交地图必须已经换到比赛map，不能只改名')
+            w, h = int(msg.info.width), int(msg.info.height)
+            res = float(msg.info.resolution)
+            if w <= 0 or h <= 0 or not math.isfinite(res) or res <= 0:
+                raise ValueError('invalid grid dimensions/resolution')
+            q=msg.info.origin.orientation
+            quat=np.array([q.w,q.x,q.y,q.z],float)
+            if not np.all(np.isfinite(quat)) or np.linalg.norm(quat)<.5:
+                raise ValueError('invalid map origin orientation')
+            R=frames.quat_to_mat(quat)
+            if abs(R[2,0])+abs(R[2,1]) > 1e-6:
+                raise ValueError('PGM/YAML requires a planar map')
+            raw=np.asarray(msg.data)
+            if raw.size != w*h or not np.all(np.isin(raw,[-1,0,100])):
+                raise ValueError('grid must have exactly width*height trinary cells')
+            arr=raw.astype(np.int8).reshape((h,w)).T.copy()
             self._grid = arr                       # (W, H)
-            self._grid_res = float(msg.info.resolution) or 0.05
-            q = msg.info.origin.orientation
-            yaw = math.atan2(2.0 * (q.w*q.z + q.x*q.y),
-                             1.0 - 2.0 * (q.y*q.y + q.z*q.z))
+            self._grid_res = res
+            yaw = math.atan2(float(R[1,0]), float(R[0,0]))
             self._grid_yaw = yaw
             o = msg.info.origin.position
             self._grid_origin = np.array([float(o.x), float(o.y)], dtype=float)
+            if not np.all(np.isfinite(self._grid_origin)):
+                self._grid=None
+                raise ValueError('invalid map origin translation')
         except Exception as exc:  # pragma: no cover
+            self._grid = None
             self._log.error('grid 解析失败: %r' % (exc,))
 
     # -- 速度守卫 -------------------------------------------------------------
     def _safe_velocity(self) -> np.ndarray:
-        """保证不被误判为"停车"：`|v| < 0.02` 且距目标 ≥0.5 m 时该拍方向项记满分误差 1。
-
-        规则原文：`hypot(vx, vy) < 0.02` 视为停车，此时离目标不到 0.5 m 记 0 分，
-        否则记 1 分。因此远离目标时必须保证 `|v| ≥ 0.02`。
-        """
-        v = np.array([float(self._vel[0]), float(self._vel[1])], dtype=float)
-        if not bool(self._params['judge.enforce_v_floor']):
-            return v if np.all(np.isfinite(v)) else np.zeros(2, dtype=float)
-        if not np.all(np.isfinite(v)):
-            v = np.zeros(2, dtype=float)
-
-        dist = float(np.hypot(self._cur[0] - self._base[0],
-                              self._cur[1] - self._base[1]))
-        stop_r = float(self._params['judge.stop_radius_m'])
-        if math.isfinite(dist) and dist < stop_r:
-            return np.zeros(2, dtype=float)      # 已到位 → 停车 → 该项记 0（最优）
-
-        n = float(np.linalg.norm(v))
-        floor = max(float(self._params['judge.v_floor']), V_STOP * 2.0)
-        if n < floor:
-            if n > 1e-9:
-                v = v * (floor / n)
-            elif math.isfinite(dist) and dist > 1e-6:
-                v = np.array([self._cur[0] - self._base[0],
-                              self._cur[1] - self._base[1]], dtype=float)
-                v = v * (floor / dist)
-            else:
-                v = np.array([floor, 0.0], dtype=float)
+        """Scale only a fresh nonzero suggestion; do not invent a bypass."""
+        if not self._has_advice or not self._has_base or not self._has_target:
+            return np.zeros(2)
+        v=self._vel.copy()
+        if not np.all(np.isfinite(v)): return np.zeros(2)
+        if not bool(self._params['judge.enforce_v_floor']):return v
+        dist=float(np.linalg.norm(self._cur-self._base))
+        if dist<float(self._params['judge.stop_radius_m']):return np.zeros(2)
+        norm=float(np.linalg.norm(v))
+        floor=max(float(self._params['judge.v_floor']),V_STOP*2.)
+        if 1e-9<norm<floor:v*=floor/norm
         return v
 
     # -- 看门狗 ---------------------------------------------------------------

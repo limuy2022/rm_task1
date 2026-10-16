@@ -2,6 +2,7 @@
 import ast
 import importlib.util
 import sys
+import math
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -59,6 +60,25 @@ class Regression(unittest.TestCase):
     def test_nonfinite_command_becomes_zero(self):
         g=CommandGate();g.command(float('nan'),1.,True,0.)
         self.assertEqual(g.cmd,(0.,0.))
+    def test_invalid_command_stops_without_previous_slew_tail(self):
+        g=CommandGate();g.imu(0.);g.enable(True,0.)
+        for k in range(1,50):
+            t=k*.02;g.imu(t);g.command(2.,-2.,True,t);g.output(t)
+        self.assertGreater(abs(g.previous[0]),1.)
+        g.command(100.,100.,False,1.);g.imu(1.)
+        self.assertEqual(g.output(1.),(0.,0.))
+    def test_adapter_rejects_old_source_stamp_and_duplicate(self):
+        path=root/'src/gimbal_serial_bridge/gimbal_serial_bridge/hardware_adapter_node.py'
+        env={'math':math,'time':NS(monotonic=lambda:1.1)}
+        fn=extract_method(path,'on_cmd',env)
+        obj=NS(gate=CommandGate(),last_cmd_stamp=None,
+               get_clock=lambda:NS(now=lambda:NS(nanoseconds=1100000000)))
+        msg=NS(header=NS(stamp=NS(sec=1,nanosec=50000000),frame_id='gimbal_link'),
+               yaw_omega=1.,pitch_omega=-1.,valid=True)
+        fn(obj,msg);self.assertEqual(obj.gate.cmd,(1.,-1.))
+        fn(obj,msg);self.assertEqual(obj.gate.cmd,(0.,0.))
+        msg.header.stamp=NS(sec=0,nanosec=0);fn(obj,msg)
+        self.assertEqual(obj.gate.cmd,(0.,0.))
     def test_mcu_reset_latches(self):
         g=CommandGate();g.enable(True,0.);g.reset()
         self.assertTrue(g.fault)
@@ -86,6 +106,7 @@ class Regression(unittest.TestCase):
         env={'Any':object}
         fn=extract_method(path,'_on_timer',env)
         obj=NS(_ok=True,_target_digit=0,_params={},_latest=object(),
+               _publish=lambda *args:None, get_clock=lambda:NS(now=lambda:NS(to_msg=lambda:NS(sec=7,nanosec=0))),
                get_parameter=lambda key:NS(value=-1),_log=NS(info=lambda msg:None))
         fn(obj)
         self.assertEqual(obj._target_digit,-1);self.assertIsNone(obj._latest)

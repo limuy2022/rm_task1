@@ -93,7 +93,9 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
   reset_pub_ = create_publisher<std_msgs::msg::UInt64>(
     "/task1/gimbal_reset_epoch", rclcpp::QoS(1).reliable().transient_local());
   std_msgs::msg::UInt64 epoch;
-  epoch.data = 0;
+  epoch_base_ = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::system_clock::now().time_since_epoch()).count());
+  epoch.data = epoch_base_;
   reset_pub_->publish(epoch);
   if (publish_tf_) {tf_br_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);}
   RCLCPP_INFO(
@@ -216,7 +218,7 @@ void BridgeNode::onFrame(const std::uint8_t * frame, std::size_t /*n*/)
     // 需要自己处理），这一帧不计丢帧、不求 dt，但照常发布。
     ++n_resets_;
     std_msgs::msg::UInt64 epoch;
-    epoch.data = n_resets_.load();
+    epoch.data = epoch_base_ + n_resets_.load();
     reset_pub_->publish(epoch);
     RCLCPP_WARN(get_logger(), "检测到 MCU 复位（seq=%u stamp_us=%u），此帧不计丢帧", s.seq, s.stamp_us);
   } else {

@@ -202,6 +202,34 @@ class ObservationBuilder:
         s_depth = max(s_depth, self.r_min_sigma)
         return np.diag([s_lat * s_lat, s_lat * s_lat, s_depth * s_depth])
 
+    def build_from_transform(self, tvec_opt, cov_opt, T_map_camera) -> Observation:
+        """Use the complete TF map<-camera_optical at the image stamp.
+
+        No identity fallback for absent/invalid calibration. Translation includes
+        the optical centre and all rotating lever arms supplied by the TF chain.
+        """
+        bad = Observation(valid=False, reason='invalid optical transform')
+        try:
+            p = np.asarray(tvec_opt, float).reshape(3)
+            T = np.asarray(T_map_camera, float).reshape(4, 4)
+            R = T[:3, :3]
+            if (not np.all(np.isfinite(p)) or p[2] <= 0 or not np.all(np.isfinite(T))
+                    or not np.allclose(T[3], [0,0,0,1], atol=1e-7)
+                    or not np.allclose(R.T@R, np.eye(3), atol=1e-6)
+                    or not np.isclose(np.linalg.det(R), 1., atol=1e-6)):
+                return bad
+            C = self.cov_from_flat(cov_opt)
+            if C is None: C = self._fallback_cov(float(p[2]))
+            C = (C+C.T)/2
+            if np.linalg.eigvalsh(C).min() < -1e-10:
+                bad.reason='negative observation covariance'; return bad
+            result=R@p+T[:3,3]
+            covariance=(R@C@R.T)[:2,:2]+np.eye(2)*self.r_min_sigma**2
+            return Observation(valid=True, reason='', pos_map=result,
+                pos_world=result.copy(), R_map=covariance, depth=float(p[2]))
+        except (TypeError, ValueError, np.linalg.LinAlgError):
+            return bad
+
     # ------------------------------------------------------------------ 主入口
     def build(
         self,

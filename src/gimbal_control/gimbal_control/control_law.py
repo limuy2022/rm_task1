@@ -1,22 +1,10 @@
 # -*- coding: utf-8 -*-
-"""云台控制律 —— DESIGN.md §6.8 的参考实现（纯 Python + numpy，不依赖 ROS）。
+"""Pure world-frame aiming and camera-bearing control, with no ROS or hardware IO.
 
-六步（**顺序不可调换**）：
-
-1. 视线与光轴：``r = p_t − p_gimbal_world``；``f = R[:,0]``；``y_body = R[:,1]``
-2. 目标/当前姿态分解（先 yaw 后 pitch，无 roll，**pitch 一律走
-   ``frames.to_protocol_pitch``**）
-3. 误差：``e_yaw = wrap_pi(yaw_t − yaw_c)``；``e_pitch = pitch_t − pitch_c``
-4. 前馈：``ω_vec = cross(r, v_t)/(‖r‖²+1e-9)``；
-   ``ω_ff_yaw = ω_vec·ẑ``；``ω_ff_pitch = ω_vec·y_body``
-5. 反馈（PD + IMU 阻尼）：
-   ``ω_yaw   = ff_gain·ω_ff_yaw   + kp_yaw·e_yaw   − kd_yaw·ω_imu_yaw``
-   ``ω_pitch = ff_gain·ω_ff_pitch + kp_pitch·e_pitch − kd_pitch·ω_imu_pitch``
-   其中 ``ω_imu_yaw = gyro.z / max(cos(pitch_c), 0.1)``；``ω_imu_pitch = gyro.y``
-6. 限幅与保护：slew → 幅值 clamp → 软限位衰减 → 有限性守卫
-
-⚠ pitch 符号（主理人拍板 3 / DESIGN 修正 1）：本文件**不得出现任何 pitch 符号字面量**，
-所有"抬头为正 → 低头为正"的换算必须调用 ``gimbal_common.frames.to_protocol_pitch``。
+World aiming requires an aligned world frame, a planar base, known mechanical
+joint positions and a gimbal x-axis that is the calibrated camera optical axis.
+Never use world IMU yaw/pitch as mechanical limits. Feedforward uses relative
+translation and removes base rotation before emitting joint-rate commands.
 """
 
 from __future__ import annotations
@@ -131,36 +119,34 @@ def current_angles(f: np.ndarray) -> Tuple[float, float]:
 
 def feedforward(r: np.ndarray, vel_world: Sequence[float],
                 y_body: Sequence[float]) -> Tuple[float, float]:
-    """Step 4：视线角速度前馈。
+    """Exact yaw/elevation rate of a sight line, in protocol pitch convention.
 
-    ``ω_vec = cross(r, v_t) / (‖r‖² + 1e-9)``
-    ``ω_ff_yaw = ω_vec·[0,0,1]``；``ω_ff_pitch = ω_vec·y_body``
-
-    自检（DESIGN §6.8）：``r=(d,0,0)``、``v=(0,0,vz)``、``y_body=(0,1,0)``
-    → ``ω_vec=(0, −vz/d, 0)`` → ``ω_ff_pitch = −vz/d < 0``（目标上升应抬头，
-    协议域 pitch 减小，负号正确）。
-
-    Returns:
-        ``(ff_yaw, ff_pitch)``，均为有限值。
+    vel_world is target minus aiming-origin translational velocity. The legacy
+    y_body argument is retained for source compatibility; the exact derivatives
+    do not need it. Singular/invalid sight lines give zero feedforward; callers
+    must reject the undefined aiming geometry, as ControlLaw.compute does.
     """
     rv = np.asarray(r, dtype=np.float64).reshape(3)
     vv = np.asarray(vel_world, dtype=np.float64).reshape(3)
     yv = np.asarray(y_body, dtype=np.float64).reshape(3)
     if not (np.all(np.isfinite(rv)) and np.all(np.isfinite(vv)) and np.all(np.isfinite(yv))):
         return 0.0, 0.0
-    denom = float(rv @ rv) + EPS_R2
-    omega_vec = np.cross(rv, vv) / denom
-    ff_yaw = float(omega_vec[2])                 # ω_vec · [0,0,1]
-    ff_pitch = float(omega_vec @ yv)             # 绕机体 +y → 协议域（低头为正）
-    if not math.isfinite(ff_yaw):
-        ff_yaw = 0.0
-    if not math.isfinite(ff_pitch):
-        ff_pitch = 0.0
-    return ff_yaw, ff_pitch
+    # Exact derivatives of yaw and protocol pitch. cross(r,v)/|r|² is an
+    # angular velocity vector, whose z component is not yaw_dot off the horizon.
+    h2 = float(rv[0] ** 2 + rv[1] ** 2)
+    h = math.sqrt(h2)
+    r2 = float(rv @ rv)
+    if h < 1e-6 or r2 < EPS_R2:
+        return 0.0, 0.0
+    ff_yaw = float((rv[0] * vv[1] - rv[1] * vv[0]) / h2)
+    h_dot = float((rv[0] * vv[0] + rv[1] * vv[1]) / h)
+    pitch_up_dot = float((h * vv[2] - rv[2] * h_dot) / r2)
+    ff_pitch = float(frames.to_protocol_pitch(pitch_up_dot))
+    return finite_guard(ff_yaw), finite_guard(ff_pitch)
 
 
 def imu_feedback(gyro: Sequence[float], pitch_c: float) -> Tuple[float, float]:
-    """Step 5：从机体系陀螺反解**关节**角速度（协议域）。
+    """Step 5：从机体系陀螺估计**世界系姿态**角速度（平面底盘、无 roll）（协议域）。
 
     ``ω_imu_yaw = gyro.z / max(cos(pitch_c), 0.1)``
     ``ω_imu_pitch = gyro.y``
@@ -205,6 +191,12 @@ def soft_limit_factor(angle: float, omega: float, lo: float, hi: float,
     Returns:
         ``[0, 1]`` 的衰减系数；不需要衰减时返回 1.0。
     """
+    if not all(math.isfinite(float(v)) for v in (angle, omega, lo, hi, margin)) or lo >= hi:
+        return 0.0
+    if omega > 0.0 and angle >= hi:
+        return 0.0
+    if omega < 0.0 and angle <= lo:
+        return 0.0
     if margin <= 0.0:
         return 1.0
     if omega > 0.0 and angle > hi - margin:
@@ -257,6 +249,15 @@ class ControlLaw:
         self.pitch_min = float(pitch_min)
         self.pitch_max = float(pitch_max)
         self.limit_margin = float(limit_margin)
+        scalars = (self.kp_yaw, self.kp_pitch, self.kd_yaw, self.kd_pitch,
+                   self.ff_gain, self.omega_max_yaw, self.omega_max_pitch,
+                   self.omega_slew, self.yaw_min, self.yaw_max,
+                   self.pitch_min, self.pitch_max, self.limit_margin)
+        if (not all(math.isfinite(v) for v in scalars)
+                or any(v < 0.0 for v in scalars[:7]) or self.omega_slew <= 0.0
+                or self.yaw_min >= self.yaw_max or self.pitch_min >= self.pitch_max
+                or self.limit_margin < 0.0):
+            raise ValueError('control gains, rate limits and mechanical limits must be finite and ordered')
 
         self._omega_yaw_prev = 0.0
         self._omega_pitch_prev = 0.0
@@ -282,71 +283,77 @@ class ControlLaw:
         dt: float = 0.01,
         gimbal_origin_world: Optional[Sequence[float]] = None,
         mode: str = 'track',
+        *,
+        joint_angles: Optional[Sequence[float]] = None,
+        origin_velocity_world: Optional[Sequence[float]] = None,
+        base_angular_velocity_world: Optional[Sequence[float]] = None,
     ) -> ControlOutput:
         """执行一次完整的六步控制律（含限幅与保护）。
 
         Args:
             target_world: 目标在 **world** 系下的位置，shape (3,)。
             vel_world: 目标在 **world** 系下的速度，shape (3,)（map 系速度需先反旋）。
-            quat: 云台姿态四元数 ``(w, x, y, z)``，world → gimbal_link。
+            quat: ``(w,x,y,z)`` 表示 R_world←gimbal，不能当成关节角。
             gyro: 机体系陀螺 ``(gx, gy, gz)``，rad/s。
             dt: 距上次指令的间隔（秒，**单调时钟**），用于 slew 限幅。
             gimbal_origin_world: 云台原点（world 系）；``None`` 视为原点。
             mode: 工作模式标签，原样填入输出。
+            joint_angles: 真实机械 yaw/pitch 角；缺失或非法则输出无效零指令。
+            origin_velocity_world: 云台原点平移速度，须与目标速度在同一世界系。
+            base_angular_velocity_world: 底盘角速度；已验证平面底盘模型下扣除底盘旋转。
+                后两项省略只适用于明确静止的台架。
 
         Returns:
             :class:`ControlOutput`。
         """
-        # ---- Step 1 -------------------------------------------------------
-        origin = (np.zeros(3, dtype=np.float64) if gimbal_origin_world is None
-                  else np.asarray(gimbal_origin_world, dtype=np.float64).reshape(3))
-        r = line_of_sight(target_world, origin)
+        # Mechanical positions must come from encoders or an independently
+        # verified joint-state source. An IMU world yaw is never a joint angle.
+        try:
+            target = np.asarray(target_world, dtype=float).reshape(3)
+            velocity = np.asarray(vel_world, dtype=float).reshape(3)
+            origin = np.zeros(3) if gimbal_origin_world is None else np.asarray(
+                gimbal_origin_world, dtype=float).reshape(3)
+            origin_v = np.zeros(3) if origin_velocity_world is None else np.asarray(
+                origin_velocity_world, dtype=float).reshape(3)
+            base_w = np.zeros(3) if base_angular_velocity_world is None else np.asarray(
+                base_angular_velocity_world, dtype=float).reshape(3)
+            joints = np.asarray(joint_angles, dtype=float).reshape(2)
+            q = np.asarray(quat, dtype=float).reshape(4)
+            gv = np.asarray(gyro, dtype=float).reshape(3)
+            values = (target, velocity, origin, origin_v, base_w, joints, q, gv)
+            if not all(np.all(np.isfinite(v)) for v in values):
+                raise ValueError('non-finite input')
+            if not math.isfinite(float(dt)) or dt <= 0.0 or np.linalg.norm(q) < 0.5:
+                raise ValueError('invalid interval or attitude')
+            r = target - origin
+            if math.hypot(float(r[0]), float(r[1])) < 1e-6:
+                raise ValueError('undefined yaw')
+        except (TypeError, ValueError, OverflowError):
+            self.reset()
+            return ControlOutput(mode=mode)
 
-        q = np.asarray(quat, dtype=np.float64).reshape(4)
-        if not np.all(np.isfinite(q)) or float(np.linalg.norm(q)) < 0.5:
-            return ControlOutput(0.0, 0.0, False, mode)
-        R = np.asarray(frames.quat_to_mat(q / float(np.linalg.norm(q))),
-                       dtype=np.float64).reshape(3, 3)
+        R = np.asarray(frames.quat_to_mat(q / np.linalg.norm(q)), dtype=float).reshape(3, 3)
         f, y_body = attitude_axes(R)
-
-        gv = np.asarray(gyro, dtype=np.float64).reshape(3)
-        if not np.all(np.isfinite(gv)):
-            gv = np.zeros(3, dtype=np.float64)
-
-        # ---- Step 2 -------------------------------------------------------
         yaw_t, pitch_t = target_angles(r)
         yaw_c, pitch_c = current_angles(f)
-
-        # ---- Step 3 -------------------------------------------------------
+        # These Euler rates require the explicitly verified planar-base model.
+        if abs(float(R[2, 1])) > 1e-3 or abs(math.cos(pitch_c)) < 0.2:
+            self.reset()
+            return ControlOutput(mode=mode)
         e_yaw = float(wrap_pi(yaw_t - yaw_c))
         e_pitch = float(pitch_t - pitch_c)
-        e_yaw = finite_guard(e_yaw)
-        e_pitch = finite_guard(e_pitch)
-
-        # ---- Step 4 -------------------------------------------------------
-        ff_yaw, ff_pitch = feedforward(r, vel_world if vel_world is not None
-                                       else np.zeros(3), y_body)
-
-        # ---- Step 5 -------------------------------------------------------
-        w_imu_yaw, w_imu_pitch = imu_feedback(gv, pitch_c)
-        w_yaw = self.ff_gain * ff_yaw + self.kp_yaw * e_yaw - self.kd_yaw * w_imu_yaw
-        w_pitch = self.ff_gain * ff_pitch + self.kp_pitch * e_pitch - self.kd_pitch * w_imu_pitch
-
-        # ---- Step 6 -------------------------------------------------------
-        w_yaw, w_pitch = self.limit(w_yaw, w_pitch, yaw_c, pitch_c, dt)
-
-        return ControlOutput(
-            yaw_omega=w_yaw,
-            pitch_omega=w_pitch,
-            valid=True,
-            mode=mode,
-            e_yaw=e_yaw,
-            e_pitch=e_pitch,
-            ff_yaw=ff_yaw,
-            ff_pitch=ff_pitch,
-            yaw_c=yaw_c,
-            pitch_c=pitch_c,
-        )
+        ff_yaw, ff_pitch = feedforward(r, velocity - origin_v, y_body)
+        measured_yaw, measured_pitch = imu_feedback(gv, pitch_c)
+        # The drive accepts joint rates, whereas the gyro measures total world
+        # motion (base + joints). Subtract base rates, and damp the rate error
+        # around the desired sight-line rate rather than damping feedforward.
+        w_yaw = (self.ff_gain * ff_yaw + self.kp_yaw * e_yaw
+                 - self.kd_yaw * (measured_yaw - ff_yaw) - float(base_w[2]))
+        w_pitch = (self.ff_gain * ff_pitch + self.kp_pitch * e_pitch
+                   - self.kd_pitch * (measured_pitch - ff_pitch) - float(base_w @ y_body))
+        w_yaw, w_pitch = self.limit(w_yaw, w_pitch, joints[0], joints[1], dt)
+        return ControlOutput(w_yaw, w_pitch, True, mode, e_yaw, e_pitch,
+                             ff_yaw, ff_pitch, yaw_c, pitch_c)
 
     # ------------------------------------------------------------------ 限幅
     def limit(self, omega_yaw: float, omega_pitch: float,
@@ -361,8 +368,13 @@ class ControlLaw:
         Returns:
             ``(omega_yaw, omega_pitch)``。
         """
-        d = float(dt) if math.isfinite(float(dt)) else 0.0
-        d = max(d, 0.0)
+        # yaw_c / pitch_c are retained argument names for source compatibility;
+        # here they mean measured MECHANICAL joint positions only.
+        values = (omega_yaw, omega_pitch, yaw_c, pitch_c, dt)
+        if not all(math.isfinite(float(v)) for v in values) or dt <= 0.0:
+            self.reset()
+            return 0.0, 0.0
+        d = float(dt)
 
         # 1) slew
         w_yaw = slew_limit(omega_yaw, self._omega_yaw_prev, d, self.omega_slew)
@@ -398,6 +410,68 @@ class ControlLaw:
             'limit_margin': self.limit_margin,
             'omega_prev': [self._omega_yaw_prev, self._omega_pitch_prev],
         }
+
+
+class BearingControlLaw(ControlLaw):
+    """Camera-bearing aiming without a map, LIO or absolute IMU heading.
+
+    This is a pure calculation entry, not a ROS/serial actuator. It uses the
+    verified R_gimbal←optical and two mechanical joint axes. For a yaw-then-pitch
+    head, yaw axis in gimbal coordinates is (-sin(pitch), 0, cos(pitch)); pitch
+    axis is (0,1,0). The Jacobian maps joint rates to optical-axis motion.
+
+    Base angular velocity, when available, is expressed in gimbal coordinates.
+    target_relative_velocity_gimbal is target minus CAMERA-origin translational
+    velocity, expressed in the current gimbal basis, BEFORE rotational transport.
+    Do not feed a finite-differenced rotating-camera coordinate into that field.
+    Omitted velocities explicitly model a static bench, not a moving robot.
+    """
+
+    def compute_bearing(self, marker_optical, *, joint_angles=None,
+                        R_gimbal_optical=None, geometry_verified=False,
+                        base_omega_gimbal=(0.0, 0.0, 0.0),
+                        target_relative_velocity_gimbal=(0.0, 0.0, 0.0),
+                        dt=0.01, observation_age=0.0, max_age=0.15,
+                        enabled=False):
+        try:
+            point = np.asarray(marker_optical, dtype=float).reshape(3)
+            joints = np.asarray(joint_angles, dtype=float).reshape(2)
+            rotation = np.asarray(R_gimbal_optical, dtype=float).reshape(3, 3)
+            base_w = np.asarray(base_omega_gimbal, dtype=float).reshape(3)
+            rel_v = np.asarray(target_relative_velocity_gimbal, dtype=float).reshape(3)
+            if not enabled or not geometry_verified:
+                raise ValueError('disabled or unverified extrinsics')
+            if not all(np.all(np.isfinite(v)) for v in (point, joints, rotation, base_w, rel_v)):
+                raise ValueError('non-finite input')
+            if (not math.isfinite(float(observation_age)) or not math.isfinite(float(max_age))
+                    or max_age <= 0.0 or not 0.0 <= observation_age <= max_age
+                    or not math.isfinite(float(dt)) or dt <= 0.0 or point[2] <= 1e-6):
+                raise ValueError('stale observation or invalid depth')
+            if (not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6)
+                    or not math.isclose(float(np.linalg.det(rotation)), 1.0, abs_tol=1e-6)):
+                raise ValueError('extrinsic rotation is not SO(3)')
+            ray = rotation @ point
+            distance = float(np.linalg.norm(ray))
+            desired = ray / distance
+            forward = rotation[:, 2]
+            yaw_axis = np.array([-math.sin(joints[1]), 0.0, math.cos(joints[1])])
+            pitch_axis = np.array([0.0, 1.0, 0.0])
+            jac = np.column_stack((np.cross(yaw_axis, forward), np.cross(pitch_axis, forward)))
+            if float(np.linalg.svd(jac, compute_uv=False)[-1]) < 0.2:
+                raise ValueError('near singular joint geometry')
+            error = desired - float(desired @ forward) * forward
+            error_rates = np.linalg.lstsq(jac, error, rcond=None)[0]
+            target_ray_rate = (rel_v - desired * float(desired @ rel_v)) / distance
+            ff_rates = np.linalg.lstsq(jac, target_ray_rate - np.cross(base_w, forward),
+                                     rcond=None)[0]
+            raw = np.array([self.kp_yaw, self.kp_pitch]) * error_rates + self.ff_gain * ff_rates
+            yaw, pitch = self.limit(raw[0], raw[1], joints[0], joints[1], dt)
+            return ControlOutput(yaw, pitch, True, 'bearing', float(error_rates[0]),
+                                 float(error_rates[1]), float(ff_rates[0]),
+                                 float(ff_rates[1]))
+        except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError):
+            self.reset()
+            return ControlOutput(mode='bearing')
 
 
 # --------------------------------------------------------------------------

@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GimbalState.msg"
   "msg/GimbalOmegaCmd.msg"
   "msg/MarkerObservation.msg"
+  "msg/MarkerCorners.msg"
   "msg/TargetState.msg"
   "msg/ChassisAdvice.msg"
   DEPENDENCIES std_msgs geometry_msgs

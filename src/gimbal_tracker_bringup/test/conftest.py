@@ -394,6 +394,7 @@ class StubRos(object):
         actions.IncludeLaunchDescription = IncludeLaunchDescription
         actions.EmitEvent = EmitEvent
         actions.RegisterEventHandler = RegisterEventHandler
+        actions.SetEnvironmentVariable = LogInfo
 
         substitutions = types.ModuleType('launch.substitutions')
         substitutions.LaunchConfiguration = LaunchConfiguration

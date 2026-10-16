@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'base_pose_provider_node = gimbal_localization.base_pose_provider_node:main',
             'map_frame_broadcaster_node = gimbal_localization.map_frame_broadcaster_node:main',
+            'gimbal_kinematics_node = gimbal_localization.gimbal_kinematics_node:main',
         ],
     },
 )

@@ -1,14 +1,37 @@
 # 赛题一：A、B、C实验室执行手册
 
-更新：2026-10-16。队号暂用47；对应本地仓库0629068及当前未提交改动。本手册替代此前只有原则和任务名称的操作说明。配套[现场记录表](现场记录表_ABC.md)填写实际结果，两份文件放在同一目录。
+更新：2026-10-16。队号暂用47。代码基线为02d6ef2，本批离线开发修改以交付清单为准。配套[现场记录表](现场记录表_ABC.md)记录实际结果，保留空白模板。
 
-下面的命令是交给团队在指定环境执行的步骤。本次只核对源码和资料、整理文档，没有运行NUC硬件，也没有据此宣布ROS通信、定位或控制已通过。
+**当前硬件状态：相机与云台已固定，整套装置还没有安装到底盘。**现在测相机与云台的刚性关系、检查真实图像和反馈；底盘/雷达/云台之间的最终外参，等对应部件固定后再测。下文涉及整车的A5/A6、C3运动验证和第六部分，都有这项前提。
+
+本批已做实际离线开发和验证，没有操作NUC或真实电机。Mac上的OpenCV/模拟消息/伪终端验证不能代替Humble、DDS、真实串口、真实定位和闭环验收。
+
+### 现在先执行哪三项
+
+1. **B：个人Ubuntu22.04/Humble构建本批代码，按B4做20拍提交实验，通过后做1800拍。**这一步不接设备、不启动桥，先排除ROS接口/安装/消息生成问题。交完整构建日志、CSV/地图和观察器JSON。失败保留首条错误和前后约30行，不自行换算法或重装整套ROS。
+2. **A：与C按A1—A4给已固定的相机/云台标出原点和轴；按A7与B2验证PnP位置。**先做图像右/下/前三个方向，再做三个距离、每档5秒。交照片、距离/误差依据和每档数据；不要现在填写未安装的整车外参。
+3. **C：按C1/C2确认现有发布者、类型/QoS/单位，按B3在允许时只收云台反馈。**交指定话题的短bag、设备状态及确切frame名。没有得到允许，不移动/拆装设备，不启第二份驱动。最终安装时间、零位与限位的来源也写入记录表。
+
+A/C准备与B的个人Ubuntu实验可以同时进行。A/C现场约60—120分钟；B构建与20拍约30—60分钟，1800拍运行本身约3分钟，依赖缺失另记。
+
+### 软件已做到哪里，暂时不能把什么当作通过
+
+| 模块 | 本批实际结果 | 仍须现场确认 |
+|---|---|---|
+| 检测/PnP | 修复OpenCV返回值、角点ID/图像stamp绑定、丢失处理、平面PnP候选；真实OpenCV合成码测试通过 | NUC的OpenCV版本、曝光/焦点、真实码尺寸与测距 |
+| 坐标/预测 | 完整相机TF按图像stamp查询；滤波在观测时刻更新；CSV再采样到tick/tick+0.1；缺TF不拿单位阵替代 | 实测TF、传感器时间基准、真实预测误差 |
+| 底盘/地图 | 全三维传感器杠杆臂换到底盘中心；保留源stamp；地图保留分辨率、尺寸、origin yaw | Point-LIO真实输入/漂移、自有OccupancyGrid与地图对齐 |
+| 云台 | 两轴完整运动学正反解及同步接口已实现；控制律有离线回归，默认禁止控制 | 机械零位/限位、实测安装、真实关节或标定派生关节、闭环性能 |
+| 通信 | 生产C++解析器与串口类通过黄金帧、分片、噪声、复位/回绕、OS伪终端和ASan/UBSan | 完整ROS桥编译、真实921600链路、固件停止行为 |
+| 提交/评分 | 九列逐拍flush、重启去重/损坏拒绝/单写者；按正式权重计入底盘40%；1800拍合成链路通过 | NUC独立观察器<60ms团队门槛；官方80ms作废线；真实精度 |
+
+合成链路有40ms图像延迟、0.1px角点噪声和0.8秒遮挡；1800拍中第0拍及605—608拍如实无效。剔除明确的初始化/恢复窗口后，当前位置x/y RMSE约2.82/0.69mm，100ms预测约3.96/1.47mm；**这是已知理想几何的程序核验，不是实机精度指标**。完整合成评分仍包含全部1800拍。
 
 ## 一、这轮要拿到什么，先后怎样安排
 
 | 负责人 | 这轮实际工作 | 交付 |
 |---|---|---|
-| A | 从实物确定坐标链和安装参数；验证观测、起点和时间预测计算 | 有轴向图、测量依据和误差的变换表；计算与实物对照 |
+| A | 先确认相机/云台刚性关系和PnP误差；整车固定后再量完整链 | 有轴向图、测量依据和误差的变换表；计算与实物对照 |
 | B | 构建现有核心包，接通视觉、只接收云台反馈、验证提交接口 | 实际版本和构建记录、启动命令、输入输出和提交产物 |
 | C | 确认最终装配、端口、零位和实际话题；与A测量；检查LIO输入 | 安装照片、原始尺寸、设备表、传感器与定位记录 |
 
@@ -30,7 +53,7 @@
 
 ### 2.1 带什么，向现场确认什么
 
-C带卷尺、直尺、直角尺；有卡尺/水平仪可带。准备可移除胶带、笔、纸和拍照工具。A带手册、记录表；B带包含最新未提交改动的源码副本。
+C带卷尺、直尺、直角尺；有卡尺/水平仪可带。准备可移除胶带、笔、纸和拍照工具。A带手册、记录表；B带本批完整源码和交付清单，不只带文档。
 
 到场先确认并写下答案：
 
@@ -268,12 +291,12 @@ colcon list --base-paths src
 python3 -c 'import numpy, cv2; print(cv2.__version__); print(hasattr(cv2, "aruco"))'
 ```
 
-预期8包各一次：`gimbal_common、gimbal_interfaces、gimbal_perception、gimbal_serial_bridge、gimbal_serial_42、gimbal_tracker_bringup、grid_mapper、gimbal_judge_io`。OpenCV有aruco，记录版本。
+预期12包各一次：`gimbal_common、gimbal_interfaces、gimbal_perception、gimbal_serial_bridge、gimbal_serial_42、gimbal_tracker_bringup、grid_mapper、gimbal_judge_io、gimbal_localization、gimbal_estimation、gimbal_control、chassis_advisor`。OpenCV有aruco，记录版本。
 
 找不到包先查复制位置；重复包先确认唯一副本；缺依赖先保留具体报错并核对已有环境，不直接跑整套安装脚本或构建导航。清点通过后定向构建：
 
 ```bash
-colcon build --symlink-install --packages-select gimbal_common gimbal_interfaces gimbal_perception gimbal_serial_bridge gimbal_serial_42 gimbal_tracker_bringup grid_mapper gimbal_judge_io --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --packages-select gimbal_common gimbal_interfaces gimbal_perception gimbal_serial_bridge gimbal_serial_42 gimbal_localization gimbal_estimation gimbal_control chassis_advisor gimbal_tracker_bringup grid_mapper gimbal_judge_io --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 ros2 pkg prefix --share gimbal_tracker_bringup
 ros2 pkg executables gimbal_serial_bridge
@@ -289,7 +312,7 @@ python3 -B tools/verify_coordinate_regressions.py
 python3 -B tools/verify_vision_and_gate.py
 ```
 
-它们不证明ROS通信或C++串口实机结果；保存输出即可，不另建测试框架。
+个人电脑已有隔离依赖时，可用`.venv/bin/python -B tools/verify_all_offline.py`一次复核完整离线检查；结果和逐项日志在`build/offline/`。它不安装依赖，不启动ROS/真实硬件。不要将个人电脑venv、build、install、log、合成CSV推送进Git。NUC不通过pip覆盖ROS的OpenCV/numpy。
 
 ### B2. 视觉：先输入，再ID、方向、距离、时间
 
@@ -340,7 +363,7 @@ ros2 topic echo /perception/marker_cam --once --qos-reliability best_effort
 | 沿光轴移远 | z增大 |
 | 遮挡后恢复 | 遮挡后无新有效观测，恢复后stamp更新 |
 
-当前PnP对空角点直接返回，不保证一直刷`valid:false`；检查新有效消息是否停止，不能要求一定看到false。符号通过不等于全部安装外参通过。
+本批会在目标丢失、旧图像或PnP拒绝时报告无效，并清除上一帧初值。消息仍有心跳不代表有效观测更新；检查valid和图像stamp。符号通过不等于安装外参通过。
 
 **4. 测距：**在光轴附近约1m、2m、3m摆码；空间不足用能量准的三档，写实际值。A量光心到码中心的前向深度；光心只是估计就记误差。偏轴时斜距为`sqrt(x²+y²+z²)`，不能拿它直接对z。
 
@@ -368,7 +391,7 @@ ros2 bag record -o /tmp/team47_vision_stamps_001 /perception/marker_corners /per
 
 前提：C确认真实端口和占用。已有桥时，由原启动者确认身份、实际关闭指令订阅、TF发布与本轮约定一致，再直接订阅；发送行为未确认不能默认“只收反馈”，交原操作者核对，不开第二桥抢设备。
 
-**为什么不直接用`hardware_interface.launch.py`：**它默认关闭adapter转发，但桥仍订阅速度；别的发布者可能绕过adapter。只收反馈应直接将桥的`subscribe_cmd_vel=false`。
+本批`hardware_interface.launch.py`已默认关闭桥的指令订阅及adapter转发。下面仍分两步启动，便于核对端口和每个节点；只收反馈时必须看到`subscribe_cmd_vel=false`。不要把它改成true，也不要启动控制器。
 
 终端1启动，端口替换为C确认值：
 
@@ -580,7 +603,7 @@ ros2 run tf2_ros tf2_echo camera_init aft_mapped --ros-args -r /tf:=/red_standar
 T_{L\leftarrow B}=T_{L\leftarrow S}(T_{B\leftarrow S})^{-1}.
 \]
 
-先确认S，别永远当作雷达壳中心。现有base_pose_provider没有替你做这个换算，改名/odom不能修参考点偏差。
+先确认S，别永远当作雷达壳中心。本批base_pose_provider已实现这个换算：`localization.sensor_in_base_xyz/rpy`填写T_B←S，`sensor_extrinsics_confirmed=true`只能在实测确认后填写。输入父系不叫odom时，还需T_odom←L及`parent_transform_confirmed=true`。不能靠改话题名修正参考点偏差。本版本Point-LIO未填twist，用`odom_twist_source=pose_difference`按源stamp差分；不是将零twist认作静止。
 
 如A6的前提齐全，静止同录：
 
@@ -621,7 +644,7 @@ A给变换和不确定项，B接实际安装与观测时刻，C提供独立测�
 2. 底盘固定、目标固定、云台改变姿态：图像位置会变，目标比赛坐标应基本不变；绕圈先查外参、杠杆臂、世界对齐/时间。
 3. 目标固定、管理员移动底盘：底盘位置随实测变化，目标比赛坐标基本不变；跟车走先查底盘变换，随速度变差查时间。
 
-第2/3项涉及运动，仅在下列控制/现场条件齐全后按管理员允许流程做。本手册不给运动指令。尚无历史姿态查询/完整链时，由B先补接入；A离线算对不等于节点自动用对。
+第2/3项涉及运动，仅在下列控制/现场条件齐全后按管理员允许流程做。本手册不给运动指令。本批已有历史姿态插值与图像时刻TF查询；现场还需确认TF足够新、链路唯一，且A的实测值实际进入配置。
 
 ### 6.2 预测和方向建议怎样接
 
@@ -639,7 +662,7 @@ A给变换和不确定项，B接实际安装与观测时刻，C提供独立测�
 | 图像方向/安装 | A/C的变换表及B2位置/符号结果 |
 | IMU与LIO对齐 | A6和另一姿态核验；MCU复位后重新确认 |
 | 关节零位、限位、停止 | C的可复现说明，不用world yaw冒充机械关节角 |
-| 控制器适配 | B修正惯性姿态/机械限位混用；关闭未含底盘补偿的前馈；软件输入输出先验 |
+| 控制器适配 | 离线已修惯性姿态/关节限位混用；仍需据实测装配选择适用控制入口，默认关闭控制/搜索/前馈 |
 | 超时/复位门控 | B对应逻辑结果，再按许可现场验证，离线通过不冒充下位机实测 |
 
 齐全后，B再提供一份写明允许角速度、持续时间、停止条件和现场观察人的控制试验步骤。当前不丢一条enable命令让大家试转：机械信息和控制修正确实尚缺。这是有负责人和前置条件的后续工作。
@@ -769,6 +792,67 @@ ros2 topic echo /map --once --field info --qos-reliability reliable --qos-durabi
 
 A/C提交测量和数学定义，B负责这轮核心接入文件；不三个人同时改tracker_params.yaml。相机外参由哪份配置、哪一个TF发布者使用，B接入时明确唯一来源。只有K/D的camera_team47.yaml不能传给旧static_tf入口当外参。
 
-TF每条边只有一个发布者；不同时起教学描述、旧桥、新定位链。`tf2_echo`有数字只证明查到一套已发布值，不证明测量正确。现有GimbalState注释仍有旧world方向/关节语义，真实定义以protocol/PROTOCOL.md和新adapter行为核对，不凭注释推控制。
+TF每条边只有一个发布者；不同时起教学描述、旧桥、新定位链。`tf2_echo`有数字只证明查到一套已发布值，不证明测量正确。本批GimbalState注释已更正：quat是R_world←gimbal；yaw/pitch是惯性角，不是机械关节角，未知关节速度为NaN。`/gimbal/joint_states`是同stamp底盘+IMU和实测模型派生的估计，不是编码器实测。
 
-**立即开始：B做20拍提交；A/C做A2的原点/轴照片。**两项独立，分别排除提交路径和实物坐标这两个基础不确定性。完整比赛入口继续按六部分的条件推进。
+**立即开始仍是：B在个人Ubuntu做20拍提交；A/C确认已固定相机/云台的原点、轴和静态PnP。**交回数据后，再解决真实时间/几何误差；不要在缺数据时继续盲调参数。
+
+
+## 九、整车固定后如何启用新数据处理链（现在先不执行）
+
+### 9.1 每个配置量对应什么实物
+
+本批新增`src/gimbal_tracker_bringup/config/vehicle_template.yaml`。它是待填模板，确认项全false、epoch为-1。`processing.launch.py`会拒绝原样模板；禁止为消除报错把确认项全改true。
+
+| 配置 | 含义与填写依据 |
+|---|---|
+| localization.odom_topic / odom_frame_id / odom_child_frame_id | 从C3实际消息读取；本压缩包为aft_mapped_to_init，父camera_init、子body |
+| localization.sensor_in_base_xyz/rpy | T_base←Point-LIO的IMU body；A5实测；不是把Livox内部激光/IMU外参再抄一次 |
+| localization.source_parent_in_output_xyz/rpy | T_odom←camera_init；确认为同一参考可显式填恒等，不能未经确认只改frame名字 |
+| kinematics.base_mount_xyz/rpy | yaw轴安装基准在底盘中的位姿 |
+| kinematics.yaw_to_pitch_xyz | yaw转后坐标中，yaw基准到pitch轴基准的位移 |
+| kinematics.pitch_gimbal_xyz/rpy | pitch轴后坐标到固件gimbal_link参考点的固定位姿 |
+| kinematics.gimbal_camera_xyz/rpy | A2—A4测得的T_G←C；C到光学O的固定轴换算由程序提供，勿重复乘 |
+| kinematics.joint_zero_rad / limits_rad | 实测零位偏置和单圈限位分支，单位rad；不是IMU初始yaw |
+| kinematics.odom_world_rpy | A6求得R_odom←IMUworld；不要与逆方向world_odom参数混用 |
+| kinematics.calibrated_epoch | 对齐时同一次桥会话的`/task1/gimbal_reset_epoch`值；重启桥或MCU后重新确认 |
+| grid.map_topic / source_frame | 自有真实OccupancyGrid和其实际frame；不是点云，也不是field.yaml示例 |
+
+模型顺序为T_B←mount · Rz(yaw+zero) · Trans(yaw_to_pitch) · Ry(pitch+zero) · T_pitch←G · T_G←C · R_C←O。rpy均为固定轴XYZ，即Rz(yaw)Ry(pitch)Rx(roll)。A用非零角和非零偏移做独立核算，不能只验全零姿态。四元数/参数/照片统一记录方向和单位。
+
+### 9.2 Point-LIO单独入口
+
+原包已安装、C2输入验证通过且没有另一份LIO实例时，可以使用本批只启动算法的入口：
+
+```bash
+ros2 launch gimbal_tracker_bringup lio_only.launch.py lidar_topic:=/livox/lidar imu_topic:=/livox/imu
+```
+
+若有效CustomMsg/同设备IMU在`/red_standard_robot1/livox/`，替换这两个绝对话题。不要两个都订阅/启动。复用原mid360配置，仅显式输入名，不带驱动、RViz、Nav2和控制；acc_norm=1.0的前提是C2证据表明单位g。输出默认仍为`/red_standard_robot1/aft_mapped_to_init、cloud_registered`。按C3检查实际frame和漂移。
+
+### 9.3 地图选择与TF父链
+
+最短候选是Point-LIO的`cloud_registered`→现有`pointcloud_to_laserscan`→`slam_toolbox`，不必为地图启动完整Nav2。它仍需要正确的高度裁剪、IMU到车体的外参、时间与TF；C先提供LIO云/位姿/实际frame和安装高度证据，再决定参数。旧导航里对terrain代价的intensity=0.1..2.0不能照搬到原始Livox反射强度。没有经过真实数据验证，不能宣布这条链已验收。
+
+建图时，SLAM可发布`lio_map→odom`，底盘提供者发布`odom→base_link`，另有确认的`odom→camera_init`。**这时不启动比赛map_frame节点**，否则odom会同时有两个父节点。保存地图时记录最终T_lio_map←odom；停止SLAM后，若LIO一直保持同一参考系，可将逆变换作为`odom→lio_map`。比赛阶段再发`map→odom`，grid_mapper通过完整链把地图origin变到比赛系。不能只改header。重启LIO会改变参考，旧变换失效，需要重新建图或真实重定位。连续SLAM与比赛原点同跑仍需另一份明确父链设计，当前入口不伪装已经解决。
+
+### 9.4 数据处理启动与验收
+
+所有实测值、唯一TF发布者及地图来源确认后，复制模板为选手自己的绝对路径配置，再启动：
+
+```bash
+ros2 launch gimbal_tracker_bringup processing.launch.py vehicle_config:=/实际绝对路径/vehicle47.yaml target_id:=-1 submission:=false
+```
+
+此入口不启动驱动、串口桥或云台控制器，只处理现有数据。先检查：`/gimbal/base_pose_raw`保留源stamp且是odom/base_link；回放起点前不伪造map原点；`/gimbal/joint_states`的stamp对应IMU且角度/限位正确；完整TF只有一套。收到真实replay_start且历史底盘位姿覆盖该时刻后，才发比赛系结果。未覆盖、超时、MCU epoch变化都要解决原因，不改成单位阵或最新位置兜底。
+
+```bash
+ros2 run tf2_ros tf2_echo map camera_optical_frame
+ros2 topic echo /estimation/target_state --once --qos-reliability best_effort
+ros2 topic echo /chassis/advice --once --qos-reliability best_effort
+```
+
+`tf2_echo`只看当前TF，不证明程序历史查询和真实标定正确；仍做6.1三种几何实验，并保留图像/IMU/自有底盘/算法输出stamp配对。等待主办方回放时不向`/judge/`发布测试信号。需要合成启动信号的实验放个人Ubuntu隔离域，用`/test/`并明确重映射。
+
+数据链验收后停止本处理实例，正式准备阶段再以同配置`submission:=true output_dir:=~/ws_championship/output team_id:=47`启动唯一提交节点。不要同时运行submission.launch和含submission的processing；同一CSV会被单写者锁拒绝。新轮正式文件清理由主办方负责，程序绝不改名/修补已经提交的行。
+
+本入口没有自动瞄准输出，不能因此宣布比赛完成。现有world控制器要求平面底盘/同向安装等条件，纯BearingControlLaw的离线试验也不证明真实装配适用。A/C给出真实关节、轴向和停止方式后，再据数据确定控制接入及限速短时闭环试验。当前control.enabled、search与桥指令订阅均保持关闭。

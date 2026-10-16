@@ -95,8 +95,15 @@ class SingleTopicMarkerSource(MarkerSource):
             import time as _time
             t_mono = _time.monotonic()
         try:
-            polygon = getattr(msg, 'polygon', msg)
-            pts = list(polygon.points)
+            if hasattr(msg, 'valid') and not msg.valid:
+                self.reset()
+                return None
+            if hasattr(msg, 'corners'):
+                pts = list(msg.corners)
+                marker_id = int(msg.marker_id)
+            else:
+                polygon = getattr(msg, 'polygon', msg)
+                pts = list(polygon.points)
             frame_id = str(getattr(getattr(msg, 'header', None), 'frame_id', '')
                            or 'camera_optical_frame')
         except AttributeError:
@@ -106,7 +113,11 @@ class SingleTopicMarkerSource(MarkerSource):
             # 空 polygon / 长度不为 4 → 本帧无观测，正常路径
             self._n_malformed += 1
             return None
-        uv = np.array([[float(p.x), float(p.y)] for p in pts], dtype=np.float64).reshape(4, 2)
+        try:
+            uv = np.array([[float(p.x), float(p.y)] for p in pts], dtype=np.float64).reshape(4, 2)
+        except (AttributeError, TypeError, ValueError):
+            self._n_malformed += 1
+            return None
         if not np.all(np.isfinite(uv)):
             self._n_malformed += 1
             return None

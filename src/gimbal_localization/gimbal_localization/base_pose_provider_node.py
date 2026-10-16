@@ -5,14 +5,16 @@
   ``child_frame_id=base_link``）。
 * ``publish_base_tf=true`` 时发布动态 TF ``odom→base_link``（**只能有一个发布者**）。
 
-⚠ 时钟：``header.stamp`` / TF 用 ROS 系统时钟；周期与新鲜度判定用单调时钟。
-⚠ 本文件依赖 ROS 2，只能在 Ubuntu 24.04 + ROS 2 Jazzy 上编译/运行验证。
+时钟：外部位姿和 TF 严格保留输入 stamp；模拟源才使用当前 ROS 时钟。
+目标环境：Ubuntu 22.04 + ROS 2 Humble；离线测试不替代 ROS 通信验证。
 """
 
 from __future__ import annotations
 
 import math
 import sys
+
+import numpy as np
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
@@ -25,6 +27,7 @@ from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
 
 from .base_pose_source import make_base_pose_source
+from .odometry_geometry import matrix_quaternion
 
 NODE_NAME = 'base_pose_provider_node'
 
@@ -33,6 +36,18 @@ PARAM_DEFAULTS = {
     'localization.odom_topic': '/odom',
     'localization.odom_source': 'topic',
     'localization.odom_timeout_s': 0.5,
+    'localization.odom_frame_id': 'odom',
+    'localization.odom_child_frame_id': 'base_link',
+    'localization.output_frame_id': 'odom',
+    'localization.base_frame_id': 'base_link',
+    'localization.sensor_in_base_xyz': [0.0, 0.0, 0.0],
+    'localization.sensor_in_base_rpy': [0.0, 0.0, 0.0],
+    'localization.sensor_extrinsics_confirmed': False,
+    'localization.source_parent_in_output_xyz': [0.0, 0.0, 0.0],
+    'localization.source_parent_in_output_rpy': [0.0, 0.0, 0.0],
+    'localization.parent_transform_confirmed': False,
+    'localization.odom_twist_source': 'message',
+    'localization.odom_future_tolerance_s': 0.05,
     'localization.publish_base_tf': True,
     'localization.mock_motion': 'static',
     'localization.mock_origin_xy': [0.0, 0.0],
@@ -62,20 +77,12 @@ class BasePoseProviderNode:
         self._params = NU.declare_params(node, PARAM_DEFAULTS)
         p = self._params
 
-        cfg = {
-            'base_pose_source': p['localization.base_pose_source'],
-            'odom_topic': p['localization.odom_topic'],
-            'odom_timeout_s': p['localization.odom_timeout_s'],
-            'mock_motion': p['localization.mock_motion'],
-            'mock_origin_xy': p['localization.mock_origin_xy'],
-            'mock_yaw0': p['localization.mock_yaw0'],
-            'mock_amp_xy': p['localization.mock_amp_xy'],
-            'mock_radius': p['localization.mock_radius'],
-            'mock_freq': p['localization.mock_freq'],
-        }
+        cfg = {key.removeprefix('localization.'): value for key, value in p.items()}
         self._source = make_base_pose_source(cfg)
         self._publish_tf: bool = bool(p['localization.publish_base_tf'])
         self._source_name: str = self._source.name()
+        self._last_published_stamp = None
+        self._last_replay_start = None
 
         qos = _sensor_qos(10)
         self._pub = node.create_publisher(Odometry, '/gimbal/base_pose_raw', qos)
@@ -87,6 +94,11 @@ class BasePoseProviderNode:
         elif str(p['localization.odom_source']).lower() == 'tf':
             self._log.warning('odom_source=tf 为 P1 备选，当前 base_pose_source=mock，忽略')
 
+        if self._source_name.startswith('odom'):
+            from std_msgs.msg import Header
+            replay_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+            node.create_subscription(Header, '/judge/replay_start', self._on_replay_start, replay_qos)
         rate = max(1.0, float(p['localization.base_pose_rate_hz']))
         node.create_timer(1.0 / rate, self._tick)
         self._log.info(f'底盘位姿源启动: {self._source_name}，发布 {rate:.0f}Hz，'
@@ -100,62 +112,80 @@ class BasePoseProviderNode:
         except Exception as exc:
             LU.throttled(self._log, 'error', f'odom 回调异常: {exc!r}', 'odom_cb', 1.0)
 
+    def _on_replay_start(self, msg) -> None:
+        key = (int(msg.stamp.sec), int(msg.stamp.nanosec))
+        if key != self._last_replay_start:
+            self._source.reset()
+            self._last_published_stamp = None
+            self._last_replay_start = key
+
     def _tick(self) -> None:
-        """定时发布底盘位姿（+ 可选 TF）。"""
+        """Publish each source sample once, at the source measurement time."""
         try:
-            t_mono = TU.now()
-            pose = self._source.poll(t_mono)
+            pose = self._source.poll(TU.now())
             if not pose.valid:
                 LU.throttled(self._log, 'warn',
                              f'底盘位姿无效（源={self._source_name}）', 'base_invalid', 1.0)
                 return
+            sample = getattr(self._source, 'latest', None)
             stamp = self._node.get_clock().now().to_msg()
+            if sample is not None:
+                stamp.sec, stamp.nanosec = sample.stamp_sec, sample.stamp_nanosec
+                key = (sample.stamp_sec, sample.stamp_nanosec)
+                if key == self._last_published_stamp:
+                    return
+                age = self._node.get_clock().now().nanoseconds * 1e-9 - sample.stamp_seconds
+                if age > float(self._params['localization.odom_timeout_s']) or age < -float(self._params['localization.odom_future_tolerance_s']):
+                    LU.throttled(self._log, 'warn', f'底盘源时间戳不新鲜或时钟域不同: age={age:.3f}s',
+                                 'base_stamp', 1.0)
+                    return
+            else:
+                key = None
             self._publish_odom(pose, stamp)
             if self._tf is not None:
                 self._publish_tf_msg(pose, stamp)
+            self._last_published_stamp = key
         except Exception as exc:
             LU.throttled(self._log, 'error', f'base_pose tick 异常: {exc!r}', 'base_tick', 1.0)
 
+    def _full_pose(self, pose):
+        sample = getattr(self._source, 'latest', None)
+        if sample is not None:
+            return sample.T_output_base[:3, 3], matrix_quaternion(sample.T_output_base[:3, :3])
+        return np.array([pose.x, pose.y, 0.0]), np.array([0., 0., math.sin(pose.yaw/2), math.cos(pose.yaw/2)])
+
     def _publish_odom(self, pose, stamp) -> None:
-        """发布 ``/gimbal/base_pose_raw``。"""
+        """ROS twist is expressed in child_frame_id (base frame), per Odometry."""
         msg = Odometry()
         msg.header.stamp = stamp
         msg.header.frame_id = self._source.frame_id
         msg.child_frame_id = self._source.child_frame_id
-        msg.pose.pose.position.x = float(pose.x)
-        msg.pose.pose.position.y = float(pose.y)
-        msg.pose.pose.position.z = 0.0
-        cy = math.cos(0.5 * pose.yaw)
-        sy = math.sin(0.5 * pose.yaw)
-        msg.pose.pose.orientation.x = 0.0
-        msg.pose.pose.orientation.y = 0.0
-        msg.pose.pose.orientation.z = sy
-        msg.pose.pose.orientation.w = cy
-        msg.twist.twist.linear.x = float(pose.vx)
-        msg.twist.twist.linear.y = float(pose.vy)
-        msg.twist.twist.linear.z = 0.0
+        position, quaternion = self._full_pose(pose)
+        msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z = map(float, position)
+        msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = map(float, quaternion)
+        sample = getattr(self._source, 'latest', None)
+        if sample is not None:
+            linear, angular = sample.linear_base, sample.angular_base
+            if not sample.velocity_valid:
+                for i in range(6):
+                    msg.twist.covariance[7*i] = 1e6
+        else:
+            c, s = math.cos(pose.yaw), math.sin(pose.yaw)
+            linear = [c*pose.vx+s*pose.vy, -s*pose.vx+c*pose.vy, 0.]
+            angular = [0., 0., 0.]
+        msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z = map(float, linear)
+        msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z = map(float, angular)
         self._pub.publish(msg)
 
     def _publish_tf_msg(self, pose, stamp) -> None:
-        """发布动态 TF ``odom→base_link``。"""
         tf = TransformStamped()
         tf.header.stamp = stamp
         tf.header.frame_id = self._source.frame_id
         tf.child_frame_id = self._source.child_frame_id
-        tf.transform.translation.x = float(pose.x)
-        tf.transform.translation.y = float(pose.y)
-        tf.transform.translation.z = 0.0
-        cy = math.cos(0.5 * pose.yaw)
-        sy = math.sin(0.5 * pose.yaw)
-        tf.transform.rotation.x = 0.0
-        tf.transform.rotation.y = 0.0
-        tf.transform.rotation.z = sy
-        tf.transform.rotation.w = cy
-        try:
-            self._tf.sendTransform(tf)
-        except Exception as exc:
-            LU.throttled(self._log, 'warning', f'TF odom->base_link 发布失败: {exc!r}',
-                         'base_tf', 1.0)
+        position, quaternion = self._full_pose(pose)
+        tf.transform.translation.x, tf.transform.translation.y, tf.transform.translation.z = map(float, position)
+        tf.transform.rotation.x, tf.transform.rotation.y, tf.transform.rotation.z, tf.transform.rotation.w = map(float, quaternion)
+        self._tf.sendTransform(tf)
 
     def shutdown(self) -> None:
         """收尾日志。"""

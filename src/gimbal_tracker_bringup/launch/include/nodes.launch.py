@@ -184,6 +184,9 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
         overrides['debug.enable_gt_monitor'] = True
 
     actions: List[Any] = []
+    ladder: List[Tuple[int, str, str]] = list(NODE_LADDER)
+    if enable_legacy_csv:
+        ladder.append(_LEGACY_CSV)
 
     # ---- 环境变量：必须与评分程序一致，否则互相收不到话题
     actions.append(SetEnvironmentVariable(
@@ -208,10 +211,6 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
         }.items()))
 
     # ---- 节点阶梯
-    ladder: List[Tuple[int, str, str]] = list(NODE_LADDER)
-    if enable_legacy_csv:
-        ladder.append(_LEGACY_CSV)
-
     bridge_action: Optional[Node] = None
     for step, pkg, exe in ladder:
         if exe == 'gt_error_monitor_node' and not enable_gt:

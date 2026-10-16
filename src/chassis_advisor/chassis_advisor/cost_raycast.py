@@ -150,6 +150,7 @@ class RayGridAdapter:
     arr: np.ndarray
     origin_xy: np.ndarray
     resolution: float
+    origin_yaw: float = 0.0
 
     @property
     def width(self) -> int:
@@ -163,14 +164,15 @@ class RayGridAdapter:
 
     def world_to_cell(self, xy: Sequence[float]) -> Tuple[int, int]:
         """世界坐标 → cell 索引。"""
-        i = int(math.floor((float(xy[0]) - self.origin_xy[0]) / self.resolution))
-        j = int(math.floor((float(xy[1]) - self.origin_xy[1]) / self.resolution))
+        local = rotz2(-self.origin_yaw) @ (np.asarray(xy, dtype=float)-self.origin_xy)
+        i = int(math.floor(local[0] / self.resolution))
+        j = int(math.floor(local[1] / self.resolution))
         return (i, j)
 
     def cell_to_world(self, ij: Sequence[int]) -> np.ndarray:
         """cell 索引 → 中心世界坐标。"""
-        return (self.origin_xy
-                + (np.array([int(ij[0]) + 0.5, int(ij[1]) + 0.5], dtype=float)
+        return (self.origin_xy + rotz2(self.origin_yaw)
+                @ (np.array([int(ij[0]) + 0.5, int(ij[1]) + 0.5], dtype=float)
                    * self.resolution))
 
     def in_bounds(self, ij: Sequence[int]) -> bool:
@@ -198,14 +200,15 @@ def _as_adapter(grid: Any) -> RayGridAdapter:
         return RayGridAdapter(np.asarray(grid[0]),
                               np.array([float(grid[1][0]), float(grid[1][1])],
                                        dtype=float),
-                              float(grid[2]))
+                              float(grid[2]), float(grid[3]) if len(grid) > 3 else 0.0)
     arr = getattr(grid, 'ray_grid', None)
     if arr is None:
         arr = getattr(grid, 'grid', None)
     if arr is None:
         raise TypeError('unsupported grid object: %r' % (type(grid),))
     origin = np.asarray(getattr(grid, 'origin_xy'), dtype=float).reshape(2)
-    return RayGridAdapter(np.asarray(arr), origin, float(getattr(grid, 'resolution')))
+    return RayGridAdapter(np.asarray(arr), origin, float(getattr(grid, 'resolution')),
+                          float(getattr(grid, 'origin_yaw', 0.0)))
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +311,9 @@ class CostRaycast:
         """
         if L <= 0.0:
             return _INF, _INF
-        local_origin = origin - adapter.origin_xy
-        cells = ray_cells(local_origin, d, L, adapter.resolution)
+        R = rotz2(-adapter.origin_yaw)
+        local_origin = R @ (origin - adapter.origin_xy)
+        cells = ray_cells(local_origin, R @ d, L, adapter.resolution)
         d_occ = _INF
         d_unk = _INF
         seen = set()

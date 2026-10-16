@@ -80,6 +80,7 @@ private:
   // 统计（读线程写，定时器读）
   std::atomic<std::uint64_t> n_imu_{0};
   std::atomic<std::uint64_t> n_resets_{0};
+  std::uint64_t epoch_base_{0};  // per bridge session, never restart the epoch at zero
   std::atomic<std::uint64_t> n_dropped_{0};
   std::atomic<std::uint64_t> n_bad_checksum_{0};
   std::atomic<std::uint64_t> n_bad_app_{0};

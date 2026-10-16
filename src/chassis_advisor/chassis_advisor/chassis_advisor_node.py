@@ -16,8 +16,9 @@
 旧的 13 方向 12.5° 量化会带来约 3.6° 的角度 RMSE（≈0.004 总分），
 改用 `free_dir.FreeDirSolver` 解析求解后可压到 <0.5°。
 `chassis.dir_mode='analytic'`（默认）走新路径，`'quantized'` 保留旧行为。
-另外：官方判定 `hypot(vx,vy) < 0.02` 为"停车"，此时若距目标 ≥0.5 m 该项记满分误差，
-因此除已到位外**必须保证 |v| ≥ `chassis.v_floor`**。
+另外：官方判定 `hypot(vx,vy) < 0.02` 为停车。速度下限仅用于已验证
+可行的方向；地图缺失、输入过期、目标丢失或全部受阻时，不会为了分数制造穿墙方向。
+解析与量化两种路径均考虑 OccupancyGrid 原点 yaw。
 
 参考系默认 `map`（与 CSV 1~6 列一致）；`cmd_frame=base_link` 时额外左乘 `RotZ(−yaw_base)`（P1）。
 
@@ -25,7 +26,7 @@
 - `header.stamp` 用 **ROS 系统时钟** `node.get_clock().now()`（**不替换 node clock**）
 - 所有 dt / 超时 / 定时器周期用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
 
-⚠ **待 Ubuntu 24.04 + ROS2 Jazzy 编译验证**：本机为 Windows，无 ROS2，
+⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
 本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
 """
 
@@ -110,7 +111,14 @@ DEFAULTS: Dict[str, Any] = {
     'chassis.dir_block_unknown': False,   # 评分标准方向按真值地图算，未知不算障碍
     'chassis.dir_use_pred': False,        # False=朝目标**当前**位置（cur），True=朝预测位置
     'chassis.v_floor': 0.30,              # 远离目标时的最小建议速度（>0.02 停车线）
-    'chassis.stop_radius_m': 0.45,        # 与官方 0.5 m 判据留 0.05 m 余量
+    'chassis.stop_radius_m': 0.45,
+    'chassis.frame_id': 'map',
+    'chassis.base_frame_id': 'base_link',
+    'chassis.base_timeout_s': 0.20,
+    'chassis.target_timeout_s': 0.20,
+    'chassis.last_observation_timeout_s': 0.50,
+    'chassis.future_tolerance_s': 0.05,
+        # 与官方 0.5 m 判据留 0.05 m 余量
 }
 
 _SENSOR_QOS_DEPTH: int = 10
@@ -152,6 +160,20 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         self._has_grid: bool = False
         self._has_base: bool = False
         self._has_target: bool = False
+        self._base_stamp = self._target_stamp = -math.inf
+        self._base_received = self._target_received = -math.inf
+        self._observation_stamp = -math.inf
+        self._clean_adapter = None
+        self._ray_adapter = None
+        self._map_frame = str(self._params['chassis.frame_id'])
+        if not self._map_frame:
+            raise ValueError('chassis.frame_id must be nonempty')
+        if str(self._params['chassis.cmd_frame']) not in ('map', 'base_link'):
+            raise ValueError('chassis.cmd_frame must be map or base_link')
+        for key in ('chassis.base_timeout_s', 'chassis.target_timeout_s',
+                    'chassis.last_observation_timeout_s'):
+            if not math.isfinite(float(self._params[key])) or float(self._params[key]) <= 0:
+                raise ValueError(key+' must be positive and finite')
         self._base_xy = np.zeros(2, dtype=float)
         self._base_yaw: float = 0.0
         self._has_clean_grid: bool = False
@@ -214,172 +236,210 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             return 1
         try:
             return QoSProfile(depth=1,
+                              reliability=QoSReliabilityPolicy.RELIABLE,
                               history=QoSHistoryPolicy.KEEP_LAST,
                               durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         except Exception:  # pragma: no cover
             return QoSProfile(depth=1)
 
     # -- 回调 -----------------------------------------------------------------
+    def _clock_seconds(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    @staticmethod
+    def _source_stamp(header) -> float:
+        sec, ns = int(header.stamp.sec), int(header.stamp.nanosec)
+        if sec < 0 or not 0 <= ns < 1000000000:
+            raise ValueError('invalid source stamp')
+        return sec + ns * 1e-9
+
+    def _check_header(self, header) -> float:
+        if str(header.frame_id) != self._map_frame:
+            raise ValueError(f'expected frame {self._map_frame!r}, got {header.frame_id!r}')
+        stamp = self._source_stamp(header)
+        if stamp-self._clock_seconds() > float(self._params['chassis.future_tolerance_s']):
+            raise ValueError('source stamp is in the future / another clock domain')
+        return stamp
+
+    def _parse_grid(self, msg) -> RayGridAdapter:
+        self._check_header(msg.header)
+        info = msg.info
+        w, h, res = int(info.width), int(info.height), float(info.resolution)
+        values = np.asarray(msg.data, dtype=float)
+        if w <= 0 or h <= 0 or not math.isfinite(res) or res <= 0 or values.size != w*h:
+            raise ValueError('invalid OccupancyGrid dimensions/resolution/data length')
+        if not np.all(np.isin(values, [-1, 0, 100])):
+            raise ValueError('advisor expects the grid_mapper three-state map')
+        origin = np.array([info.origin.position.x, info.origin.position.y], dtype=float)
+        q = info.origin.orientation
+        xyzw = np.array([q.x, q.y, q.z, q.w], dtype=float)
+        norm = np.linalg.norm(xyzw)
+        if not np.all(np.isfinite(origin)) or not np.all(np.isfinite(xyzw)) or norm < 1e-12:
+            raise ValueError('invalid grid origin')
+        x,y,z,wq = xyzw/norm
+        if not np.allclose([2*(x*z+wq*y),2*(y*z-wq*x),1-2*(x*x+y*y)], [0,0,1], atol=1e-6):
+            raise ValueError('tilted grid cannot be treated as a 2D map')
+        yaw = math.atan2(2*(wq*z+x*y),1-2*(y*y+z*z))
+        return RayGridAdapter(values.astype(np.int8).reshape(h,w).T, origin, res, yaw)
+
     def _on_ray_grid(self, msg: Any) -> None:
-        """接收 `/map/ray_grid`（含膨胀），设置避障用栅格。"""
         try:
-            info = msg.info
-            w = int(info.width)
-            h = int(info.height)
-            data = np.asarray(msg.data, dtype=np.int8).reshape((h, w))
-            arr = np.transpose(data).astype(np.int8)          # (W, H)
-            origin = np.array([float(info.origin.position.x),
-                               float(info.origin.position.y)], dtype=float)
-            self._ray.set_grid(RayGridAdapter(arr, origin, float(info.resolution)))
+            adapter = self._parse_grid(msg)
+            self._ray.set_grid(adapter)
+            self._ray_adapter = adapter
             self._has_grid = True
-            self._log.info('已接收 ray_grid: %dx%d @ %.3f' % (w, h, info.resolution))
         except Exception as exc:
-            throttled(self._log, 'error', 'ray_grid 解析失败: %r' % (exc,),
-                      'chassis_advisor.ray_grid_err', 1.0)
+            self._has_grid = False
+            throttled(self._log, 'warning', f'ray_grid 拒绝: {exc!r}', 'ray_grid', 1.)
 
     def _on_clean_grid(self, msg: Any) -> None:
-        """接收 `/map/grid`（**未膨胀**三态），供方向项解析求解使用。"""
         try:
-            info = msg.info
-            w = int(info.width)
-            h = int(info.height)
-            data = np.asarray(msg.data, dtype=np.int8).reshape((h, w))
-            arr = np.transpose(data).astype(np.int8)          # (W, H)
-            origin = np.array([float(info.origin.position.x),
-                               float(info.origin.position.y)], dtype=float)
-            self._free.set_grid(arr, origin, float(info.resolution))
+            adapter = self._parse_grid(msg)
+            self._free.set_grid(adapter.arr, adapter.origin_xy, adapter.resolution, adapter.origin_yaw)
+            self._clean_adapter = adapter
             self._has_clean_grid = True
-            self._log.info('已接收未膨胀 grid: %dx%d @ %.3f（方向项用）'
-                           % (w, h, info.resolution))
         except Exception as exc:
-            throttled(self._log, 'error', 'grid 解析失败: %r' % (exc,),
-                      'chassis_advisor.grid_err', 1.0)
+            self._has_clean_grid = False
+            throttled(self._log, 'warning', f'grid 拒绝: {exc!r}', 'clean_grid', 1.)
 
     def _on_base_pose(self, msg: Any) -> None:
-        """接收 `/gimbal/base_pose`（map 系）。"""
         try:
-            p = msg.pose.pose.position
-            self._base_xy = np.array([float(p.x), float(p.y)], dtype=float)
-            self._base_yaw = self._yaw_from_quat(msg.pose.pose.orientation)
+            stamp = self._check_header(msg.header)
+            if str(msg.child_frame_id) != str(self._params['chassis.base_frame_id']):
+                raise ValueError('unexpected base child frame')
+            position = msg.pose.pose.position
+            xy = np.array([position.x, position.y], dtype=float)
+            q = msg.pose.pose.orientation
+            quat = np.array([q.x,q.y,q.z,q.w], dtype=float)
+            if not np.all(np.isfinite(xy)) or not np.all(np.isfinite(quat)) or np.linalg.norm(quat) < 1e-12:
+                raise ValueError('invalid base position/orientation')
+            if stamp <= self._base_stamp:
+                return  # duplicated data must not renew freshness
+            self._base_xy = xy
+            x,y,z,w = quat/np.linalg.norm(quat)
+            self._base_yaw = math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
+            self._base_stamp, self._base_received = stamp, now()
             self._has_base = True
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'base_pose 解析失败: %r' % (exc,),
-                      'chassis_advisor.base_err', 1.0)
+        except Exception as exc:
+            self._has_base = False
+            throttled(self._log, 'warning', f'base_pose 拒绝: {exc!r}', 'base_pose', 1.)
 
     def _on_target(self, msg: Any) -> None:
-        """接收 `/estimation/target_state`，取**预测**位置作为目标点 G。"""
         try:
-            if not bool(msg.valid):
-                self._mark_lost()
+            stamp = self._check_header(msg.header)
+            if not bool(msg.valid) or int(msg.track_status) not in (1, 2):
+                raise ValueError('target is lost/invalid')
+            observation_age = float(msg.last_obs_age)
+            if not math.isfinite(observation_age) or not 0 <= observation_age <= float(self._params['chassis.last_observation_timeout_s']):
+                raise ValueError('target observation is stale')
+            goal = np.array([msg.pred_x,msg.pred_y], dtype=float)
+            current = np.array([msg.cur_x,msg.cur_y], dtype=float)
+            if not np.all(np.isfinite(goal)) or not np.all(np.isfinite(current)):
+                raise ValueError('nonfinite target position')
+            if stamp <= self._target_stamp:
                 return
-            self._goal_xy = np.array([float(msg.pred_x), float(msg.pred_y)],
-                                     dtype=float)
-            self._cur_xy = np.array([float(msg.cur_x), float(msg.cur_y)],
-                                    dtype=float)
-            if not (math.isfinite(self._goal_xy[0]) and math.isfinite(self._goal_xy[1])):
-                self._mark_lost()
-                return
-            self._has_target = True
-            self._track_status = int(msg.track_status)
-            if self._track_status == 0:
-                self._mark_lost()
-            else:
-                self._t_lost = None
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'target_state 解析失败: %r' % (exc,),
-                      'chassis_advisor.target_err', 1.0)
+            self._goal_xy, self._cur_xy = goal, current
+            self._target_stamp, self._target_received = stamp, now()
+            self._observation_stamp = stamp-observation_age
+            self._has_target, self._track_status = True, int(msg.track_status)
+            self._t_lost = None
+        except Exception as exc:
+            self._mark_lost()
+            throttled(self._log, 'warning', f'target 拒绝: {exc!r}', 'target', 1.)
 
     def _mark_lost(self) -> None:
-        """记录丢失起始时刻（单调）。"""
+        self._has_target = False
         self._track_status = 0
         if self._t_lost is None:
             self._t_lost = now()
 
-    # -- 主循环 ---------------------------------------------------------------
+    def _inputs_fresh(self, t_now: float) -> bool:
+        ros_now = self._clock_seconds()
+        if not (self._has_base and self._has_target):
+            return False
+        if ros_now-self._observation_stamp > float(self._params['chassis.last_observation_timeout_s']):
+            return False
+        for stamp, received, key in ((self._base_stamp,self._base_received,'chassis.base_timeout_s'),
+                                     (self._target_stamp,self._target_received,'chassis.target_timeout_s')):
+            timeout = float(self._params[key])
+            if t_now-received > timeout or ros_now-stamp > timeout or ros_now-stamp < -float(self._params['chassis.future_tolerance_s']):
+                return False
+        return True
+
     def _on_timer(self) -> None:
-        """50Hz：算一次建议速度并发布。dt 一律用单调时钟。"""
         t_now = now()
-        dt = t_now - self._t_last
+        dt = max(0., min(.2, t_now-self._t_last))
         self._t_last = t_now
-        if dt < 0.0 or not math.isfinite(dt):
-            dt = 0.0
-
-        if not (self._has_target and self._has_base):
-            self._publish(np.zeros(2, dtype=float), 0.0, 0.0, False, valid=False)
+        if not self._inputs_fresh(t_now):
+            self._law.reset()
+            self._publish(np.zeros(2), 0., 0., False, valid=False)
             return
-
-        u, d = VelocityLaw.unit_direction(self._base_xy, self._goal_xy)
-        theta = 0.0
-        blocked = False
-        u_safe = u
-
         mode = str(self._params['chassis.dir_mode']).lower()
-        if mode == 'analytic' and self._has_clean_grid:
-            # --- 赛题一方向项：连续解析求解（权重 0.2）----------------------
-            # 基准方向取目标**当前**位置（官方"与目标方向"），可切到预测位置。
-            ref = self._cur_xy if not bool(
-                self._params['chassis.dir_use_pred']) else self._goal_xy
-            u_dir, _d_dir = VelocityLaw.unit_direction(self._base_xy, ref)
-            if float(np.linalg.norm(u_dir)) > 1e-9:
-                u_safe, theta, ok = self._free.solve_unit(self._base_xy, u_dir)
-                blocked = not ok
+        adapter = self._clean_adapter if mode == 'analytic' else self._ray_adapter
+        has_map = self._has_clean_grid if mode == 'analytic' else self._has_grid
+        if mode not in ('analytic','quantized') or not bool(self._params['chassis.enable_avoidance']) or not has_map or adapter is None:
+            self._law.reset()
+            self._publish(np.zeros(2), 0., 0., True, valid=False)
+            return
+        cell = adapter.world_to_cell(self._base_xy)
+        if not adapter.in_bounds(cell) or adapter.at(cell) < 0:
+            self._law.reset()
+            self._publish(np.zeros(2), 0., 0., True, valid=False)
+            return
+        reference = self._goal_xy if bool(self._params['chassis.dir_use_pred']) else self._cur_xy
+        u, distance = VelocityLaw.unit_direction(self._base_xy, reference)
+        if distance < float(self._params['chassis.stop_radius_m']):
+            self._law.reset()
+            self._publish(np.zeros(2), distance, 0., False, valid=True)
+            return
+        if mode == 'analytic':
+            direction, theta, ok = self._free.solve_unit(self._base_xy, u)
+            blocked = not ok
+        else:
+            theta, direction, blocked, hits = self._ray.evaluate(self._base_xy, u,
+                                                   float(self._params['chassis.lookahead_m']))
+            # A weighted cost is not a proof of feasibility: the cheapest ray
+            # can still hit an obstacle. Quantized advice must choose a free ray.
+            free_hits = [hit for hit in hits if not hit.hit_occ and
+                         (not bool(self._params['chassis.dir_block_unknown']) or not math.isfinite(hit.d_unk))]
+            if not free_hits:
+                blocked = True
             else:
-                u_safe = np.zeros(2, dtype=float)
-        elif bool(self._params['chassis.enable_avoidance']) and self._has_grid:
-            if float(np.linalg.norm(u)) > 1e-9:
-                theta, u_safe, blocked, _hits = self._ray.evaluate(
-                    self._base_xy, u, float(self._params['chassis.lookahead_m']))
-            else:
-                theta, u_safe, blocked, _hits = self._ray.evaluate(
-                    self._base_xy, np.array([1.0, 0.0]),
-                    float(self._params['chassis.lookahead_m']))
-                u_safe = np.zeros(2, dtype=float)
-
-        res = self._law.step(self._base_xy, self._goal_xy, dt, u_safe=u_safe,
-                             blocked=blocked, track_status=self._track_status,
-                             t_now=t_now, t_lost=self._t_lost)
-        cmd = np.asarray(res['cmd'], dtype=float).reshape(2)
-        cmd = self._apply_v_floor(cmd)
-
-        # 参考系：base_link 时左乘 RotZ(−yaw_base)（P1）
-        if str(self._params['chassis.cmd_frame']).lower() == 'base_link':
+                chosen = min(free_hits,key=lambda hit:(abs(hit.theta),hit.cost))
+                theta, direction, blocked = chosen.theta, rotz2(chosen.theta)@u, False
+        if blocked:
+            self._law.reset()
+            cmd = np.zeros(2)
+        else:
+            result = self._law.step(self._base_xy, reference, dt, u_safe=direction,
+                                    blocked=False, track_status=self._track_status,
+                                    t_now=t_now, t_lost=None)
+            # This is a scored direction recommendation, not an actuator command.
+            # Vector smoothing could interpolate two free directions through a
+            # wall, so retain only its speed and use the newly verified direction.
+            cmd = direction * float(np.linalg.norm(result['cmd']))
+            cmd = self._apply_v_floor(cmd, direction, blocked=False)
+        if str(self._params['chassis.cmd_frame']) == 'base_link':
             cmd = rotz2(-self._base_yaw) @ cmd
+        self._dist, self._theta, self._blocked = distance, float(theta), bool(blocked)
+        self._publish(cmd, distance, theta, blocked, valid=True)
 
-        self._dist = float(res['dist'])
-        self._theta = float(theta)
-        self._blocked = bool(blocked)
-        self._publish(cmd, self._dist, self._theta, self._blocked, valid=True)
-
-    def _apply_v_floor(self, cmd: np.ndarray) -> np.ndarray:
-        """速度下限守卫：避免被评分系统判成"停车"而记满分误差。
-
-        官方：`hypot(vx,vy) < 0.02` 视为停车，此时离目标不到 0.5 m 记 0 分，
-        **否则记 1 分**（方向项最大误差）。所以除"确实已到位"外，必须让
-        `|v| ≥ v_floor`。
-
-        Args:
-            cmd: 速度定律输出的原始建议速度（map 系）。
-
-        Returns:
-            np.ndarray：修正后的建议速度。
-        """
-        v = np.asarray(cmd, dtype=float).reshape(2)
-        if not np.all(np.isfinite(v)):
-            v = np.zeros(2, dtype=float)
-        stop_r = float(self._params['chassis.stop_radius_m'])
-        dist = float(np.linalg.norm(self._cur_xy - self._base_xy))
-        if math.isfinite(dist) and dist < stop_r:
-            return np.zeros(2, dtype=float)          # 已到位 → 停车 → 该项记 0
-        floor = max(float(self._params['chassis.v_floor']), V_STOP_OFFICIAL * 2.0)
-        n = float(np.linalg.norm(v))
-        if n >= floor:
-            return v
-        if n > 1e-9:
-            return v * (floor / n)
-        u, _d = VelocityLaw.unit_direction(self._base_xy, self._cur_xy)
-        if float(np.linalg.norm(u)) > 1e-9:
-            return u * floor
-        return np.array([floor, 0.0], dtype=float)
+    def _apply_v_floor(self, cmd: np.ndarray, safe_direction=None, blocked=False) -> np.ndarray:
+        """Scale only a verified feasible direction; never invent a zero direction."""
+        v = np.asarray(cmd,dtype=float).reshape(2)
+        if blocked or safe_direction is None or not np.all(np.isfinite(v)):
+            return np.zeros(2)
+        u = np.asarray(safe_direction,dtype=float).reshape(2)
+        norm = float(np.linalg.norm(u))
+        if not np.all(np.isfinite(u)) or norm < 1e-9:
+            return np.zeros(2)
+        distance = float(np.linalg.norm(self._cur_xy-self._base_xy))
+        if distance < float(self._params['chassis.stop_radius_m']):
+            return np.zeros(2)
+        floor = min(float(self._params['chassis.v_max']),
+                    max(float(self._params['chassis.v_floor']),V_STOP_OFFICIAL*2))
+        speed = min(float(self._params['chassis.v_max']),max(floor,float(np.linalg.norm(v))))
+        return u/norm*speed
 
     def _publish(self, cmd: np.ndarray, dist: float, theta: float,
                  blocked: bool, valid: bool) -> None:
@@ -387,7 +447,9 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         if ChassisAdvice is None:  # pragma: no cover
             return
         msg = ChassisAdvice()
-        msg.header.frame_id = 'map'
+        msg.header.frame_id = (str(self._params['chassis.base_frame_id'])
+                               if str(self._params['chassis.cmd_frame']) == 'base_link'
+                               else self._map_frame)
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.cmd_vx = float(cmd[0])
         msg.cmd_vy = float(cmd[1])
@@ -402,7 +464,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
                       'chassis_advisor.pub_err', 1.0)
         if blocked:
             throttled(self._log, 'warn',
-                      '360° 全被不可跨越地形挡住（或没有可用栅格），方向项退化为朝目标',
+                      '没有得到可验证的可行方向，保持零建议；不会强造朝目标速度',
                       'chassis_advisor.blocked', 1.0)
 
     # -- 工具 -----------------------------------------------------------------
@@ -428,7 +490,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
     if rclpy is None:  # pragma: no cover
-        print('[chassis_advisor_node] FATAL rclpy 不可用（需要 ROS2 Jazzy）')
+        print('[chassis_advisor_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
         return 1
     rclpy.init(args=args)
     node = ChassisAdvisorNode()

@@ -184,7 +184,7 @@ def test_control_direction_target_upper_left():
         gyro=ZERO_GYRO,
         dt=1.0,                                    # dt 足够大，slew 不生效
         gimbal_origin_world=ORIGIN,
-    )
+    joint_angles=(0.0, 0.0))
     assert out.valid
     assert out.yaw_omega > 0.0, '目标在左 → 应逆时针（+yaw）'
     assert out.pitch_omega < 0.0, '目标在上 → 应抬头（协议域为负）'
@@ -200,7 +200,7 @@ def test_control_direction_target_lower_right():
         gyro=ZERO_GYRO,
         dt=1.0,
         gimbal_origin_world=ORIGIN,
-    )
+    joint_angles=(0.0, 0.0))
     assert out.yaw_omega < 0.0
     assert out.pitch_omega > 0.0
 
@@ -215,7 +215,7 @@ def test_control_zero_error_gives_zero_command():
         gyro=ZERO_GYRO,
         dt=1.0,
         gimbal_origin_world=ORIGIN,
-    )
+    joint_angles=(0.0, 0.0))
     assert out.e_yaw == pytest.approx(0.0, abs=1e-9)
     assert out.e_pitch == pytest.approx(0.0, abs=1e-9)
     assert out.yaw_omega == pytest.approx(0.0, abs=1e-9)
@@ -242,7 +242,7 @@ def test_control_converges_error_to_zero():
              w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
              w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
              w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2)
-        out = law.compute(target, np.zeros(3), q, ZERO_GYRO, dt, ORIGIN)
+        out = law.compute(target, np.zeros(3), q, ZERO_GYRO, dt, ORIGIN, joint_angles=(yaw, pitch_proto))
         if e0 is None:
             e0 = abs(out.e_yaw)
         # 积分关节角速度（协议域）
@@ -293,10 +293,10 @@ def test_damping_opposes_motion():
     law = _fresh_law(kp_yaw=6.0, kd_yaw=0.5)
     target = np.array([2.0, 0.5, 0.0])
     out_static = law.compute(target, np.zeros(3), QUAT_IDENTITY, (0.0, 0.0, 0.0),
-                             dt=1.0, gimbal_origin_world=ORIGIN)
+                             dt=1.0, gimbal_origin_world=ORIGIN, joint_angles=(0.0, 0.0))
     law.reset()
     out_moving = law.compute(target, np.zeros(3), QUAT_IDENTITY, (0.0, 0.0, 1.0),
-                             dt=1.0, gimbal_origin_world=ORIGIN)
+                             dt=1.0, gimbal_origin_world=ORIGIN, joint_angles=(0.0, 0.0))
     assert out_moving.yaw_omega < out_static.yaw_omega
 
 
@@ -318,11 +318,11 @@ def test_combined_formula_matches_design():
     ff_yaw, ff_pitch = feedforward(r, v, y_body)
     w_imu_yaw, w_imu_pitch = imu_feedback((0.0, 0.1, 0.2), pitch_c)
 
-    out = law.compute(r, v, QUAT_IDENTITY, (0.0, 0.1, 0.2), dt=1.0, gimbal_origin_world=ORIGIN)
+    out = law.compute(r, v, QUAT_IDENTITY, (0.0, 0.1, 0.2), dt=1.0, gimbal_origin_world=ORIGIN, joint_angles=(0.0, 0.0))
 
-    expect_yaw = DEFAULT_FF_GAIN * ff_yaw + DEFAULT_KP_YAW * e_yaw - DEFAULT_KD_YAW * w_imu_yaw
+    expect_yaw = DEFAULT_FF_GAIN * ff_yaw + DEFAULT_KP_YAW * e_yaw - DEFAULT_KD_YAW * (w_imu_yaw - ff_yaw)
     expect_pitch = (DEFAULT_FF_GAIN * ff_pitch + DEFAULT_KP_PITCH * e_pitch
-                    - DEFAULT_KD_PITCH * w_imu_pitch)
+                    - DEFAULT_KD_PITCH * (w_imu_pitch - ff_pitch))
     assert out.yaw_omega == pytest.approx(expect_yaw, abs=1e-9)
     assert out.pitch_omega == pytest.approx(expect_pitch, abs=1e-9)
     assert out.ff_pitch == pytest.approx(ff_pitch, abs=1e-12)
@@ -338,7 +338,7 @@ def test_invalid_quat_returns_zero():
     """四元数范数 < 0.5 或含 NaN → 无效指令 0。"""
     law = _fresh_law()
     out = law.compute(np.array([2.0, 0.0, 0.0]), np.zeros(3), (0.1, 0.1, 0.1, 0.1),
-                      ZERO_GYRO, dt=0.01, gimbal_origin_world=ORIGIN)
+                      ZERO_GYRO, dt=0.01, gimbal_origin_world=ORIGIN, joint_angles=(0.0, 0.0))
     assert out.valid is False
     assert out.yaw_omega == 0.0 and out.pitch_omega == 0.0
 
@@ -417,7 +417,7 @@ def test_half_fov_derives_from_intrinsics():
         assert half_fov_rad_from_intrinsics(*bad) == pytest.approx(DEFAULT_HALF_FOV_RAD)
     # 真实内参（由 virtual.yaml 读取）应落在合理区间
     assert 0.3 < HALF_FOV < 0.8
-    assert HALF_FOV > DEFAULT_HALF_FOV_RAD - 1e-9   # 兜底值是保守下界
+    assert DEFAULT_HALF_FOV_RAD == 0.0  # 未知内参时禁止猜测非零搜索幅值
 
 
 def test_small_search_amplitude_within_half_fov():

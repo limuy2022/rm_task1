@@ -8,8 +8,9 @@
            [+s/2, -s/2, 0],   # 2 右下 (BR)
            [-s/2, -s/2, 0]]   # 3 左下 (BL)
 
-* 主解算器 ``cv2.SOLVEPNP_IPPE_SQUARE``（要求上述点序），OpenCV 无该方法时回退
-  ``SOLVEPNP_ITERATIVE`` 并以上一帧 rvec/tvec 作初值。
+* 主解算器 ``cv2.SOLVEPNP_IPPE_SQUARE``（要求上述点序），比较其双解并精修；
+  近正视退化、异常结果或旧API不可用时回退 ``SOLVEPNP_ITERATIVE``。
+* 点序是码自身的规范角点顺序；码旋转后不得重新按图像左上角排序。
 * 重投影 RMS > ``reproj_max_px``(2.0) → 拒绝（视为本帧无观测，不报错）。
 * 深度 ``z_c ∈ [depth_min, depth_max]`` = [0.05, 30.0]，否则拒绝。
 
@@ -35,6 +36,8 @@ __all__ = ['PnpResult', 'PnpSolver', 'marker_object_points', 'rpy_to_R']
 def marker_object_points(marker_size_m: float) -> np.ndarray:
     """生成 4 个物点（TL→TR→BR→BL），形状 (4,3)。"""
     s = float(marker_size_m)
+    if not math.isfinite(s) or s <= 0.0:
+        raise ValueError('marker_size_m must be finite and positive')
     return np.array([[-s / 2.0, +s / 2.0, 0.0],
                      [+s / 2.0, +s / 2.0, 0.0],
                      [+s / 2.0, -s / 2.0, 0.0],
@@ -97,9 +100,14 @@ class PnpSolver:
         self.reproj_max_px: float = float(reproj_max_px)
         self.depth_min: float = float(depth_min)
         self.depth_max: float = float(depth_max)
+        if not (math.isfinite(self.reproj_max_px) and self.reproj_max_px > 0.0
+                and 0.0 < self.depth_min < self.depth_max
+                and math.isfinite(self.depth_max)):
+            raise ValueError('invalid reprojection/depth limits')
         self._obj: np.ndarray = marker_object_points(self.marker_size_m)
         self._K: np.ndarray = np.eye(3, dtype=np.float64)
         self._D: np.ndarray = np.zeros(5, dtype=np.float64)
+        self._intrinsics_ready = False
         if fx > 0.0 and fy > 0.0:
             self.set_intrinsics(fx, fy, cx, cy, dist)
         self._rvec_prev: Optional[np.ndarray] = None
@@ -133,16 +141,19 @@ class PnpSolver:
     def set_intrinsics(self, fx: float, fy: float, cx: float, cy: float,
                        dist: Optional[Sequence[float]] = None) -> None:
         """更新内参与畸变（**必须**来自 virtual.yaml，禁止手抄）。"""
+        if not all(math.isfinite(float(v)) for v in (fx, fy, cx, cy)) or fx <= 0 or fy <= 0:
+            raise ValueError('camera intrinsics must be finite with positive fx/fy')
+        d = np.zeros(5, dtype=np.float64) if dist is None else np.asarray(dist, dtype=np.float64).reshape(-1)
+        if d.size == 0:
+            d = np.zeros(5, dtype=np.float64)
+        if d.size not in (4, 5, 8, 12, 14) or not np.all(np.isfinite(d)):
+            raise ValueError('invalid OpenCV distortion coefficients')
         self._K = np.array([[float(fx), 0.0, float(cx)],
                             [0.0, float(fy), float(cy)],
                             [0.0, 0.0, 1.0]], dtype=np.float64)
-        if dist is None:
-            self._D = np.zeros(5, dtype=np.float64)
-        else:
-            d = np.asarray(dist, dtype=np.float64).reshape(-1)
-            self._D = np.zeros(5, dtype=np.float64)
-            n = min(5, d.size)
-            self._D[:n] = d[:n]
+        self._D = d.copy()
+        self._intrinsics_ready = True
+        self.reset_guess()
 
     @property
     def K(self) -> np.ndarray:
@@ -151,7 +162,7 @@ class PnpSolver:
 
     @property
     def D(self) -> np.ndarray:
-        """畸变系数 (5,)。"""
+        """OpenCV畸变系数；保留配置中全部受支持的分量。"""
         return self._D.copy()
 
     @property
@@ -183,42 +194,74 @@ class PnpSolver:
         Returns:
             PnpResult: ``ok=False`` 时 ``reason`` 说明拒绝原因（均属正常路径，不报错）。
         """
-        obs = np.asarray(corners_uv, dtype=np.float64).reshape(-1, 2)
+        try:
+            obs = np.asarray(corners_uv, dtype=np.float64).reshape(-1, 2)
+        except (TypeError, ValueError):
+            return PnpResult(ok=False, reason='corner_shape')
         if obs.shape[0] != 4:
             return PnpResult(ok=False, reason='corner_count')
         if not np.all(np.isfinite(obs)):
             return PnpResult(ok=False, reason='nonfinite_corners')
+        if not self._intrinsics_ready:
+            return PnpResult(ok=False, reason='intrinsics_missing')
+        # Four finite values alone are insufficient: reject repeated, crossed,
+        # concave or almost collinear corners before asking a planar solver.
+        with np.errstate(over='ignore'):
+            contour = np.asarray(obs, dtype=np.float32).reshape(4, 1, 2)
+        if (not np.all(np.isfinite(contour)) or not cv2.isContourConvex(contour)
+                or abs(cv2.contourArea(contour)) < 1.0):
+            return PnpResult(ok=False, reason='degenerate_corners')
 
+        candidates = []
         try:
             if self._has_ippe:
-                ok, rvecs, tvecs = cv2.solvePnP(
-                    self._obj, obs, self._K, self._D,
-                    flags=cv2.SOLVEPNP_IPPE_SQUARE)
-                if not ok or rvecs is None:
-                    return PnpResult(ok=False, reason='solve_failed')
-                rvec = np.asarray(rvecs, dtype=np.float64).reshape(3)
-                tvec = np.asarray(tvecs, dtype=np.float64).reshape(3)
-            else:
-                use_guess = self._rvec_prev is not None and self._tvec_prev is not None
-                ok, rvec, tvec = cv2.solvePnP(
-                    self._obj, obs, self._K, self._D,
-                    rvec=self._rvec_prev if use_guess else None,
-                    tvec=self._tvec_prev if use_guess else None,
-                    useExtrinsicGuess=bool(use_guess),
-                    flags=cv2.SOLVEPNP_ITERATIVE)
-                if not ok or rvec is None:
-                    return PnpResult(ok=False, reason='solve_failed')
-                rvec = np.asarray(rvec, dtype=np.float64).reshape(3)
-                tvec = np.asarray(tvec, dtype=np.float64).reshape(3)
-        except cv2.error as exc:
-            return PnpResult(ok=False, reason=f'cv2_error:{exc}')
+                if hasattr(cv2, 'solvePnPGeneric'):
+                    result = cv2.solvePnPGeneric(self._obj, obs, self._K, self._D,
+                                                flags=cv2.SOLVEPNP_IPPE_SQUARE)
+                    if result[0]:
+                        candidates.extend(zip(result[1], result[2]))
+                else:
+                    ok, r, t = cv2.solvePnP(self._obj, obs, self._K, self._D,
+                                           flags=cv2.SOLVEPNP_IPPE_SQUARE)
+                    if ok:
+                        candidates.append((r, t))
+        except (cv2.error, ValueError, TypeError):
+            pass  # A solver exception is a reason to try the mature fallback.
 
-        if not (np.all(np.isfinite(rvec)) and np.all(np.isfinite(tvec))):
-            return PnpResult(ok=False, reason='nonfinite_pose')
+        evaluated = []
+        for r, t in candidates:
+            result = self._evaluate(r, t, obs)
+            if result is not None:
+                evaluated.append(result)
+            # LM fixes the near-fronto-parallel IPPE degeneracy present in older
+            # OpenCV builds. Keep the original candidate if refinement worsens it.
+            if hasattr(cv2, 'solvePnPRefineLM'):
+                try:
+                    rr, tt = cv2.solvePnPRefineLM(self._obj, obs, self._K, self._D,
+                                                 np.asarray(r).copy(), np.asarray(t).copy())
+                    refined = self._evaluate(rr, tt, obs)
+                    if refined is not None:
+                        evaluated.append(refined)
+                except (cv2.error, ValueError, TypeError):
+                    pass
 
-        err_px = self.reprojection_error(rvec, tvec, obs)
-        if not math.isfinite(err_px):
-            return PnpResult(ok=False, reason='nonfinite_reproj')
+        # Compare a fresh planar ITERATIVE initialization even if an IPPE branch
+        # is below the rejection threshold: fronto-parallel IPPE failures can
+        # have a plausible subpixel error while still choosing the wrong pose.
+        # Four points make this small fallback cheaper than accepting biased data.
+        try:
+            ok, r, t = cv2.solvePnP(self._obj, obs, self._K, self._D,
+                                   flags=cv2.SOLVEPNP_ITERATIVE)
+            if ok:
+                result = self._evaluate(r, t, obs)
+                if result is not None:
+                    evaluated.append(result)
+        except (cv2.error, ValueError, TypeError):
+            pass
+        if not evaluated:
+            return PnpResult(ok=False, reason='solve_failed')
+        best = min(evaluated, key=lambda x: x.reproj_err_px)
+        rvec, tvec, err_px = best.rvec, best.tvec_opt, best.reproj_err_px
         if err_px > self.reproj_max_px:
             return PnpResult(ok=False, reason=f'reproj_{err_px:.2f}px',
                              rvec=rvec, tvec_opt=tvec, reproj_err_px=err_px)
@@ -231,3 +274,20 @@ class PnpSolver:
         self._rvec_prev = rvec.copy()
         self._tvec_prev = tvec.copy()
         return PnpResult(ok=True, reason='', rvec=rvec, tvec_opt=tvec, reproj_err_px=err_px)
+
+    def _evaluate(self, rvec, tvec, obs) -> Optional[PnpResult]:
+        """Only physically forward-facing, finite candidate points can be ranked."""
+        try:
+            r = np.asarray(rvec, dtype=np.float64).reshape(3)
+            t = np.asarray(tvec, dtype=np.float64).reshape(3)
+            if not (np.all(np.isfinite(r)) and np.all(np.isfinite(t))):
+                return None
+            rotation, _ = cv2.Rodrigues(r)
+            if np.any((self._obj @ rotation.T + t)[:, 2] <= 0.0):
+                return None
+            error = self.reprojection_error(r, t, obs)
+            if not math.isfinite(error):
+                return None
+            return PnpResult(rvec=r.copy(), tvec_opt=t.copy(), reproj_err_px=error)
+        except (cv2.error, ValueError, TypeError):
+            return None

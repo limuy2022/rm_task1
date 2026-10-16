@@ -70,8 +70,14 @@ class GridMap:
                  origin_xy: Sequence[float] = (-6.0, -6.0),
                  grid: Optional[np.ndarray] = None,
                  ray_grid: Optional[np.ndarray] = None,
-                 inflation_radius_m: float = 0.10) -> None:
-        self.resolution = float(resolution) if resolution > 0.0 else 0.05
+                 inflation_radius_m: float = 0.10,
+                 origin_yaw: float = 0.0) -> None:
+        if not math.isfinite(float(resolution)) or float(resolution) <= 0:
+            raise ValueError('map resolution must be positive and finite')
+        self.resolution = float(resolution)
+        self.origin_yaw = float(origin_yaw)
+        if not math.isfinite(self.origin_yaw) or not np.all(np.isfinite(origin_xy)):
+            raise ValueError('map origin must be finite')
         self.origin_xy = np.array([float(origin_xy[0]), float(origin_xy[1])],
                                   dtype=float)
         if grid is None:
@@ -125,8 +131,10 @@ class GridMap:
         """
         x = float(xy[0])
         y = float(xy[1])
-        i = int(math.floor((x - self.origin_xy[0]) / self.resolution))
-        j = int(math.floor((y - self.origin_xy[1]) / self.resolution))
+        dx, dy = x-self.origin_xy[0], y-self.origin_xy[1]
+        c, s = math.cos(self.origin_yaw), math.sin(self.origin_yaw)
+        i = int(math.floor((c*dx+s*dy) / self.resolution))
+        j = int(math.floor((-s*dx+c*dy) / self.resolution))
         return (i, j)
 
     def world_to_cell_clamped(self, xy: Sequence[float]) -> Tuple[int, int]:
@@ -140,8 +148,9 @@ class GridMap:
         """cell 索引 `(i, j)` -> 该 cell **中心**的世界坐标 ndarray(2,)。"""
         i = int(ij[0])
         j = int(ij[1])
-        return self.origin_xy + (np.array([i + 0.5, j + 0.5], dtype=float)
-                                 * self.resolution)
+        c, s = math.cos(self.origin_yaw), math.sin(self.origin_yaw)
+        local = np.array([i+0.5, j+0.5]) * self.resolution
+        return self.origin_xy + np.array([[c, -s], [s, c]]) @ local
 
     def in_bounds(self, ij: Sequence[int]) -> bool:
         """cell 索引是否落在栅格范围内。"""
@@ -176,6 +185,8 @@ class GridMap:
         Returns:
             GridMap：含干净三态 `grid` 与膨胀代价 `ray_grid`。
         """
+        if abs(float(field_cfg.origin_xyz[2])) > 1e-10:
+            raise ValueError('config maps currently require zero grid origin yaw; use external topic for rotated grids')
         inside, obs, _xy = masks_from_field(field_cfg)
         grid = np.where(inside, np.where(obs, OCCUPIED, FREE), UNKNOWN).astype(np.int8)
         ray_grid = inflate(grid, field_cfg.inflation_radius_m, field_cfg.resolution)
@@ -189,7 +200,8 @@ class GridMap:
     def from_arrays(grid: np.ndarray,
                     resolution: float,
                     origin_xy: Sequence[float],
-                    inflation_radius_m: float = 0.0) -> 'GridMap':
+                    inflation_radius_m: float = 0.0,
+                    origin_yaw: float = 0.0) -> 'GridMap':
         """从已有栅格数组构造（map_source=topic 或单测用）。
 
         `inflation_radius_m > 0` 时会重新生成 `ray_grid`；否则 `ray_grid = grid`。
@@ -201,13 +213,14 @@ class GridMap:
             ray_grid = g.copy()
         return GridMap(resolution=resolution, origin_xy=origin_xy,
                        grid=g, ray_grid=ray_grid,
-                       inflation_radius_m=float(inflation_radius_m))
+                       inflation_radius_m=float(inflation_radius_m), origin_yaw=origin_yaw)
 
     @staticmethod
     def from_occupancy_grid(width: int, height: int, resolution: float,
                             origin_xy: Sequence[float],
                             data: Sequence[int],
-                            inflation_radius_m: float = 0.0) -> 'GridMap':
+                            inflation_radius_m: float = 0.0,
+                    origin_yaw: float = 0.0) -> 'GridMap':
         """从外部 `nav_msgs/OccupancyGrid` 的数据构造（`grid.map_source=topic`）。
 
         ⚠ **原样保留外部地图的 `resolution` / `origin`**（SLAM 给出什么就是什么），
@@ -235,7 +248,7 @@ class GridMap:
             ray = g.copy()
         return GridMap(resolution=resolution, origin_xy=origin_xy,
                        grid=g, ray_grid=ray,
-                       inflation_radius_m=float(inflation_radius_m))
+                       inflation_radius_m=float(inflation_radius_m), origin_yaw=origin_yaw)
 
     # -- 导出 -----------------------------------------------------------------
     def to_occupancy_data(self, use_ray: bool = False) -> List[int]:
@@ -252,6 +265,7 @@ class GridMap:
             'height': self.height,
             'resolution': self.resolution,
             'origin_xy': [float(self.origin_xy[0]), float(self.origin_xy[1])],
+            'origin_yaw': self.origin_yaw,
             'n_occupied': int(np.count_nonzero(g == OCCUPIED)),
             'n_free': int(np.count_nonzero(g == FREE)),
             'n_unknown': int(np.count_nonzero(g == UNKNOWN)),

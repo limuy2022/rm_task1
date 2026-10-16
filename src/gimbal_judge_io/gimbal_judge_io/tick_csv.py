@@ -15,7 +15,9 @@ t_tick 为评分拍时间戳，固定六位小数。八列仅作为显式兼容�
 设计要点：
 
 - 打开用 ``'a'``（追加）。节点中途重启时不会覆盖已写行（覆盖=作废）。
-  若已有文件末行缺 ``\\n``，先补一个换行，避免拼接出坏行。
+  先校验全部已有行并恢复最后六位时间；半行或损坏记录必须拒绝打开，不能修补。
+- 相同/倒序的六位时间不得再次提交；写/flush失败后锁存，直到关闭并重新校验文件。
+- 八列模式没有可恢复的时间，保留新文件写出，但拒绝向非空八列文件续写。
 - 非有限值用**上一次有效值**兜底（比写 NaN 记 1 更好：截断到 1 之前仍有得分机会）。
 - ``vx``/``vy`` 由调用方保证有限；``t_tick`` 非有限时**整行不写**（写了也匹配不上）。
 
@@ -26,6 +28,8 @@ from __future__ import annotations
 
 import math
 import os
+import re
+import fcntl
 from typing import Any
 from typing import Dict
 from typing import List
@@ -54,6 +58,16 @@ N_COLS: int = len(COLS9)
 V_STOP: float = 0.02
 
 _INF = float('inf')
+_TICK_FORMAT = re.compile(r'-?\d+\.\d{6}\Z')
+
+
+def _tick_key(text: str) -> int:
+    """Compare exactly the six decimals submitted, without epoch float roundoff."""
+    if _TICK_FORMAT.fullmatch(text) is None:
+        raise ValueError('t_tick must use fixed six decimals')
+    whole, fraction = text.lstrip('-').split('.')
+    value = int(whole) * 1000000 + int(fraction)
+    return -value if text.startswith('-') else value
 
 
 def format_row(pred: Sequence[float],
@@ -101,7 +115,7 @@ class TickCsvWriter:
         path: 主文件路径。
         rows: 已写入行数。
         n_guarded: 触发"非有限值兜底"的次数。
-        n_dropped: 因 ``t_tick`` 非有限而丢弃的行数（仅 9 列模式会触发）。
+        n_dropped: 因非有限、重复或倒序 ``t_tick`` 丢弃的行数。
         with_tick: 是否写第 9 列 ``t_tick``。
     """
 
@@ -116,6 +130,9 @@ class TickCsvWriter:
         self._n_dropped: int = 0
         self._opened: bool = False
         self._with_tick: bool = bool(with_tick)
+        self._last_tick: Optional[int] = None
+        self._recovered_rows = 0
+        self._failed = False
 
     # -- 属性 -----------------------------------------------------------------
     @property
@@ -130,7 +147,7 @@ class TickCsvWriter:
 
     @property
     def n_dropped(self) -> int:
-        """因 t_tick 非有限被丢弃的行数。"""
+        """非有限、重复或倒序tick的丢弃次数。"""
         return self._n_dropped
 
     @property
@@ -150,31 +167,60 @@ class TickCsvWriter:
 
     # -- 生命周期 -------------------------------------------------------------
     def open(self) -> bool:
-        """以追加模式打开（必要时补尾换行）。
+        """Lock one append writer and validate existing bytes without repairing them.
 
         Returns:
             bool：成功为 True。
         """
+        if self._fh is not None:
+            return not self._failed
+        handle = None
         try:
             d = os.path.dirname(os.path.abspath(self.path))
             if d:
                 os.makedirs(d, exist_ok=True)
-            need_nl = False
-            if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
-                with open(self.path, 'rb') as rf:
-                    rf.seek(-1, os.SEEK_END)
-                    need_nl = rf.read(1) != b'\n'
-            self._fh = open(self.path, 'a', encoding='utf-8', newline='\n')
-            if need_nl:
-                self._fh.write('\n')
-                self._fh.flush()
+            handle = open(self.path, 'a', encoding='utf-8', newline='\n')
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            last, tick, recovered = self._recover()
         except Exception as exc:
+            if handle is not None:
+                handle.close()
             self._emit('error', 'CSV 打开失败 %s: %r' % (self.path, exc))
             self._fh = None
             return False
+        self._fh = handle
+        self._last, self._last_tick, self._recovered_rows = last, tick, recovered
+        self._failed = False
         self._opened = True
         self._emit('info', 'CSV 已打开(追加): %s' % self.path)
         return True
+
+    def _recover(self):
+        """Return last committed values/time only if the complete file is valid."""
+        last = [0.0] * 8
+        tick = None
+        recovered = 0
+        with open(self.path, 'rb') as source:
+            for number, raw in enumerate(source, 1):
+                if not self._with_tick:
+                    raise ValueError('cannot safely resume nonempty legacy eight-column CSV')
+                if not raw.endswith(b'\n'):
+                    raise ValueError('incomplete CSV tail at line %d; no records modified' % number)
+                body = raw[:-1]
+                if body.endswith(b'\r'):
+                    body = body[:-1]
+                fields = body.decode('utf-8').split(',')
+                if len(fields) != self.n_cols:
+                    raise ValueError('wrong CSV column count at line %d' % number)
+                values = [float(value) for value in fields[:8]]
+                if not all(math.isfinite(value) for value in values):
+                    raise ValueError('nonfinite existing data at line %d' % number)
+                current = _tick_key(fields[8])
+                if tick is not None and current <= tick:
+                    raise ValueError('duplicate/out-of-order existing tick at line %d' % number)
+                last, tick = values, current
+                recovered += 1
+        return last, tick, recovered
 
     def close(self) -> None:
         """flush + 关闭。"""
@@ -182,6 +228,9 @@ class TickCsvWriter:
             return
         try:
             self._fh.flush()
+        except Exception as exc:
+            self._failed = True
+            self._emit('error', 'CSV close flush失败；文件须重新校验: %r' % (exc,))
         finally:
             try:
                 self._fh.close()
@@ -203,6 +252,9 @@ class TickCsvWriter:
         Returns:
             bool：写入成功为 True。
         """
+        if self._failed:
+            self._emit('error', 'CSV上次写入失败；先关闭并校验文件，不继续追加')
+            return False
         if self._fh is None:
             if not self.open():
                 return False
@@ -213,6 +265,12 @@ class TickCsvWriter:
         if not math.isfinite(t):
             self._n_dropped += 1
             self._emit('warn', 't_tick 非有限，本拍不写（累计 %d）' % self._n_dropped)
+            return False
+        serialized_tick = '%.6f' % t
+        key = _tick_key(serialized_tick)
+        if self._last_tick is not None and key <= self._last_tick:
+            self._n_dropped += 1
+            self._emit('warn', '重复或倒序tick %s，本拍不重复追加' % serialized_tick)
             return False
 
         raw = [self._f(pred, 0), self._f(pred, 1),
@@ -230,21 +288,22 @@ class TickCsvWriter:
             self._n_guarded += 1
             self._emit('warn', '出现非有限值，已用上一次有效值兜底（累计 %d）'
                        % self._n_guarded)
-        self._last = out
 
         line = format_row(out[0:2], out[2:4], out[4:6], out[6:8], t,
                           with_tick=self._with_tick)
         try:
-            self._fh.write(line + '\n')
+            payload = line + '\n'
+            if self._fh.write(payload) != len(payload):
+                raise OSError('short CSV write')
             self._fh.flush()
         except Exception as exc:
-            # 写入失败时尽力 flush；错误仍记录在日志中。
-            try:
-                self._fh.flush()
-            except Exception:
-                pass
-            self._emit('error', 'CSV 写行异常(已尽力 flush): %r' % (exc,))
+            # A failed flush may have exposed a whole or partial row. Never
+            # blindly retry it or append beyond it in this process.
+            self._failed = True
+            self._emit('error', 'CSV 写入/flush异常，停止追加，未计成功: %r' % (exc,))
             return False
+        self._last = out
+        self._last_tick = key
         self._rows += 1
         return True
 
@@ -253,7 +312,8 @@ class TickCsvWriter:
         """返回写入统计。"""
         return {'path': self.path, 'rows': self._rows,
                 'n_guarded': self._n_guarded, 'n_dropped': self._n_dropped,
-                'opened': self._opened, 'n_cols': self.n_cols}
+                'opened': self._opened, 'n_cols': self.n_cols,
+                'recovered_rows': self._recovered_rows, 'failed': self._failed}
 
     # -- 内部 -----------------------------------------------------------------
     @staticmethod

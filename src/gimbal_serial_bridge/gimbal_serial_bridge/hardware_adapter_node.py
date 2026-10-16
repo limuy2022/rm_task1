@@ -20,6 +20,7 @@ class HardwareAdapter(Node):
         self.gate=CommandGate()
         self.received=0
         self.epoch=None
+        self.last_cmd_stamp=None
         self.state_pub=self.create_publisher(GimbalState,'/gimbal/state',10)
         self.cmd_pub=self.create_publisher(Twist,str(self.get_parameter('cmd_topic').value),10)
         self.create_subscription(Imu,str(self.get_parameter('imu_topic').value),self.on_imu,
@@ -65,7 +66,17 @@ class HardwareAdapter(Node):
         self.received+=1
 
     def on_cmd(self,msg):
-        self.gate.command(float(msg.yaw_omega),float(msg.pitch_omega),bool(msg.valid),time.monotonic())
+        try:
+            source=msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9
+            age=self.get_clock().now().nanoseconds*1e-9-source
+            if (msg.header.frame_id!='gimbal_link' or not math.isfinite(age)
+                    or age < -.01 or age > self.gate.cmd_timeout
+                    or (self.last_cmd_stamp is not None and source<=self.last_cmd_stamp)):
+                self.gate.command(0.,0.,False,time.monotonic());return
+            self.last_cmd_stamp=source
+            self.gate.command(float(msg.yaw_omega),float(msg.pitch_omega),bool(msg.valid),time.monotonic())
+        except (AttributeError,TypeError,ValueError):
+            self.gate.command(0.,0.,False,time.monotonic())
 
     def tick(self):
         now=time.monotonic()

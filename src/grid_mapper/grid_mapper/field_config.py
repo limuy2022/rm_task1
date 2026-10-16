@@ -516,10 +516,16 @@ def occupancy_grid_to_arrays(width: int, height: int, resolution: float,
         （历史兼容，勿再当作"含膨胀的代价图"；要膨胀请走
         `GridMap.from_occupancy_grid(..., inflation_radius_m=...)`）。
     """
-    arr = np.asarray(list(data), dtype=np.int8)
-    if arr.size < width * height:
-        arr = np.concatenate([arr, np.full(width * height - arr.size, -1, dtype=np.int8)])
-    arr = arr[:width * height].reshape((height, width))     # (y, x)
-    grid = np.transpose(arr).astype(np.int8)                # (W, H) -> [i, j]
-    grid = np.where(grid < 0, -1, np.where(grid >= 50, 100, 0)).astype(np.int8)
+    if width <= 0 or height <= 0 or not math.isfinite(resolution) or resolution <= 0:
+        raise ValueError('OccupancyGrid dimensions and resolution must be positive')
+    values = np.asarray(list(data), dtype=float)
+    if values.size != width * height:
+        raise ValueError('OccupancyGrid data length must equal width*height')
+    if not np.all(np.isfinite(values)) or np.any(values < -1) or np.any(values > 100) or np.any(values != np.floor(values)):
+        raise ValueError('OccupancyGrid values must be integers in [-1,100]')
+    arr = values.astype(np.int8).reshape((height, width))
+    grid = np.transpose(arr)
+    # Match saved Nav2 trinary thresholds; ambiguous probability remains unknown.
+    grid = np.where(grid < 0, -1, np.where(grid >= 65, 100,
+                    np.where(grid <= 19, 0, -1))).astype(np.int8)
     return grid, grid.copy()

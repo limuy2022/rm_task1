@@ -165,7 +165,7 @@ def write_map(out_dir: str,
         grid_map: 栅格地图（写的是**干净三态** `grid`，不含膨胀）。
         image_name: PGM 文件名。
         yaml_name: YAML 文件名。
-        origin_xyz: 覆盖 map.yaml 的 origin；None 时用 grid_map.origin_xy + yaw 0。
+        origin_xyz: 覆盖 map.yaml 的 origin；None 时用 grid_map.origin_xy 和 origin_yaw。
         occupied_thresh / free_thresh: 阈值。
 
     Returns:
@@ -177,7 +177,7 @@ def write_map(out_dir: str,
     write_pgm(pgm_path, grid_map.grid)
     if origin_xyz is None:
         origin_xyz = (float(grid_map.origin_xy[0]),
-                      float(grid_map.origin_xy[1]), 0.0)
+                      float(grid_map.origin_xy[1]), float(grid_map.origin_yaw))
     write_map_yaml(yaml_path,
                    image=image_name,
                    resolution=grid_map.resolution,

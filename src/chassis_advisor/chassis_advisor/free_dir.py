@@ -158,10 +158,11 @@ def blocked_intervals(grid: Any,
     i1 = int(math.floor((px + reach) / res))
     j0 = int(math.floor((py - reach) / res))
     j1 = int(math.floor((py + reach) / res))
-    i0 = max(i0, 0)
-    j0 = max(j0, 0)
-    i1 = min(i1, w - 1)
-    j1 = min(j1, h - 1)
+    if not block_unknown:
+        i0 = max(i0, 0)
+        j0 = max(j0, 0)
+        i1 = min(i1, w - 1)
+        j1 = min(j1, h - 1)
     if i1 < i0 or j1 < j0:
         return False, []
 
@@ -170,9 +171,9 @@ def blocked_intervals(grid: Any,
     for i in range(i0, i1 + 1):
         x0 = i * res
         x1 = x0 + res
-        col = g[i]
+        col = g[i] if 0 <= i < w else None
         for j in range(j0, j1 + 1):
-            v = int(col[j])
+            v = int(col[j]) if col is not None and 0 <= j < h else UNKNOWN
             if v not in want:
                 continue
             y0 = j * res
@@ -211,6 +212,8 @@ def _ray_blocked(g: np.ndarray, origin_xy: Sequence[float], res: float,
     w, h = int(g.shape[0]), int(g.shape[1])
     for (i, j) in cells:
         if i < 0 or j < 0 or i >= w or j >= h:
+            if block_unknown:
+                return True
             continue
         v = int(g[i, j])
         if v == OCCUPIED:
@@ -327,6 +330,17 @@ def min_angle_free_dir(grid: Any,
                 best_o = cand
                 break
 
+    # Closed occupied cells include their corners. The analytic complement
+    # can return a tangent boundary, so validate and nudge into the free side.
+    if _ray_blocked(g, origin_xy, float(resolution), p, a_t+best_o, L, block_unknown):
+        candidates = [best_o-eps for eps in (1e-6, math.radians(.05))]
+        candidates += [best_o+eps for eps in (1e-6, math.radians(.05))]
+        candidates = sorted(candidates,key=abs)
+        for candidate in candidates:
+            if -math.pi <= candidate <= math.pi and not _ray_blocked(
+                    g, origin_xy, float(resolution), p, a_t+candidate, L, block_unknown):
+                return float(candidate), True
+        return 0.0, False
     return float(best_o), True
 
 
@@ -352,16 +366,21 @@ class FreeDirSolver:
         self._grid: Optional[np.ndarray] = None
         self._origin = np.zeros(2, dtype=float)
         self._res: float = 0.05
+        self._origin_yaw: float = 0.0
         self._last_theta: float = 0.0
         self._last_feasible: bool = False
 
     def set_grid(self, grid: Any, origin_xy: Sequence[float],
-                 resolution: float) -> None:
+                 resolution: float, origin_yaw: float = 0.0) -> None:
         """设置栅格（**未膨胀**三态）与原点/分辨率。"""
         self._grid = np.asarray(grid)
         self._origin = np.array([float(origin_xy[0]), float(origin_xy[1])],
                                 dtype=float)
-        self._res = float(resolution) if float(resolution) > 0.0 else 0.05
+        self._res = float(resolution)
+        self._origin_yaw = float(origin_yaw)
+        if self._grid.ndim != 2 or not all(math.isfinite(v) for v in (*self._origin, self._res, self._origin_yaw)) or self._res <= 0:
+            self._grid = None
+            raise ValueError('invalid grid geometry')
 
     @property
     def has_grid(self) -> bool:
@@ -385,8 +404,12 @@ class FreeDirSolver:
             self._last_theta = 0.0
             self._last_feasible = False
             return 0.0, False
-        theta, ok = min_angle_free_dir(self._grid, self._origin, self._res, p,
-                                       u_target, self.lookahead_m,
+        c, s = math.cos(self._origin_yaw), math.sin(self._origin_yaw)
+        Rinv = np.array([[c, s], [-s, c]])
+        local_p = Rinv @ (np.asarray(p, dtype=float)-self._origin)
+        local_u = Rinv @ np.asarray(u_target, dtype=float)
+        theta, ok = min_angle_free_dir(self._grid, (0.0, 0.0), self._res, local_p,
+                                       local_u, self.lookahead_m,
                                        self.block_unknown, self.refine)
         self._last_theta = theta
         self._last_feasible = ok

@@ -47,10 +47,11 @@ def _solver(**kwargs) -> PnpSolver:
 
 
 def _project(obj_pts: np.ndarray, rvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
-    """用针孔模型把物点投到像素（无畸变，与 virtual.yaml 的 D=0 一致）。"""
+    """使用配置中的畸变，与待测解算器一致。"""
     import cv2
     K = np.array([[FX, 0.0, CX], [0.0, FY, CY], [0.0, 0.0, 1.0]], dtype=np.float64)
-    proj, _ = cv2.projectPoints(obj_pts, rvec, tvec, K, np.zeros(5))
+    proj, _ = cv2.projectPoints(obj_pts, rvec, tvec, K,
+                                np.asarray(CAM.get('distortion', np.zeros(5))))
     return proj.reshape(-1, 2)
 
 
@@ -72,7 +73,7 @@ class _FakePolygon:
 def test_object_points_order_is_TL_TR_BR_BL():
     obj = marker_object_points(MARKER)
     s = MARKER / 2.0
-    assert np.allclose(obj[0], [-s, +s, 0.0])     # TL：左上（x 右、y 下）
+    assert np.allclose(obj[0], [-s, +s, 0.0])     # 码局部TL：x右、y上
     assert np.allclose(obj[1], [+s, +s, 0.0])     # TR
     assert np.allclose(obj[2], [+s, -s, 0.0])     # BR
     assert np.allclose(obj[3], [-s, -s, 0.0])     # BL
@@ -91,8 +92,7 @@ def test_object_points_form_a_square_of_expected_image_width():
     expect_edge = MARKER * FX / 2.0
     for d in (d01, d12, d23, d30):
         assert d == pytest.approx(expect_edge, abs=0.5)
-    # 四条边相等 → 是正方形；像宽 ≈ 44px（2m 处 marker 宽度的官方量级）
-    assert 40.0 < expect_edge < 48.0
+    # 不锁定旧教学相机44px：当前内参与畸变来自上述配置。
 
 
 # --------------------------------------------------------------------------------------
@@ -193,14 +193,12 @@ def test_intrinsics_must_come_from_virtual_yaml():
 # --------------------------------------------------------------------------------------
 def test_noise_sigma_scaling():
     nm = NoiseModel(fx=FX, marker_size_m=MARKER, corner_noise_px=0.5)
-    # 默认值下：k_lat_auto = corner_noise_px/fx ≈ 9.02e-4 > floor 5e-4
-    assert nm.k_lat == pytest.approx(0.5 / FX, rel=1e-9)
-    assert nm.k_depth == pytest.approx(0.5 / (MARKER * FX), rel=1e-9)
-    # z=2：σ_lat ≈ 1.8mm，σ_depth ≈ 2.26cm
-    assert nm.sigma_lat(2.0) == pytest.approx(0.5 * 2.0 / FX, rel=1e-6)
-    assert nm.sigma_depth(2.0) == pytest.approx(0.5 * 4.0 / (MARKER * FX), rel=1e-6)
-    assert 1.5e-3 < nm.sigma_lat(2.0) < 2.5e-3
-    assert 1.5e-2 < nm.sigma_depth(2.0) < 3.0e-2
+    expected_lat = max(0.5 / FX, 5.0e-4)
+    expected_depth = max(0.5 / (MARKER * FX), 4.0e-3)
+    assert nm.k_lat == pytest.approx(expected_lat, rel=1e-9)
+    assert nm.k_depth == pytest.approx(expected_depth, rel=1e-9)
+    assert nm.sigma_lat(2.0) == pytest.approx(expected_lat * 2.0, rel=1e-6)
+    assert nm.sigma_depth(2.0) == pytest.approx(expected_depth * 4.0, rel=1e-6)
     # 深度噪声比横向大一个数量级
     assert nm.sigma_depth(2.0) / nm.sigma_lat(2.0) > 8.0
     # 平方/线性缩放
@@ -245,7 +243,7 @@ def test_noise_fx_setter_recomputes():
     nm.fx = 2.0 * FX
     assert nm.k_lat == pytest.approx(max(0.5 / (2.0 * FX), 5.0e-4), rel=1e-9)
     nm.fx = FX
-    assert nm.k_lat == pytest.approx(0.5 / FX, rel=1e-9)
+    assert nm.k_lat == pytest.approx(max(0.5 / FX, 5.0e-4), rel=1e-9)
 
 
 # --------------------------------------------------------------------------------------

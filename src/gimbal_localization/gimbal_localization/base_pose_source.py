@@ -27,6 +27,7 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 
 from gimbal_common.frames import Pose2D, freeze_T_map_odom
+from .odometry_geometry import ConvertedOdometry, convert_odometry, rigid_transform
 
 __all__ = ['BasePoseSource', 'OdomTopicSource', 'MockSource',
            'make_base_pose_source', 'quat_yaw', 'T_map_world_from_odom']
@@ -94,53 +95,88 @@ class OdomTopicSource(BasePoseSource):
     """订阅 ``/odom`` 的底盘位姿源（正式赛）。"""
 
     def __init__(self, topic: str = '/odom', timeout_s: float = 0.5,
-                 frame_id: str = 'odom', child_frame_id: str = 'base_link') -> None:
-        super().__init__(frame_id, child_frame_id)
-        self.topic: str = str(topic)
-        self.timeout_s: float = float(timeout_s)
+                 frame_id: str = 'odom', child_frame_id: str = 'base_link',
+                 output_frame_id: str = 'odom', base_frame_id: str = 'base_link',
+                 sensor_in_base_xyz=(0., 0., 0.), sensor_in_base_rpy=(0., 0., 0.),
+                 sensor_extrinsics_confirmed: bool = False,
+                 source_parent_in_output_xyz=(0., 0., 0.),
+                 source_parent_in_output_rpy=(0., 0., 0.),
+                 parent_transform_confirmed: bool = False,
+                 twist_source: str = 'message') -> None:
+        super().__init__(output_frame_id, base_frame_id)
+        self.topic = str(topic)
+        self.timeout_s = float(timeout_s)
+        if not math.isfinite(self.timeout_s) or self.timeout_s <= 0:
+            raise ValueError('odom_timeout_s must be positive')
+        self.expected_frame_id = str(frame_id)
+        self.expected_child_frame_id = str(child_frame_id)
+        if not all((self.expected_frame_id, self.expected_child_frame_id,
+                    self.frame_id, self.child_frame_id)):
+            raise ValueError('odometry frame names must be explicit and nonempty')
+        if self.expected_child_frame_id != self.child_frame_id and not sensor_extrinsics_confirmed:
+            raise ValueError('sensor/base frames differ: confirm measured sensor_in_base extrinsics first')
+        if self.expected_frame_id != self.frame_id and not parent_transform_confirmed:
+            raise ValueError('parent frames differ: explicitly confirm source_parent_in_output transform first')
+        self.T_base_sensor = rigid_transform(sensor_in_base_xyz, sensor_in_base_rpy)
+        self.T_output_parent = rigid_transform(source_parent_in_output_xyz, source_parent_in_output_rpy)
+        if self.expected_child_frame_id == self.child_frame_id and not np.allclose(self.T_base_sensor, np.eye(4)):
+            raise ValueError('same sensor/base frame cannot have nonidentity extrinsics')
+        if self.expected_frame_id == self.frame_id and not np.allclose(self.T_output_parent, np.eye(4)):
+            raise ValueError('same parent frame cannot have nonidentity transform')
+        self.twist_source = str(twist_source)
+        if self.twist_source not in ('message', 'pose_difference'):
+            raise ValueError('odom_twist_source must be message or pose_difference')
+        self.latest: Optional[ConvertedOdometry] = None
         self._last: Optional[Pose2D] = None
-        self._last_t_mono: float = -math.inf
-        self._n_msgs: int = 0
+        self._last_t_mono = -math.inf
+        self._n_msgs = 0
+        self._invalid = False
 
     def name(self) -> str:
         return f'odom_topic({self.topic})'
 
     def on_odom(self, msg: Any, t_mono: Optional[float] = None) -> None:
-        """喂入一条 ``nav_msgs/Odometry``（鸭子类型，不 import ROS）。
+        """Validate the declared frames, convert full 3D pose, retain source stamp.
 
-        话题自带的 ``header.stamp`` **只用于日志与丢帧统计，不参与运算**。
-
-        Args:
-            msg: 具有 ``pose.pose.position/orientation`` 与 ``twist.twist.linear`` 的消息。
-            t_mono: 本地收到时刻（单调秒）；None 时取当前单调时刻。
+        Receiving the same source stamp again never renews freshness. A frame
+        mismatch or backwards stamp invalidates the current output until a new,
+        consistent sample arrives. ROS clock age is additionally checked by the
+        provider; this source uses monotonic receive time only for transport age.
         """
-        if msg is None:
-            return
         import time as _time
         t = _time.monotonic() if t_mono is None else float(t_mono)
         try:
-            pos = msg.pose.pose.position
-            ori = msg.pose.pose.orientation
-            x = float(pos.x)
-            y = float(pos.y)
-            yaw = quat_yaw(float(ori.x), float(ori.y), float(ori.z), float(ori.w))
-            vx = float(msg.twist.twist.linear.x)
-            vy = float(msg.twist.twist.linear.y)
+            if str(msg.header.frame_id) != self.expected_frame_id:
+                raise ValueError(f'expected parent {self.expected_frame_id!r}, got {msg.header.frame_id!r}')
+            if str(msg.child_frame_id) != self.expected_child_frame_id:
+                raise ValueError(f'expected child {self.expected_child_frame_id!r}, got {msg.child_frame_id!r}')
+            converted = convert_odometry(msg, self.T_base_sensor, self.T_output_parent,
+                                         self.twist_source, self.latest)
+            stamp = (converted.stamp_sec, converted.stamp_nanosec)
+            previous_stamp = None if self.latest is None else (self.latest.stamp_sec, self.latest.stamp_nanosec)
+            if stamp == previous_stamp:
+                return
+            if previous_stamp is not None and stamp < previous_stamp:
+                raise ValueError('odometry stamp moved backwards; reset source before a new replay')
         except AttributeError as exc:
-            raise TypeError(f'odom 消息结构不符合预期: {exc!r}') from exc
-        if not all(math.isfinite(v) for v in (x, y, yaw, vx, vy)):
-            return
-        if getattr(msg, 'header', None) is not None and msg.header.frame_id:
-            self.frame_id = str(msg.header.frame_id)
-        if getattr(msg, 'child_frame_id', ''):
-            self.child_frame_id = str(msg.child_frame_id)
-        self._last = Pose2D(x=x, y=y, yaw=yaw, vx=vx, vy=vy, valid=True, t_mono=t)
+            self._invalid = True
+            raise TypeError('odometry must contain header and child_frame_id') from exc
+        except Exception:
+            self._invalid = True
+            raise
+        self.latest = converted
+        position = converted.T_output_base[:3, 3]
+        velocity = converted.linear_output
+        self._last = Pose2D(x=float(position[0]), y=float(position[1]),
+                            yaw=converted.yaw, vx=float(velocity[0]),
+                            vy=float(velocity[1]), valid=True, t_mono=t)
         self._last_t_mono = t
+        self._invalid = False
         self._n_msgs += 1
 
     def poll(self, t_mono: float) -> Pose2D:
         """返回最近一条 odom；超过 ``timeout_s`` 视为失效。"""
-        if self._last is None:
+        if self._last is None or self._invalid:
             return Pose2D(valid=False, t_mono=float(t_mono))
         if (float(t_mono) - self._last_t_mono) > self.timeout_s:
             stale = Pose2D(x=self._last.x, y=self._last.y, yaw=self._last.yaw,
@@ -158,6 +194,8 @@ class OdomTopicSource(BasePoseSource):
 
     def reset(self) -> None:
         self._last = None
+        self.latest = None
+        self._invalid = False
         self._last_t_mono = -math.inf
 
 
@@ -247,6 +285,17 @@ def make_base_pose_source(cfg: Dict[str, Any]) -> BasePoseSource:
         return OdomTopicSource(
             topic=str(cfg.get('odom_topic', '/odom')),
             timeout_s=float(cfg.get('odom_timeout_s', 0.5)),
+            frame_id=str(cfg.get('odom_frame_id', 'odom')),
+            child_frame_id=str(cfg.get('odom_child_frame_id', 'base_link')),
+            output_frame_id=str(cfg.get('output_frame_id', 'odom')),
+            base_frame_id=str(cfg.get('base_frame_id', 'base_link')),
+            sensor_in_base_xyz=cfg.get('sensor_in_base_xyz', (0., 0., 0.)),
+            sensor_in_base_rpy=cfg.get('sensor_in_base_rpy', (0., 0., 0.)),
+            sensor_extrinsics_confirmed=bool(cfg.get('sensor_extrinsics_confirmed', False)),
+            source_parent_in_output_xyz=cfg.get('source_parent_in_output_xyz', (0., 0., 0.)),
+            source_parent_in_output_rpy=cfg.get('source_parent_in_output_rpy', (0., 0., 0.)),
+            parent_transform_confirmed=bool(cfg.get('parent_transform_confirmed', False)),
+            twist_source=str(cfg.get('odom_twist_source', 'message')),
         )
     if kind == 'mock':
         return MockSource(

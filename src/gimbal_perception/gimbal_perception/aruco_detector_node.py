@@ -10,9 +10,9 @@
   并按 `detect_rate_hz` 节流（评分是 10 Hz，30 Hz 检测绰绰有余）。
 - 码用 `DICT_4X4_50`，边长 0.1 m。
 
-输出：``geometry_msgs/PolygonStamped``，像素在 ``points[i].x / .y``，
-顺序 **左上 → 右上 → 右下 → 左下**（与 ``marker_source.SingleTopicMarkerSource``
-的约定一致），``frame_id = camera_optical_frame``。空 polygon = 本帧无观测。
+输出：``gimbal_interfaces/MarkerCorners``，ID和角点携带同一图像stamp。
+保持ArUco解码后的规范角点顺序，不按图像左上重新排序。
+``frame_id = camera_optical_frame``；valid=false、空corners表示无观测。
 
 精度（cur_x/cur_y 权重合计 0.3，是仅次于 base 的大项）：
 ``cv2.aruco.detectMarkers`` 的角点是**整像素**级，直接拿去做 PnP 会带来
@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from typing import Any
 from typing import Dict
 from typing import Optional
@@ -40,13 +41,14 @@ try:
     from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
                            QoSProfile, QoSReliabilityPolicy)
     from sensor_msgs.msg import Image
-    from geometry_msgs.msg import Point32, PolygonStamped
+    from geometry_msgs.msg import Point32
+    from gimbal_interfaces.msg import MarkerCorners
 except Exception:  # pragma: no cover - Windows 无 ROS2
     rclpy = None  # type: ignore[assignment]
     Node = object  # type: ignore[assignment,misc]
     Image = None  # type: ignore[assignment]
     Point32 = None  # type: ignore[assignment]
-    PolygonStamped = None  # type: ignore[assignment]
+    MarkerCorners = None  # type: ignore[assignment]
     QoSProfile = None  # type: ignore[assignment]
     QoSHistoryPolicy = None  # type: ignore[assignment]
     QoSReliabilityPolicy = None  # type: ignore[assignment]
@@ -78,6 +80,7 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'perception.subpix_win': 3,
     'perception.publish_empty_on_lost': True, # 丢失时发空 polygon（下游按无观测处理）
     'perception.max_corners': 4,
+    'perception.image_timeout_s': 0.2,
 }
 
 
@@ -217,6 +220,8 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._latest: Optional[Any] = None
         self._latest_stamp: Optional[Any] = None
         self._frame_seq: int = 0
+        self._last_image_received: Optional[float] = None
+        self._loss_announced = False
         self._n_det: int = 0
         self._n_frame: int = 0
         self._t_last_detect: float = 0.0
@@ -224,7 +229,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self.create_subscription(Image, str(self._params['perception.image_topic']),
                                  self._on_image, _reliable_keep_last(1))
         self._pub = self.create_publisher(
-            PolygonStamped, str(self._params['perception.marker_corners_topic']),
+            MarkerCorners, str(self._params['perception.marker_corners_topic']),
             _reliable_keep_last(10))
 
         period = 1.0 / max(float(self._params['perception.detect_rate_hz']), 1e-3)
@@ -265,6 +270,8 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         """只保存最新帧引用，**不在回调里做重活**（官方明确要求）。"""
         self._latest = msg
         self._latest_stamp = msg.header.stamp
+        self._last_image_received = time.monotonic()
+        self._loss_announced = False
         self._frame_seq += 1
 
     def _on_timer(self) -> None:
@@ -278,10 +285,17 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             self._params['perception.target_digit'] = target
             self._latest = None  # 不使用切换前的缓存图像
             self._log.info('目标ID更新为 %d' % target)
+            self._publish(None, self.get_clock().now().to_msg())
         if target < 0:
             return
         msg = self._latest
         if msg is None:
+            received = self._last_image_received
+            timeout = float(self._params['perception.image_timeout_s'])
+            if received is not None and time.monotonic() - received > timeout \
+                    and not self._loss_announced:
+                self._publish(None, self.get_clock().now().to_msg())
+                self._loss_announced = True
             _throttled(self._log, 'warn', '还没有收到 /image_raw',
                        'aruco.no_image', 2.0)
             return
@@ -291,8 +305,10 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         except Exception as exc:
             _throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
                        'aruco.conv_err', 1.0)
+            self._publish(None, msg.header.stamp)
             return
         if gray is None:
+            self._publish(None, msg.header.stamp)
             return
         self._n_frame += 1
 
@@ -321,14 +337,22 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             h = int(msg.height)
             w = int(msg.width)
             enc = str(msg.encoding).lower()
+            channels = 3 if enc in ('rgb8', 'bgr8') else 1
+            row_size = w * channels
+            step = int(getattr(msg, 'step', row_size))
+            if h <= 0 or w <= 0 or step < row_size:
+                return None
             buf = np.frombuffer(msg.data, dtype=np.uint8)
+            if buf.size < h * step:
+                return None
+            rows = buf[:h * step].reshape(h, step)[:, :row_size]
             if enc in ('rgb8', 'bgr8'):
-                img = buf.reshape((h, w, 3))
+                img = rows.reshape((h, w, 3))
                 if enc == 'rgb8':
                     return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
                 return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             if enc in ('mono8', '8uc1'):
-                return buf.reshape((h, w))
+                return rows.reshape((h, w))
         except Exception:
             return None
         _throttled(self._log, 'error', '不支持的图像编码 %r' % msg.encoding,
@@ -339,9 +363,11 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         """返回 (corners, ids)；无检测时 ids is None。"""
         try:
             if self._aruco_det is not None:
-                return self._aruco_det.detectMarkers(gray)
-            return cv2.aruco.detectMarkers(   # precheck:ok-e5 旧 API 兜底分支
-                gray, self._dict, parameters=self._detector)
+                corners, ids, _ = self._aruco_det.detectMarkers(gray)
+            else:
+                corners, ids, _ = cv2.aruco.detectMarkers(   # 旧 API 兜底分支
+                    gray, self._dict, parameters=self._detector)
+            return corners, ids
         except Exception as exc:
             _throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
                        'aruco.detect_err', 1.0)
@@ -356,8 +382,8 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             for k, mid in enumerate(flat):
                 if int(mid) == int(self._target_digit):
                     c = np.asarray(corners[k], dtype=np.float64).reshape(-1, 2)
-                    if c.shape[0] >= 4:
-                        return c[:4]
+                    if c.shape == (4, 2) and np.all(np.isfinite(c)):
+                        return c.copy()
         except Exception:
             return None
         return None
@@ -369,26 +395,31 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
             refined = cv2.cornerSubPix(gray, c.reshape(-1, 1, 2).astype(np.float32),
                                        (win, win), (-1, -1), crit)
-            return np.asarray(refined, dtype=np.float64).reshape(-1, 2)
+            refined = np.asarray(refined, dtype=np.float64).reshape(-1, 2)
+            if (refined.shape != (4, 2) or not np.all(np.isfinite(refined))
+                    or np.max(np.abs(refined - c)) > win + 1):
+                return c
+            return refined
         except Exception:
             return c
 
     # -- 发布 -----------------------------------------------------------------
     def _publish(self, corners: Optional[np.ndarray], stamp: Any) -> None:
-        """发 PolygonStamped；None → 空 polygon（下游按本帧无观测处理）。"""
-        if PolygonStamped is None:  # pragma: no cover
+        """Publish ID and corners atomically; None explicitly clears tracking."""
+        if MarkerCorners is None:  # pragma: no cover
             return
-        msg = PolygonStamped()
+        msg = MarkerCorners()
         msg.header.stamp = stamp
         msg.header.frame_id = str(self._params['perception.corners_frame_id'])
+        msg.marker_id = int(self._target_digit)
+        msg.valid = corners is not None
         if corners is not None:
-            for k in range(int(min(corners.shape[0],
-                                   int(self._params['perception.max_corners'])))):
+            for k in range(4):
                 p = Point32()
                 p.x = float(corners[k, 0])
                 p.y = float(corners[k, 1])
                 p.z = 0.0
-                msg.polygon.points.append(p)
+                msg.corners.append(p)
         try:
             self._pub.publish(msg)
         except Exception as exc:  # pragma: no cover

@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace as NS
 import numpy as np
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/gimbal_common'))
 
 root = Path(__file__).resolve().parents[1] / 'src'
 
@@ -17,11 +19,12 @@ def method(path, name, env):
 
 log = NS(error=lambda *a: None, warning=lambda *a: None)
 judge = root / 'gimbal_judge_io/gimbal_judge_io/judge_io_node.py'
-env = {'Any': object, 'np': np, 'math': math}
+from gimbal_common import frames
+env = {'Any': object, 'np': np, 'math': math, 'frames': frames}
 on_grid = method(judge, '_on_grid', env)
 obj = NS(_log=log)
 q = NS(w=math.cos(.4), x=0., y=0., z=math.sin(.4))
-msg = NS(info=NS(width=2, height=1, resolution=.5,
+msg = NS(header=NS(frame_id='map'), info=NS(width=2, height=1, resolution=.5,
          origin=NS(position=NS(x=-1., y=2.), orientation=q)), data=[0,100])
 on_grid(obj, msg)
 assert abs(obj._grid_yaw - .8) < 1e-12
@@ -33,19 +36,10 @@ with tempfile.TemporaryDirectory() as d:
     assert 'origin: [-1, 2, 0.8]' in p.read_text()
 print('PASS map origin yaw preserved in ingestion and fallback YAML')
 
-path=root/'gimbal_localization/gimbal_localization/map_frame_broadcaster_node.py'
-clock=NS(now=lambda:100.)
-env={'Odometry':object,'math':math,'TU':clock,'quat_yaw':lambda *q:0.,
-     'LU':NS(throttled=lambda *a:None)}
-on_base=method(path,'_on_base_pose',env)
-obj=NS(_log=log,_origin_mode='judge_replay_start',_origin_timeout_s=5.,
-       _t_first_valid=0.,_n_pose=0,_frozen=False,_freeze_requested=False,
-       _freeze=lambda *a: (_ for _ in ()).throw(AssertionError('premature freeze')))
-msg=NS(pose=NS(pose=NS(position=NS(x=3.,y=4.),orientation=NS(x=0,y=0,z=0,w=1))),
-       twist=NS(twist=NS(linear=NS(x=0.,y=0.))))
-on_base(obj,msg)
-assert obj._origin_mode=='judge_replay_start' and not obj._frozen
-print('PASS wait beyond 5s does not freeze or change origin mode')
+from verify_timing_offline import TimingTests
+case=TimingTests('test_no_timeout_origin_fallback_or_new_round_rebase')
+case.test_no_timeout_origin_fallback_or_new_round_rebase()
+print('PASS replay origin has no timeout/first-tick fallback')
 for p in root.glob('**/*.py'):
     ast.parse(p.read_bytes(),filename=str(p))
 print('PASS syntax; NOT VERIFIED: ROS communication, live timestamps or calibration')

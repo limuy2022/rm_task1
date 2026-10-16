@@ -11,8 +11,9 @@ def generate_launch_description():
     bridge=os.path.join(get_package_share_directory('gimbal_serial_42'),'launch','gimbal_serial.launch.py')
     return LaunchDescription([
         DeclareLaunchArgument('port',default_value='/dev/gimbal'),
+        DeclareLaunchArgument('allow_command_subscription',default_value='false'),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(bridge),launch_arguments={
-            'port':LaunchConfiguration('port'),'subscribe_cmd_vel':'true',
+            'port':LaunchConfiguration('port'),'subscribe_cmd_vel':LaunchConfiguration('allow_command_subscription'),
             'publish_tf':'false','imu_topic':'/red_standard_robot1/gimbal',
             'cmd_vel_topic':'/offboardlink/cmd_vel_gimbal'}.items()),
         Node(package='gimbal_serial_bridge',executable='hardware_adapter_node',

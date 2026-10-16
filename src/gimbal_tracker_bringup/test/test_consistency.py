@@ -53,7 +53,7 @@ OUR_PACKAGES = ('grid_mapper', 'chassis_advisor', 'gimbal_dataio', 'gimbal_debug
                 'gimbal_tracker_bringup')
 
 DESIGN_TOPICS = (
-    '/virtual_gimbal/marker_corners', '/virtual_gimbal/camera_info',
+    '/perception/marker_corners', '/virtual_gimbal/camera_info',
     '/virtual_gimbal/status', '/offboardlink/imu_data', '/gimbal/state',
     '/gimbal/cmd_omega', '/gimbal/base_pose_raw', '/gimbal/base_pose',
     '/gimbal/t_map_world', '/perception/marker_cam', '/estimation/target_state',
@@ -164,6 +164,8 @@ def test_c_launch_references_match_entry_points(entry_points):
         for pkg, exe in sorted(pairs):
             if exe in ('static_transform_publisher', 'rviz2'):
                 continue                      # 来自 tf2_ros / rviz2，不属于本工程
+            if (pkg, exe) == ('point_lio', 'pointlio_mapping'):
+                continue  # original navigation package, not copied into core src
             if exe not in entry_points:
                 bad.append('%s: %s 不在任何 entry_points 中' % (_rel(lf), exe))
             elif entry_points[exe][0] != pkg:
@@ -188,11 +190,12 @@ def test_c2_launch_ladder_matches_design_order():
         ('gimbal_localization', 'base_pose_provider_node'),
         ('gimbal_localization', 'map_frame_broadcaster_node'),
         ('gimbal_serial_bridge', 'vgimbal_bridge_node'),
+        ('gimbal_perception', 'aruco_detector_node'),
         ('gimbal_perception', 'marker_pnp_node'),
         ('gimbal_estimation', 'target_estimator_node'),
         ('gimbal_control', 'gimbal_controller_node'),
         ('chassis_advisor', 'chassis_advisor_node'),
-        ('gimbal_dataio', 'csv_writer_node'),
+        ('gimbal_judge_io', 'judge_io_node'),
         ('gimbal_dataio', 'trajectory_annotator_node'),
         ('gimbal_debug', 'gt_error_monitor_node'),
     ]
@@ -225,6 +228,7 @@ def test_d_included_launch_files_exist():
                 os.path.join(os.path.dirname(lf), name),
                 os.path.join(PKG_DIR, 'launch', name),
                 os.path.join(PKG_DIR, 'launch', 'include', name),
+                os.path.join(SRC_DIR, '..', '42-gimbal_serial', 'launch', name),
             ]
             if not any(os.path.isfile(c) for c in candidates):
                 bad.append('%s 引用了不存在的 %s' % (_rel(lf), name))
@@ -236,6 +240,8 @@ def test_d2_share_dir_uses_get_package_share_directory():
     for lf in glob.glob(os.path.join(PKG_DIR, 'launch', '**', '*.py'), recursive=True):
         with open(lf, 'r', encoding='utf-8') as f:
             txt = f.read()
+        if 'config' not in txt and '.yaml' not in txt:
+            continue  # standalone submission entry has no configuration file
         assert 'get_package_share_directory' in txt, \
             '%s 未使用 get_package_share_directory' % _rel(lf)
         assert 'os.getcwd()' not in txt, \

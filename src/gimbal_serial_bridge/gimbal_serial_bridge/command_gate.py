@@ -33,6 +33,9 @@ class CommandGate:
     def command(self, yaw, pitch, valid, now):
         if not valid or not all(math.isfinite(v) for v in (yaw,pitch)):
             self.cmd=(0.,0.)
+            # An invalid target/command is a stop, not a ramp from the previous
+            # nonzero value. Valid motion resumes through the normal slew cap.
+            self.previous=(0.,0.); self.last_output_at=None
         else:
             self.cmd=tuple(max(-self.omega_max,min(self.omega_max,v)) for v in (yaw,pitch))
         self.cmd_at=now

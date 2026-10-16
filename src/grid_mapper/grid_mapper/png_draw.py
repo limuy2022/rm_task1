@@ -72,8 +72,10 @@ C_BASE_CUR = (0, 180, 0)
 # ---------------------------------------------------------------------------
 def world_to_pixel(xy: Sequence[float], grid_map: GridMap) -> Tuple[float, float]:
     """世界(map)坐标 -> 图像像素坐标 `(px, py)`（py = 0 是图像顶行 = y 最大）。"""
-    fx = (float(xy[0]) - float(grid_map.origin_xy[0])) / grid_map.resolution - 0.5
-    fy = (float(xy[1]) - float(grid_map.origin_xy[1])) / grid_map.resolution - 0.5
+    dx, dy = float(xy[0])-grid_map.origin_xy[0], float(xy[1])-grid_map.origin_xy[1]
+    c, s = math.cos(grid_map.origin_yaw), math.sin(grid_map.origin_yaw)
+    fx = (c*dx+s*dy) / grid_map.resolution - 0.5
+    fy = (-s*dx+c*dy) / grid_map.resolution - 0.5
     py = (grid_map.height - 1) - fy
     return (fx, py)
 

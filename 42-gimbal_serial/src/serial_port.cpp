@@ -23,10 +23,45 @@ struct BaudEntry
 
 const BaudEntry kBauds[] = {
   {9600, B9600}, {19200, B19200}, {38400, B38400}, {57600, B57600}, {115200, B115200},
-  {230400, B230400}, {460800, B460800}, {500000, B500000}, {576000, B576000},
-  {921600, B921600}, {1000000, B1000000}, {1152000, B1152000}, {1500000, B1500000},
-  {2000000, B2000000}, {2500000, B2500000}, {3000000, B3000000}, {3500000, B3500000},
+  {230400, B230400},
+  // POSIX platforms expose different high-speed constants. Do not invent a
+  // numeric baud mapping on hosts used only for offline PTY verification.
+#ifdef B460800
+  {460800, B460800},
+#endif
+#ifdef B500000
+  {500000, B500000},
+#endif
+#ifdef B576000
+  {576000, B576000},
+#endif
+#ifdef B921600
+  {921600, B921600},
+#endif
+#ifdef B1000000
+  {1000000, B1000000},
+#endif
+#ifdef B1152000
+  {1152000, B1152000},
+#endif
+#ifdef B1500000
+  {1500000, B1500000},
+#endif
+#ifdef B2000000
+  {2000000, B2000000},
+#endif
+#ifdef B2500000
+  {2500000, B2500000},
+#endif
+#ifdef B3000000
+  {3000000, B3000000},
+#endif
+#ifdef B3500000
+  {3500000, B3500000},
+#endif
+#ifdef B4000000
   {4000000, B4000000},
+#endif
 };
 
 bool lookupSpeed(int baud, speed_t & out)

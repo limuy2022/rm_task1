@@ -1,6 +1,6 @@
 """视觉感知主节点（DESIGN §3.5 / §6.4-§6.6）。
 
-订阅 ``/virtual_gimbal/marker_corners``（``geometry_msgs/PolygonStamped``）与可选的
+订阅 ``/perception/marker_corners``（``gimbal_interfaces/MarkerCorners``）与可选的
 ``/virtual_gimbal/camera_info``，解 PnP 后发布
 ``gimbal_interfaces/MarkerObservation``（``frame_id = camera_optical_frame``）。
 
@@ -10,7 +10,7 @@
   ``topic`` 模式才用 ``/virtual_gimbal/camera_info``。
 * PnP 失败 / 重投影超标 / 深度越界 → **视为本帧无观测**（正常路径，不报错）。
 * 只输出 optical 系下的点，world/map 换算放在 estimation（D-3）。
-* 外部话题的 ``header.stamp`` 只用于日志与丢帧统计；本地时刻用单调时钟。
+* 输出保留原始图像stamp；丢失、拒绝和ID变化时显式发无效观测并清初值。
 
 ⚠ 本文件依赖 ROS 2，只能在 Ubuntu 24.04 + ROS 2 Jazzy 上编译/运行验证。
 """
@@ -22,7 +22,6 @@ import sys
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PolygonStamped
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from sensor_msgs.msg import CameraInfo
 
@@ -30,7 +29,7 @@ from gimbal_common import config_loader as CL
 from gimbal_common import log_utils as LU
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
-from gimbal_interfaces.msg import MarkerObservation
+from gimbal_interfaces.msg import MarkerCorners, MarkerObservation
 
 from .marker_source import make_marker_source
 from .noise_model import NoiseModel
@@ -39,7 +38,7 @@ from .pnp_solver import PnpSolver
 NODE_NAME = 'marker_pnp_node'
 
 PARAM_DEFAULTS = {
-    'perception.marker_size_m': 0.16,
+    'perception.marker_size_m': 0.10,
     'perception.camera_info_source': 'yaml',
     'perception.reproj_max_px': 2.0,
     'perception.depth_min': 0.05,
@@ -52,7 +51,7 @@ PARAM_DEFAULTS = {
     'perception.force_k_lat': 0.0,
     'perception.force_k_depth': 0.0,
     'perception.r_min_sigma': 0.002,
-    'perception.marker_corners_topic': '/virtual_gimbal/marker_corners',
+    'perception.marker_corners_topic': '/perception/marker_corners',
     'perception.camera_info_topic': '/virtual_gimbal/camera_info',
     'config.virtual_yaml': 'virtual.yaml',
 }
@@ -131,7 +130,7 @@ class MarkerPnpNode:
 
         qos = _sensor_qos(10)
         self._pub = node.create_publisher(MarkerObservation, '/perception/marker_cam', qos)
-        node.create_subscription(PolygonStamped,
+        node.create_subscription(MarkerCorners,
                                  str(p['perception.marker_corners_topic']),
                                  self._on_corners, qos)
         node.create_subscription(CameraInfo, str(p['perception.camera_info_topic']),
@@ -140,6 +139,7 @@ class MarkerPnpNode:
         self._n_obs: int = 0
         self._n_reject: int = 0
         self._t_last_obs: float = 0.0
+        self._last_target = int(p['perception.target_digit'])
         self._log.info(
             f'感知节点启动：内参源={p["perception.camera_info_source"]}（{vpath}），'
             f'fx={self._solver.fx:.2f}，marker={p["perception.marker_size_m"]}m，'
@@ -160,27 +160,34 @@ class MarkerPnpNode:
         except Exception as exc:
             LU.throttled(self._log, 'warning', f'camera_info 解析失败: {exc!r}', 'cam_info', 1.0)
 
-    def _on_corners(self, msg: PolygonStamped) -> None:
+    def _on_corners(self, msg: MarkerCorners) -> None:
         """收到角点 → 过滤 → PnP → 发布 ``MarkerObservation``。"""
         try:
             target = int(self._node.get_parameter('perception.target_digit').value)
-            if target < 0:
+            self._input_stamp = msg.header.stamp
+            if target != self._last_target:
+                self._solver.reset_guess()
+                self._source.reset()
+                self._last_target = target
+            # ID is supplied by the decoder, never inferred from a parameter.
+            # This rejects queued old-target frames during a two-node ID switch.
+            if (target < 0 or msg.marker_id != target or not msg.valid
+                    or msg.header.frame_id != 'camera_optical_frame'):
+                self._clear_observation(max(0, target))
                 return
             self._params['perception.target_digit'] = target
             self._source.target_digit = target
-            self._input_stamp = msg.header.stamp
             t_mono = TU.now()
-            raw = self._source.on_polygon(msg, marker_id=int(self._params['perception.target_digit']),
+            raw = self._source.on_polygon(msg, marker_id=int(msg.marker_id),
                                           t_mono=t_mono)
             self._source.poll()  # 本节点同步消费raw，不累积另一份待处理队列
             if raw is None:
-                # 空/长度≠4/id 不匹配 —— 正常路径，不报错
+                self._clear_observation(target)
                 return
             res = self._solver.solve(raw.corners_uv)
             if not res.ok:
                 self._n_reject += 1
-                self._publish(raw.marker_id, np.zeros(3), self._noise.cov_optical(0.0),
-                              0.0, float('inf'), False)
+                self._clear_observation(target)
                 LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}', f'pnp_{res.reason}', 2.0)
                 return
             self._n_obs += 1
@@ -190,6 +197,12 @@ class MarkerPnpNode:
                           res.reproj_err_px, True)
         except Exception as exc:
             LU.throttled(self._log, 'error', f'corners 回调异常: {exc!r}', 'corners_cb', 1.0)
+
+    def _clear_observation(self, target: int) -> None:
+        self._source.reset()
+        self._solver.reset_guess()
+        self._publish(target, np.zeros(3), self._noise.cov_optical(0.0),
+                      0.0, float('inf'), False)
 
     def _publish(self, marker_id: int, tvec: np.ndarray, cov: np.ndarray,
                  depth: float, reproj: float, valid: bool) -> None:

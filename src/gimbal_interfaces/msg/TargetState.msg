@@ -8,6 +8,6 @@ float64 vel_y
 float64 acc_x
 float64 acc_y
 float64[4] cov_xy               # 位置协方差 2x2 行主序
-uint8   track_status            # 0=丢失 1=本帧有观测 2=上次观测<=0.5s 的外推
-float64 last_obs_age            # 距上次有效观测的秒数（单调）
+uint8   track_status            # 0=丢失 1=新鲜观测窗口内 2=观测仍未超时的外推
+float64 last_obs_age            # 消息header.stamp距有效图像stamp的ROS秒数；未知为-1
 bool    valid
