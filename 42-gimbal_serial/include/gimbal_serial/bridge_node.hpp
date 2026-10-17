@@ -84,7 +84,14 @@ private:
   std::atomic<std::uint64_t> n_dropped_{0};
   std::atomic<std::uint64_t> n_bad_checksum_{0};
   std::atomic<std::uint64_t> n_bad_app_{0};
-  std::uint64_t last_reported_[4] = {0, 0, 0, 0};
+  std::atomic<std::uint64_t> n_rx_bytes_{0};
+  std::atomic<std::int64_t> last_rx_ns_{0};  // steady clock; 0 表示尚未读到任何字节
+  std::atomic<std::uint64_t> n_headers_seen_{0};
+  std::atomic<std::uint64_t> n_noise_bytes_{0};
+  std::atomic<std::uint64_t> n_bad_addr_{0};
+  std::atomic<std::uint64_t> n_bad_func_{0};
+  std::atomic<std::uint64_t> n_bad_len_{0};
+  std::uint64_t last_reported_[7] = {0, 0, 0, 0, 0, 0, 0};
   std::chrono::steady_clock::time_point start_;
   bool warned_no_imu_ = false;
 };

@@ -118,12 +118,21 @@ void checkCases(const std::vector<Golden> & cases)
   for (const auto & c : cases) {
     proto::FrameParser parser(c.direction == "mcu2pc" ? proto::Direction::ToPc : proto::Direction::ToMcu);
     const auto frames = feed(parser, c.bytes);
+    require(parser.stats().bytes_received == c.bytes.size(), "RX byte count " + c.name);
     if (c.expect == "reject") {
       require(frames.empty(), "rejected golden accepted: " + c.name);
       if (c.reason == "bad_checksum") {require(parser.stats().bad_checksum == 1, c.name);}
       if (c.reason == "bad_quat" || c.reason == "non_finite") {
         require(parser.stats().bad_app == 1, "application rejection " + c.name);
       }
+      // Official "bad_addr" cases use the opposite direction, so that receiver
+      // accepts the address but rejects the function. These are still rejected.
+      if (c.reason == "bad_addr") {
+        require(parser.stats().bad_addr + parser.stats().bad_func >= 1, c.name);
+      }
+      if (c.reason == "unknown_func") {require(parser.stats().bad_func >= 1, c.name);}
+      if (c.reason == "bad_len") {require(parser.stats().bad_len >= 1, c.name);}
+      if (c.reason == "bad_head") {require(parser.stats().noise_bytes >= 1, c.name);}
       continue;
     }
     require(frames == Frames{c.bytes}, "accepted golden not exact: " + c.name);
@@ -192,6 +201,7 @@ void checkStreams(const std::vector<Golden> & cases)
         output.insert(output.end(), part.begin(), part.end());
       }
       require(output == expected, "chunked/noisy stream " + direction);
+      require(parser.stats().bytes_received == input.size(), "chunk-independent RX count " + direction);
     }
   }
   Bytes noise;
@@ -203,6 +213,58 @@ void checkStreams(const std::vector<Golden> & cases)
   proto::FrameParser parser(proto::Direction::ToPc);
   const auto output = feed(parser, noise);
   require(!output.empty() && output.back() == good, "resynchronization after 100000 noise bytes");
+  require(parser.stats().bytes_received == noise.size(), "100000-noise exact RX count");
+  require(parser.stats().noise_bytes > 0 && parser.stats().bad_addr > 0 &&
+    parser.stats().headers_seen > parser.stats().frames_ok, "noise diagnostics must expose rejected candidates");
+}
+
+void checkParserDiagnostics(const std::vector<Golden> & cases)
+{
+  proto::FrameParser parser(proto::Direction::ToPc);
+  require(parser.stats().bytes_received == 0 && parser.stats().headers_seen == 0 &&
+    parser.stats().noise_bytes == 0 && parser.stats().bad_addr == 0 &&
+    parser.stats().bad_func == 0 && parser.stats().bad_len == 0,
+    "silent port must not invent RX/candidate diagnostics");
+  require(feed(parser, Bytes{0x00, 0x55, 0x13, 0x7F}).empty(), "header-free noise accepted");
+  require(parser.stats().bytes_received == 4 && parser.stats().noise_bytes == 4 &&
+    parser.stats().headers_seen == 0 && parser.stats().bad_addr == 0,
+    "header-free data must differ from zero bytes");
+  feed(parser, Bytes{0xAA, 0x12});
+  feed(parser, Bytes{0xAA, 0xFF, 0x7E});
+  feed(parser, Bytes{0xAA, 0xFF, 0x01, 0x00});
+  require(parser.stats().bytes_received == 13 && parser.stats().headers_seen == 3 &&
+    parser.stats().bad_addr == 1 && parser.stats().bad_func == 1 &&
+    parser.stats().bad_len == 1 && parser.stats().noise_bytes == 4 &&
+    parser.stats().bad_checksum == 0 && parser.stats().bad_app == 0,
+    "separate address/function/length rejection counts");
+  // Rejected AA can become a new header, without being counted as another RX byte.
+  feed(parser, Bytes{0xAA, 0xAA, 0xFF, 0x01, 0xAA, 0xFF, 0x01, 0x00});
+  require(parser.stats().bytes_received == 21 && parser.stats().headers_seen == 6 &&
+    parser.stats().bad_addr == 2 && parser.stats().bad_func == 1 &&
+    parser.stats().bad_len == 3, "overlapping-header recovery diagnostic counts");
+  auto good = named(cases, "imu_static_level").bytes;
+  good[4] = 0xAA;  // Payload AA is data, not a new candidate header.
+  proto::calcVerify(good.data(), proto::kImuLen,
+    good[proto::kHeadLen + proto::kImuLen], good[proto::kHeadLen + proto::kImuLen + 1]);
+  require(feed(parser, good) == Frames{good}, "diagnostics must preserve recovery and payload bytes");
+  require(parser.stats().bytes_received == 21 + good.size() &&
+    parser.stats().headers_seen == 7 && parser.stats().frames_ok == 1,
+    "accepted frame has one header even with AA payload");
+  feed(parser, Bytes{0xAA, 0xFF});
+  parser.reset();  // Existing reset clears partial state, not lifetime statistics.
+  require(feed(parser, good) == Frames{good}, "explicit reset must retain parser behavior");
+  require(parser.stats().bytes_received == 23 + 2 * good.size() &&
+    parser.stats().headers_seen == 9 && parser.stats().frames_ok == 2,
+    "reset preserves lifetime statistics without double-counting");
+
+  proto::FrameParser command_parser(proto::Direction::ToMcu);
+  feed(command_parser, Bytes{0xAA, 0xFF, 0xAA, 0xEE, 0x01, 0xAA, 0xEE, 0x30, 0x1A});
+  const auto command = named(cases, "cmd_mixed").bytes;
+  require(feed(command_parser, command) == Frames{command}, "ToMcu recovery unchanged");
+  require(command_parser.stats().bytes_received == 9 + command.size() &&
+    command_parser.stats().headers_seen == 4 && command_parser.stats().bad_addr == 1 &&
+    command_parser.stats().bad_func == 1 && command_parser.stats().bad_len == 1 &&
+    command_parser.stats().frames_ok == 1, "diagnostic counts in command direction");
 }
 
 void checkTracker(const std::vector<Golden> & cases)
@@ -277,6 +339,10 @@ void checkPty(const std::vector<Golden> & cases, const char * path, int master)
     frames.insert(frames.end(), output.begin(), output.end());
   }
   require(frames == acceptedFor(cases, "mcu2pc"), "PTY fragmented IMU golden stream");
+  require(parser.stats().bytes_received == input.size() && parser.stats().noise_bytes > 0 &&
+    parser.stats().headers_seen > parser.stats().frames_ok && parser.stats().bad_addr > 0 &&
+    parser.stats().bad_func > 0 && parser.stats().bad_len > 0,
+    "actual PTY noise/invalid-header diagnostics");
   const auto command = named(cases, "cmd_mixed").bytes;
   require(port.writeAll(command.data(), command.size()), "SerialPort command write failed");
   Bytes received;
@@ -310,10 +376,12 @@ int main(int argc, char ** argv)
     const auto cases = loadGolden(argv[1]);
     checkCases(cases);
     checkStreams(cases);
+    checkParserDiagnostics(cases);
     checkTracker(cases);
     checkPty(cases, argv[2], std::stoi(argv[3]));
     std::cout << "{\"passed\":true,\"golden_cases\":44,\"stream_chunk_sizes\":5,"
       "\"noise_bytes\":100000,\"pty_baud\":115200,\"physical_devices_opened\":0,"
+      "\"rx_noise_header_rejection_diagnostics\":true,"
       "\"tracker_wrap_reset_gap\":true,\"pty_raw_exclusive_reopen_disconnect\":true}\n";
     return 0;
   } catch (const std::exception & error) {

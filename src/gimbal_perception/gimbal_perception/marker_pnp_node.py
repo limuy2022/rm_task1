@@ -188,7 +188,11 @@ class MarkerPnpNode:
             if not res.ok:
                 self._n_reject += 1
                 self._clear_observation(target)
-                LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}', f'pnp_{res.reason}', 2.0)
+                # Numeric errors change every frame. A key such as
+                # pnp_reproj_2.81px bypasses throttling and floods a real NUC log.
+                category = res.reason.split('_', 1)[0]
+                LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}',
+                             f'pnp_reject_{category}', 2.0)
                 return
             self._n_obs += 1
             self._t_last_obs = t_mono

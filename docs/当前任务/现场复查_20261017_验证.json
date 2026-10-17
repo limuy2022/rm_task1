@@ -1,0 +1,108 @@
+{
+  "kind": "offline_only",
+  "python": "3.12.14 (main, Aug 25 2026, 13:50:33) [Clang 22.1.3 ]",
+  "checks": [
+    {
+      "name": "pytest",
+      "returncode": 0,
+      "seconds": 2.618
+    },
+    {
+      "name": "perception",
+      "returncode": 0,
+      "seconds": 0.313
+    },
+    {
+      "name": "control",
+      "returncode": 0,
+      "seconds": 0.269
+    },
+    {
+      "name": "navigation",
+      "returncode": 0,
+      "seconds": 0.156
+    },
+    {
+      "name": "advisor",
+      "returncode": 0,
+      "seconds": 0.138
+    },
+    {
+      "name": "timing",
+      "returncode": 0,
+      "seconds": 0.146
+    },
+    {
+      "name": "kinematics",
+      "returncode": 0,
+      "seconds": 0.186
+    },
+    {
+      "name": "processing",
+      "returncode": 0,
+      "seconds": 0.194
+    },
+    {
+      "name": "submission",
+      "returncode": 0,
+      "seconds": 0.257
+    },
+    {
+      "name": "protocol",
+      "returncode": 0,
+      "seconds": 2.753
+    },
+    {
+      "name": "pipeline",
+      "returncode": 0,
+      "seconds": 3.512
+    },
+    {
+      "name": "verify_vision_and_gate",
+      "returncode": 0,
+      "seconds": 0.121
+    },
+    {
+      "name": "verify_coordinate_regressions",
+      "returncode": 0,
+      "seconds": 0.214
+    },
+    {
+      "name": "verify_field_followup",
+      "returncode": 0,
+      "seconds": 0.332
+    }
+  ],
+  "passed": true,
+  "not_verified": [
+    "ROS2/Humble/DDS",
+    "NUC deadlines",
+    "real sensors/TF/accuracy",
+    "physical gimbal control"
+  ],
+  "base_commit": "e5bd9d0",
+  "date": "2026-10-17",
+  "serial": {
+    "passed": true,
+    "golden_cases": 44,
+    "stream_chunk_sizes": 5,
+    "noise_bytes": 100000,
+    "pty_baud": 115200,
+    "physical_devices_opened": 0,
+    "rx_noise_header_rejection_diagnostics": true,
+    "tracker_wrap_reset_gap": true,
+    "pty_raw_exclusive_reopen_disconnect": true,
+    "compiler": "/usr/bin/clang++",
+    "sanitizers": [
+      "address",
+      "undefined"
+    ],
+    "limitations": [
+      "no ROS/DDS",
+      "no firmware/watchdog",
+      "no physical 921600 line"
+    ]
+  },
+  "pytest_summary": "375 passed, 8 skipped in 2.33s",
+  "field_evidence": "record3.txt contains the earlier NUC vision run; these new changes have not been deployed."
+}

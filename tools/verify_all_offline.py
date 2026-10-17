@@ -23,7 +23,8 @@ def main():
     jobs = [('pytest', [sys.executable,'-B','-m','pytest','-q','src','--import-mode=importlib'])]
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/('verify_'+name+'_offline.py'))]) for name in names)
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/(name+'.py'))])
-                for name in ('verify_vision_and_gate','verify_coordinate_regressions'))
+                for name in ('verify_vision_and_gate','verify_coordinate_regressions',
+                             'verify_field_followup','verify_calibration_entry'))
     result = []
     for name, command in jobs:
         begin = time.perf_counter()

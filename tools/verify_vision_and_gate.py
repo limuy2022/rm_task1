@@ -3,6 +3,7 @@ import ast
 import importlib.util
 import sys
 import math
+import struct
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -13,6 +14,7 @@ for name in ('gimbal_perception','gimbal_serial_bridge','gimbal_common'):
 from gimbal_perception.marker_source import SingleTopicMarkerSource
 from gimbal_serial_bridge.command_gate import CommandGate
 from gimbal_common.log_utils import _FormatLogger
+from gimbal_common.protocol import encode_omega, frame_ok
 
 def extract_method(path,name,env):
     tree=ast.parse(path.read_text())
@@ -21,6 +23,39 @@ def extract_method(path,name,env):
     return env[name]
 
 class Regression(unittest.TestCase):
+    def test_adapter_tick_maps_two_joint_rates_to_twist_and_wire_payload(self):
+        # Execute the production timer body with a message double: no ROS,
+        # physical port, or actuator. Independent expected bytes catch a swap
+        # of yaw/pitch or an accidental degree/radian conversion.
+        class TwistDouble:
+            def __init__(self):
+                self.angular = NS(x=0., y=0., z=0.)
+                self.linear = NS(x=0., y=0., z=0.)
+        clock = NS(value=.6)
+        fn = extract_method(root/'src/gimbal_serial_bridge/gimbal_serial_bridge/hardware_adapter_node.py',
+                            'tick', {'time': NS(monotonic=lambda: clock.value),
+                                     'Twist': TwistDouble})
+        gate = CommandGate(); gate.enable(True, 0.)
+        for k in range(31): gate.imu(k * .02)
+        gate.command(.4, -.2, True, .6)
+        sent = []
+        adapter = NS(gate=gate, get_parameter=lambda name: NS(value=True),
+                     cmd_pub=NS(publish=sent.append))
+        fn(adapter)
+        self.assertEqual((sent[-1].angular.z, sent[-1].angular.y), (0., 0.))
+        clock.value=.62; gate.imu(.62); gate.command(.4, -.2, True, .62)
+        fn(adapter)
+        message = sent[-1]
+        self.assertAlmostEqual(message.angular.z, .3)
+        self.assertAlmostEqual(message.angular.y, -.2)
+        self.assertEqual((message.angular.x, message.linear.x, message.linear.y,
+                          message.linear.z), (0., 0., 0., 0.))
+        frame = encode_omega(message.angular.z, message.angular.y)
+        self.assertEqual(frame[:4], bytes.fromhex('aa ee 30 08'))
+        self.assertEqual(frame[4:12], struct.pack('<ff', .3, -.2))
+        self.assertEqual(len(frame), 14)
+        self.assertTrue(frame_ok(frame, 8))
+
     def test_real_polygon_shape(self):
         stamp=NS(sec=5,nanosec=123)
         msg=NS(header=NS(frame_id='camera_optical_frame',stamp=stamp),

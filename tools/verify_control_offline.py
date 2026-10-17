@@ -82,7 +82,98 @@ def node_harness():
     return node, clock, parameters, sent
 
 
+def height_tracker_class():
+    """Exercise the production height filter without importing a ROS node."""
+    source = ROOT / 'src/gimbal_control/gimbal_control/gimbal_controller_node.py'
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'HeightTracker')
+    module = ast.Module(body=[ast.ImportFrom(module='__future__',
+                        names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])
+    scope = {'math': math}
+    exec(compile(ast.fix_missing_locations(module), str(source), 'exec'), scope)
+    return scope['HeightTracker']
+
+
+class HeightTrackerRegressions(unittest.TestCase):
+    def test_constant_vertical_speed_has_no_low_pass_lag_gain(self):
+        for speed in (.2, -.35):
+            for dt in (.01, .02, .05):
+                with self.subTest(speed=speed, sample_interval=dt):
+                    height = height_tracker_class()(cutoff_hz=8.)
+                    for i in range(501):
+                        elapsed = i * dt
+                        height.update(3. + speed * elapsed, 100. + elapsed)
+                    self.assertAlmostEqual(height.vz, speed, places=9)
+
+    def test_static_height_has_no_velocity_and_moving_target_can_stop(self):
+        height = height_tracker_class()()
+        for i in range(100):
+            height.update(1.5, 100. + i * .02)
+        self.assertEqual(height.height(), 1.5)
+        self.assertEqual(height.vz, 0.)
+        for i in range(101):
+            height.update(1.5 + .2 * i * .02, 102. + i * .02)
+        self.assertAlmostEqual(height.vz, .2, places=9)
+        for i in range(1, 101):
+            height.update(1.9, 104. + i * .02)
+        self.assertAlmostEqual(height.height(), 1.9, places=9)
+        self.assertAlmostEqual(height.vz, 0., places=9)
+
+    def test_reset_and_first_sample_do_not_reuse_old_velocity(self):
+        height = height_tracker_class()()
+        self.assertEqual(height.height(default=7.), 7.)
+        height.update(1., 100.)
+        self.assertEqual((height.height(), height.vz), (1., 0.))
+        height.update(2., 100.02)
+        # The existing first-order height response is retained, independently
+        # of how its raw observation derivative is now computed.
+        expected_height = 2. - math.exp(-2. * math.pi * 8. * .02)
+        self.assertAlmostEqual(height.height(), expected_height)
+        self.assertGreater(height.vz, 0.)
+        height.reset()
+        self.assertIsNone(height.z)
+        self.assertEqual(height.vz, 0.)
+        height.update(-4., 10.)  # A new acquisition may have a new time origin.
+        self.assertEqual((height.height(), height.vz), (-4., 0.))
+        height.update(-4., 10.02)
+        self.assertEqual(height.vz, 0.)
+
+    def test_invalid_samples_do_not_move_the_valid_difference_baseline(self):
+        height = height_tracker_class()()
+        for z, t in ((1., float('nan')), (1., float('inf')), (float('nan'), 100.)):
+            height.update(z, t)
+            self.assertIsNone(height.z)
+        height.update(1., 100.)
+        height.update(1.1, 100.1)
+        before = height.height(), height.vz
+        for z, t in ((999., 100.1), (999., 99.), (999., float('nan')),
+                     (999., float('inf')), (float('nan'), 100.2), (float('inf'), 100.2)):
+            height.update(z, t)
+            self.assertEqual((height.height(), height.vz), before)
+        height.update(1.2, 100.2)
+        self.assertGreater(height.height(), before[0])
+        self.assertLessEqual(height.height(), 1.2)
+        self.assertAlmostEqual(height.vz, 1., places=4)
+
+
 class ControlRegressions(unittest.TestCase):
+    def test_pd_derivative_uses_measured_minus_sight_line_rate(self):
+        # A moving sight line already contributes through D even if the
+        # separately configured feedforward gain is zero.
+        angle = math.radians(10.)
+        target = np.array([5. * math.cos(angle), 5. * math.sin(angle), 0.])
+        velocity = .1 * np.array([-target[1], target[0], 0.])
+        for ff_gain in (0., 1.):
+            with self.subTest(ff_gain=ff_gain):
+                law = ControlLaw(kp_yaw=6., kd_yaw=.5, ff_gain=ff_gain)
+                out = law.compute(target, velocity, [1., 0., 0., 0.], [0., 0., .04],
+                                  dt=.1, joint_angles=(0., 0.))
+                self.assertTrue(out.valid)
+                self.assertAlmostEqual(out.ff_yaw, .1)
+                expected = ff_gain * .1 + 6. * angle - .5 * (.04 - .1)
+                self.assertAlmostEqual(out.yaw_omega, expected)
+                self.assertEqual(out.pitch_omega, 0.)
+
     def test_camera_bearing_signs(self):
         for point, yaw_sign, pitch_sign in (((-0.2, -0.1, 2), 1, -1),
                                             ((0.2, 0.1, 2), -1, 1)):

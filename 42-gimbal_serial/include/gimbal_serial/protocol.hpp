@@ -191,6 +191,13 @@ struct ParserStats
   std::uint64_t frames_ok = 0;
   std::uint64_t bad_checksum = 0;
   std::uint64_t bad_app = 0;  // 校验正确，但应用层解码失败（非有限值、q 范数）
+  // 以下是字节流诊断计数，不改变原有解析/重同步行为，也不表示已收到完整帧。
+  std::uint64_t bytes_received = 0;  // 每次 feed 恰好计入一个字节
+  std::uint64_t headers_seen = 0;  // 在寻找帧头或重同步时接受的 0xAA 候选
+  std::uint64_t noise_bytes = 0;  // 等待帧头时遇到的非 0xAA 字节（不是完整坏帧数）
+  std::uint64_t bad_addr = 0;
+  std::uint64_t bad_func = 0;
+  std::uint64_t bad_len = 0;
 };
 
 class FrameParser
@@ -207,15 +214,27 @@ public:
   template<class F>
   void feed(std::uint8_t b, F && on_frame)
   {
+    ++stats_.bytes_received;
     switch (state_) {
       case State::Head:
-        if (b == kHead) {buf_[0] = b; n_ = 1; state_ = State::Addr;}
+        if (b == kHead) {
+          ++stats_.headers_seen;
+          buf_[0] = b; n_ = 1; state_ = State::Addr;
+        } else {
+          ++stats_.noise_bytes;
+        }
         break;
       case State::Addr:
-        if (b == target_addr_) {buf_[n_++] = b; state_ = State::Func;} else {restartWith(b);}
+        if (b == target_addr_) {buf_[n_++] = b; state_ = State::Func;} else {
+          ++stats_.bad_addr;
+          restartWith(b);
+        }
         break;
       case State::Func:
-        if (b == known_func_) {buf_[n_++] = b; state_ = State::Len;} else {restartWith(b);}
+        if (b == known_func_) {buf_[n_++] = b; state_ = State::Len;} else {
+          ++stats_.bad_func;
+          restartWith(b);
+        }
         break;
       case State::Len:
         if (b == known_len_) {
@@ -223,6 +242,7 @@ public:
           remain_ = static_cast<std::size_t>(b) + kVerifyLen;
           state_ = State::Body;
         } else {
+          ++stats_.bad_len;
           restartWith(b);
         }
         break;
@@ -255,7 +275,10 @@ private:
   {
     state_ = State::Head;
     n_ = 0;
-    if (b == kHead) {buf_[0] = b; n_ = 1; state_ = State::Addr;}
+    if (b == kHead) {
+      ++stats_.headers_seen;
+      buf_[0] = b; n_ = 1; state_ = State::Addr;
+    }
   }
 
   bool appDecodeOk() const

@@ -1,0 +1,16 @@
+# 来自用户2026-10-17提供的ost_other.txt；仅用于对照，不代表本机有效标定。
+# 原图使用camera_matrix K + distortion_coefficients D。
+# 文件中的projection_matrix P是另一投影矩阵，不能混入原图K/D解算。
+provenance:
+  source: ost_other.txt
+  same_equipment_and_settings_reported_by_user: true
+  independent_accuracy_verified: false
+  intended_use: comparison_only
+camera:
+  width: 1440
+  height: 1080
+  fx: 998.74023
+  fy: 1009.28841
+  cx: 694.1799
+  cy: 580.28341
+  distortion: [-0.090672, 0.137399, 0.001769, -0.003013, 0.0]

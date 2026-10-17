@@ -1,0 +1,118 @@
+{
+  "date": "2026-10-17",
+  "scope": "offline_only",
+  "baseline_commit": "e5bd9d0d569bc87064767967efd518978fbde2d0",
+  "python": "Python 3.12.14",
+  "passed": true,
+  "checks": [
+    {
+      "name": "控制计算与高度回归",
+      "command": [
+        "-B",
+        "tools/verify_control_offline.py"
+      ],
+      "returncode": 0,
+      "output": "test_bearing_closed_loop_with_rotating_base (__main__.ControlRegressions.test_bearing_closed_loop_with_rotating_base) ... ok\ntest_bearing_failure_inputs_stop_and_clear_slew (__main__.ControlRegressions.test_bearing_failure_inputs_stop_and_clear_slew) ... ok\ntest_camera_bearing_signs (__main__.ControlRegressions.test_camera_bearing_signs) ... ok\ntest_estimator_heartbeat_does_not_renew_old_observation (__main__.ControlRegressions.test_estimator_heartbeat_does_not_renew_old_observation) ... ok\ntest_node_disabled_or_unknown_joints_never_valid (__main__.ControlRegressions.test_node_disabled_or_unknown_joints_never_valid) ... ok\ntest_pd_derivative_uses_measured_minus_sight_line_rate (__main__.ControlRegressions.test_pd_derivative_uses_measured_minus_sight_line_rate) ... ok\ntest_relative_translation_and_base_rotation_feedforward (__main__.ControlRegressions.test_relative_translation_and_base_rotation_feedforward) ... ok\ntest_sight_line_rate_matches_finite_difference_off_horizon (__main__.ControlRegressions.test_sight_line_rate_matches_finite_difference_off_horizon) ... ok\ntest_slew_magnitude_and_real_joint_limits (__main__.ControlRegressions.test_slew_magnitude_and_real_joint_limits) ... ok\ntest_stamped_imu_and_joint_inputs (__main__.ControlRegressions.test_stamped_imu_and_joint_inputs) ... ok\ntest_unknown_fov_and_bad_search_time_do_not_start_scan (__main__.ControlRegressions.test_unknown_fov_and_bad_search_time_do_not_start_scan) ... ok\ntest_unknown_joint_angles_do_not_become_world_angles (__main__.ControlRegressions.test_unknown_joint_angles_do_not_become_world_angles) ... ok\ntest_world_closed_loop_with_rotating_base (__main__.ControlRegressions.test_world_closed_loop_with_rotating_base) ... ok\ntest_wrong_target_or_imu_frame_is_rejected (__main__.ControlRegressions.test_wrong_target_or_imu_frame_is_rejected) ... ok\ntest_constant_vertical_speed_has_no_low_pass_lag_gain (__main__.HeightTrackerRegressions.test_constant_vertical_speed_has_no_low_pass_lag_gain) ... ok\ntest_invalid_samples_do_not_move_the_valid_difference_baseline (__main__.HeightTrackerRegressions.test_invalid_samples_do_not_move_the_valid_difference_baseline) ... ok\ntest_reset_and_first_sample_do_not_reuse_old_velocity (__main__.HeightTrackerRegressions.test_reset_and_first_sample_do_not_reuse_old_velocity) ... ok\ntest_static_height_has_no_velocity_and_moving_target_can_stop (__main__.HeightTrackerRegressions.test_static_height_has_no_velocity_and_moving_target_can_stop) ... ok\n\n----------------------------------------------------------------------\nRan 18 tests in 0.224s\n\nOK\n"
+    },
+    {
+      "name": "适配器与门控回归",
+      "command": [
+        "-B",
+        "tools/verify_vision_and_gate.py"
+      ],
+      "returncode": 0,
+      "output": ".............\n----------------------------------------------------------------------\nRan 13 tests in 0.024s\n\nOK\n"
+    },
+    {
+      "name": "既有控制单元测试",
+      "command": [
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "src/gimbal_control/test",
+        "--import-mode=importlib"
+      ],
+      "returncode": 0,
+      "output": ".......................................                                  [100%]\n39 passed in 0.13s\n"
+    }
+  ],
+  "examples": {
+    "height_case": {
+      "true_vz_mps": 0.2,
+      "dt_s": 0.02,
+      "cutoff_hz": 8.0,
+      "before_vz_mps": 0.31542323755999385,
+      "after_vz_mps": 0.20000000000001714
+    },
+    "numeric_example": {
+      "synthetic_only": true,
+      "target_relative_world_m": [
+        4.92403876506104,
+        0.8682408883346516,
+        0.0
+      ],
+      "target_velocity_relative_world_mps": [
+        -0.08682408883346517,
+        0.492403876506104,
+        0.0
+      ],
+      "target_yaw_rad": 0.17453292519943295,
+      "sight_line_yaw_rate_radps": 0.1,
+      "measured_world_yaw_rate_radps": 0.04,
+      "ff_gain": 0.0,
+      "kp_yaw": 6.0,
+      "kd_yaw": 0.5,
+      "raw_yaw_rate_radps": 1.0771975511965977,
+      "after_control_first_10ms_radps": [
+        0.15,
+        0.0
+      ],
+      "gate_first_ready_output_radps": [
+        0.0,
+        0.0
+      ],
+      "gate_next_20ms_output_radps": [
+        0.15,
+        0.0
+      ],
+      "wire_yaw_sign": 1,
+      "wire_pitch_sign": 1,
+      "python_protocol_0x30_hex": "aa ee 30 08 9a 99 19 3e 00 00 00 00 5a 25"
+    },
+    "moving_base_rate_semantics": {
+      "assumptions": "level base, pitch=0, same right-handed axes, actual IMU measures total body angular velocity",
+      "base_yaw_rate_radps": 0.2,
+      "relative_yaw_joint_rate_radps": 0.0,
+      "imu_gz_radps": 0.2,
+      "protocol_imu_formula_radps": 0.2,
+      "conclusion": "gimbal IMU formula alone cannot separate base rotation; actual firmware command/reference semantics unverified"
+    }
+  },
+  "physical_device_opens": 0,
+  "ros_nodes_started": 0,
+  "not_verified": [
+    "ROS2/Humble and DDS topic delivery",
+    "actual NUC installation/runtime parameters",
+    "MCU firmware and DM motor mode/control gains",
+    "real IMU axes/camera mounting and timing",
+    "real motor closed-loop or safety behavior"
+  ],
+  "source_sha256": {
+    "src/gimbal_control/gimbal_control/gimbal_controller_node.py": "98d0017a0b4fbd9f59daf4ee52032e6dc31422611243535e35c467a5dc690632",
+    "tools/verify_control_offline.py": "788268af9f74b665c6bd885c10ac3bc7705da8ff7b339b5299130ecf4332deb3",
+    "tools/verify_vision_and_gate.py": "b8fc5bd55c8e7507c73deb82cd6037fe5875e563135b919981c06d398a1d723b"
+  },
+  "delivery_checks": {
+    "local_links_checked": 85,
+    "broken_local_links": [],
+    "tutorial_bash_blocks_syntax_checked": 16,
+    "commands_executed_on_nuc": 0,
+    "source_and_output_tutorial_equivalent_after_link_adaptation": true
+  },
+  "document_review": {
+    "sections": "6-10",
+    "result": "no substantive misleading statement found in static source review",
+    "physical_or_ros_check": false
+  }
+}

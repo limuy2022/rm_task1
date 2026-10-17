@@ -182,33 +182,40 @@ class HeightTracker:
         self.z: Optional[float] = None
         self.vz: float = 0.0
         self._t_last: Optional[float] = None
+        self._z_last_raw: Optional[float] = None
 
     def reset(self) -> None:
         """清空高度历史。"""
         self.z = None
         self.vz = 0.0
         self._t_last = None
+        self._z_last_raw = None
 
     def update(self, z_obs: float, t: float) -> None:
-        """用一次新的高度观测更新低通状态（t 为单调秒）。"""
-        if not math.isfinite(float(z_obs)):
+        """用原始相邻高度差求速度，再分别低通高度和速度（t 为单调秒）。"""
+        z_raw, sample_time = float(z_obs), float(t)
+        if not math.isfinite(z_raw) or not math.isfinite(sample_time):
             return
         if self.z is None:
-            self.z = float(z_obs)
+            self.z = z_raw
             self.vz = 0.0
-            self._t_last = float(t)
+            self._t_last = sample_time
+            self._z_last_raw = z_raw
             return
-        dt = float(t) - float(self._t_last) if self._t_last is not None else 0.0
-        self._t_last = float(t)
+        dt = sample_time - float(self._t_last) if self._t_last is not None else 0.0
         if not math.isfinite(dt) or dt <= 0.0:
+            # 重复、倒退或无效时间不能污染下一次有效观测的差分基准。
             return
         alpha = 1.0 - math.exp(-2.0 * math.pi * self.cutoff_hz * dt)
         alpha = min(max(alpha, 0.0), 1.0)
-        vz_raw = (float(z_obs) - self.z) / dt
-        self.z = self.z + alpha * (float(z_obs) - self.z)
+        # self.z 带有低通滞后；以它作差会把匀速运动误估为 v/alpha。
+        vz_raw = (z_raw - float(self._z_last_raw)) / dt
+        self.z = self.z + alpha * (z_raw - self.z)
         self.vz = self.vz + alpha * (vz_raw - self.vz)
+        self._t_last = sample_time
+        self._z_last_raw = z_raw
         if not math.isfinite(self.z):
-            self.z = float(z_obs)
+            self.z = z_raw
         if not math.isfinite(self.vz):
             self.vz = 0.0
 

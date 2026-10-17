@@ -185,12 +185,23 @@ void BridgeNode::readLoop()
       rclcpp::shutdown();
       return;
     }
+    if (n > 0) {
+      last_rx_ns_ = steadyNowNs();
+      n_rx_bytes_.fetch_add(static_cast<std::uint64_t>(n));
+    }
     for (ssize_t i = 0; i < n; ++i) {
       parser_.feed(buf[i], [this](const std::uint8_t * f, std::size_t len) {onFrame(f, len);});
     }
     if (n > 0) {
-      n_bad_checksum_ = parser_.stats().bad_checksum;
-      n_bad_app_ = parser_.stats().bad_app;
+      // 解析器只由本读线程访问；跨线程诊断只读取原子计数快照。
+      const auto & stats = parser_.stats();
+      n_bad_checksum_ = stats.bad_checksum;
+      n_bad_app_ = stats.bad_app;
+      n_headers_seen_ = stats.headers_seen;
+      n_noise_bytes_ = stats.noise_bytes;
+      n_bad_addr_ = stats.bad_addr;
+      n_bad_func_ = stats.bad_func;
+      n_bad_len_ = stats.bad_len;
     }
   }
 }
@@ -260,16 +271,20 @@ void BridgeNode::onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
 
 void BridgeNode::onDiagTimer()
 {
-  const std::uint64_t cur[4] = {
-    n_bad_checksum_.load(), n_bad_app_.load(), n_resets_.load(), n_dropped_.load()};
+  const std::uint64_t cur[7] = {
+    n_bad_checksum_.load(), n_bad_app_.load(), n_resets_.load(), n_dropped_.load(),
+    n_bad_addr_.load(), n_bad_func_.load(), n_bad_len_.load()};
   bool changed = false;
-  for (int i = 0; i < 4; ++i) {changed = changed || cur[i] != last_reported_[i];}
+  for (int i = 0; i < 7; ++i) {changed = changed || cur[i] != last_reported_[i];}
   if (changed) {
     RCLCPP_WARN(
-      get_logger(), "累计：校验错 %lu，应用层丢弃（NaN/inf/q 范数）%lu，MCU 复位 %lu，丢帧 %lu",
+      get_logger(), "累计：校验错 %lu，应用层丢弃（NaN/inf/q 范数）%lu，MCU 复位 %lu，丢帧 %lu，"
+      "地址拒绝 %lu，功能拒绝 %lu，长度拒绝 %lu（是解析候选次数，不是完整坏帧数）",
       static_cast<unsigned long>(cur[0]), static_cast<unsigned long>(cur[1]),
-      static_cast<unsigned long>(cur[2]), static_cast<unsigned long>(cur[3]));
-    for (int i = 0; i < 4; ++i) {last_reported_[i] = cur[i];}
+      static_cast<unsigned long>(cur[2]), static_cast<unsigned long>(cur[3]),
+      static_cast<unsigned long>(cur[4]), static_cast<unsigned long>(cur[5]),
+      static_cast<unsigned long>(cur[6]));
+    for (int i = 0; i < 7; ++i) {last_reported_[i] = cur[i];}
   }
   // 只提示，不判故障，也不退出（5.2 节：等待时间必须明显大于上电标定时间 N）。
   if (n_imu_.load() == 0 && !warned_no_imu_) {
@@ -277,10 +292,29 @@ void BridgeNode::onDiagTimer()
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count();
     if (waited > imu_wait_warn_s_) {
       warned_no_imu_ = true;
-      RCLCPP_WARN(
-        get_logger(),
-        "已等待 %.0f 秒仍没有 0x01。检查：固件是否上电并完成标定、TX/RX 是否交叉、共地、波特率 921600、"
-        "串口是否被别的进程占用。bridge 继续等待。", waited);
+      const auto rx = n_rx_bytes_.load();
+      if (rx == 0) {
+        RCLCPP_WARN(
+          get_logger(), "已等待 %.0f 秒仍没有合格 0x01；累计 RX=0 字节。"
+          "串口已打开，但本进程尚未读到任何字节；保存端口身份和固件状态，不据此认定硬件故障。"
+          "bridge 继续等待，不主动探测或发送。", waited);
+      } else {
+        const auto last_rx = last_rx_ns_.load();
+        const double rx_age = static_cast<double>(steadyNowNs() - last_rx) / 1e9;
+        RCLCPP_WARN(
+          get_logger(), "已等待 %.0f 秒仍没有合格 0x01；累计 RX=%lu 字节，最近 RX 距今 %.3f 秒，"
+          "帧头候选 %lu，等待帧头噪声字节 %lu，地址拒绝 %lu，功能拒绝 %lu，长度拒绝 %lu，"
+          "校验错 %lu，应用层拒绝 %lu。已读到数据，但尚未通过预期协议；先核对端口身份及固件协议。"
+          "bridge 继续等待，不主动探测或发送。",
+          waited, static_cast<unsigned long>(rx), rx_age,
+          static_cast<unsigned long>(n_headers_seen_.load()),
+          static_cast<unsigned long>(n_noise_bytes_.load()),
+          static_cast<unsigned long>(n_bad_addr_.load()),
+          static_cast<unsigned long>(n_bad_func_.load()),
+          static_cast<unsigned long>(n_bad_len_.load()),
+          static_cast<unsigned long>(n_bad_checksum_.load()),
+          static_cast<unsigned long>(n_bad_app_.load()));
+      }
     }
   }
 }

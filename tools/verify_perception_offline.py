@@ -291,6 +291,21 @@ class PerceptionRegression(unittest.TestCase):
         with self.assertRaises(ValueError):
             solver.set_intrinsics(1., 1., 0., 0., [0., 0., float('inf'), 0., 0.])
 
+    def test_varying_reprojection_errors_share_one_throttle_key(self):
+        detector, pnp = pipeline()
+        corners, _ = feed(detector, pnp, render_marker())
+        pnp_module.LU.reset_throttle()
+        with mock.patch.object(pnp_module.LU.time_utils, 'now', return_value=100.):
+            with mock.patch.object(pnp._log, 'info') as log:
+                for error in (2.81, 2.53, 2.30):
+                    with mock.patch.object(pnp._solver, 'solve',
+                                           return_value=NS(ok=False, reason=f'reproj_{error:.2f}px')):
+                        pnp._on_corners(corners)
+                self.assertEqual(log.call_count, 1)
+        self.assertEqual(pnp._n_reject, 3)
+        self.assertFalse(pnp._pub.messages[-1].valid)
+        pnp_module.LU.reset_throttle()
+
 
 if __name__ == '__main__':
     print(f'OpenCV {cv2.__version__}; real detection/PnP, mocked ROS transport; Humble/4.5.4 not verified',
