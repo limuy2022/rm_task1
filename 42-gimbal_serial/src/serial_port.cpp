@@ -2,12 +2,16 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <poll.h>
+#include <stdlib.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace gimbal_serial
@@ -75,6 +79,23 @@ bool lookupSpeed(int baud, speed_t & out)
 std::string errnoText(const char * what)
 {
   return std::string(what) + ": " + std::strerror(errno);
+}
+
+// realpath 的 GNU 形式（第二参数 nullptr，返回 malloc 的缓冲）；失败返回空串，不设 errno 语义。
+std::string realPathOrEmpty(const std::string & path)
+{
+  char * resolved = ::realpath(path.c_str(), nullptr);
+  if (resolved == nullptr) {return {};}
+  std::string out(resolved);
+  ::free(resolved);
+  return out;
+}
+
+std::string lowercased(std::string s)
+{
+  std::transform(s.begin(), s.end(), s.begin(),
+    [](unsigned char c) {return static_cast<char>(std::tolower(c));});
+  return s;
 }
 
 }  // namespace
@@ -215,6 +236,43 @@ PortChoice selectPort(
   if (gimbal_exists) {return {"/dev/gimbal", "udev"};}
   if (!candidates.empty()) {return {candidates.front(), "scan"};}
   return {"", "none"};
+}
+
+bool isGimbalRuleChipByIdName(const std::string & by_id_basename)
+{
+  const std::string name = lowercased(by_id_basename);
+  return name.find("cp210") != std::string::npos ||
+         name.find("ch340") != std::string::npos ||
+         name.find("ch9102") != std::string::npos;
+}
+
+PortIdentity inspectPortIdentity(const std::string & path, const std::string & by_id_dir)
+{
+  PortIdentity out;
+  out.resolved = realPathOrEmpty(path);
+  std::vector<std::string> entries;
+  {
+    glob_t g{};
+    if (glob((by_id_dir + "/*").c_str(), 0, nullptr, &g) == 0) {
+      for (std::size_t i = 0; i < g.gl_pathc; ++i) {entries.emplace_back(g.gl_pathv[i]);}
+    }
+    globfree(&g);
+  }
+  std::vector<std::string> rule_chip_devices;  // 按 resolved 目标去重
+  for (const auto & entry : entries) {
+    const std::string target = realPathOrEmpty(entry);
+    if (target.empty()) {continue;}
+    if (target == out.resolved && out.by_id.empty()) {out.by_id = entry;}
+    const auto slash = entry.find_last_of('/');
+    const std::string base = slash == std::string::npos ? entry : entry.substr(slash + 1);
+    if (isGimbalRuleChipByIdName(base) &&
+      std::find(rule_chip_devices.begin(), rule_chip_devices.end(), target) ==
+      rule_chip_devices.end()) {
+      rule_chip_devices.push_back(target);
+      out.rule_chip_by_ids.push_back(entry);
+    }
+  }
+  return out;
 }
 
 }  // namespace gimbal_serial

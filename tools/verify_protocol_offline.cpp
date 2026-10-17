@@ -14,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -263,6 +264,10 @@ void checkPty(const std::vector<Golden> & cases, const char * path, int master)
   std::string error;
   require(port.open(path, 115200, error), "PTY open: " + error);
   require(!second.open(path, 115200, error), "PTY exclusive open did not reject second owner");
+  // 身份解析对 PTY 的降级：resolved 指向 /dev/pts，且不会误配任何真实 by-id 条目。
+  const auto id_pty = gimbal_serial::inspectPortIdentity(path, "/dev/serial/by-id");
+  require(id_pty.by_id.empty(), "PTY must not match a real by-id entry");
+  require(id_pty.resolved.rfind("/dev/pts/", 0) == 0, "PTY resolves under /dev/pts");
   const Bytes raw{0xAA, 0xFF, 0x0D, 0x0A, 0x03, 0x11, 0x13, 0x00, 0x80};
   masterWrite(master, raw);
   require(portRead(port, raw.size()) == raw, "raw mode changed binary/control bytes");
@@ -303,6 +308,58 @@ void checkPty(const std::vector<Golden> & cases, const char * path, int master)
   require(disconnected, "closed PTY peer must be fatal");
 }
 
+// PortIdentity：by-id 反查、同芯片按设备去重、目录缺失/幽灵路径的优雅降级。
+// 用临时目录模拟 /dev/serial/by-id；glob 排序下同类芯片列表应为 [CH340, CP2102]。
+void checkPortIdentity()
+{
+  char dir_tpl[] = "/tmp/verify_byid_XXXXXX";
+  const char * dir = mkdtemp(dir_tpl);
+  require(dir != nullptr, "mkdtemp failed");
+  const std::string by_id = std::string(dir) + "/by-id";
+  require(mkdir(by_id.c_str(), 0755) == 0, "mkdir by-id failed");
+  const std::string cp_target = std::string(dir) + "/dev_cp";
+  const std::string ch_target = std::string(dir) + "/dev_ch";
+  const std::string ft_target = std::string(dir) + "/dev_ft";
+  for (const auto & t : {cp_target, ch_target, ft_target}) {
+    const int fd = ::open(t.c_str(), O_CREAT | O_RDWR, 0644);
+    require(fd >= 0, "identity target create failed");
+    ::close(fd);
+  }
+  const std::string cp1 = by_id + "/usb-Silicon_Labs_CP2102_A-if00-port0";
+  const std::string cp2 = by_id + "/usb-Silicon_Labs_CP2104_B-if00-port0";  // 同一设备的第二接口
+  const std::string ch = by_id + "/usb-QinHeng_CH340_C-if00-port0";
+  const std::string ft = by_id + "/usb-FTDI_FT232_D-if00-port0";
+  require(symlink(cp_target.c_str(), cp1.c_str()) == 0, "symlink cp1 failed");
+  require(symlink(cp_target.c_str(), cp2.c_str()) == 0, "symlink cp2 failed");
+  require(symlink(ch_target.c_str(), ch.c_str()) == 0, "symlink ch failed");
+  require(symlink(ft_target.c_str(), ft.c_str()) == 0, "symlink ft failed");
+
+  require(gimbal_serial::isGimbalRuleChipByIdName("USB-SILICON_LABS_CP2102"), "chip case-insensitive");
+  require(gimbal_serial::isGimbalRuleChipByIdName("usb-wch_CH9102"), "chip ch9102 variant");
+  require(!gimbal_serial::isGimbalRuleChipByIdName("usb-FTDI_FT232"), "chip ftdi excluded");
+
+  const auto id = gimbal_serial::inspectPortIdentity(cp_target, by_id);
+  require(id.resolved == cp_target, "realpath of plain file target");
+  require(id.by_id == cp1, "by-id reverse lookup picks first sorted entry");
+  require(
+    id.rule_chip_by_ids.size() == 2 && id.rule_chip_by_ids[0] == ch &&
+      id.rule_chip_by_ids[1] == cp1,
+    "rule-chip adapters deduped by device");
+  const auto id_ft = gimbal_serial::inspectPortIdentity(ft_target, by_id);
+  require(id_ft.by_id == ft && id_ft.rule_chip_by_ids.size() == 2, "ftdi lookup, machine-wide chips");
+  const auto id_missing = gimbal_serial::inspectPortIdentity(cp_target, std::string(dir) + "/no_such");
+  require(
+    id_missing.by_id.empty() && id_missing.rule_chip_by_ids.empty() && !id_missing.resolved.empty(),
+    "missing by-id dir degrades to empty");
+  const auto id_ghost = gimbal_serial::inspectPortIdentity("/dev/definitely_not_here", by_id);
+  require(id_ghost.resolved.empty() && id_ghost.by_id.empty(), "ghost path resolves empty");
+
+  for (const auto & e : {cp1, cp2, ch, ft}) {::unlink(e.c_str());}
+  for (const auto & t : {cp_target, ch_target, ft_target}) {::unlink(t.c_str());}
+  ::rmdir(by_id.c_str());
+  ::rmdir(dir);
+}
+
 int main(int argc, char ** argv)
 {
   try {
@@ -311,10 +368,12 @@ int main(int argc, char ** argv)
     checkCases(cases);
     checkStreams(cases);
     checkTracker(cases);
+    checkPortIdentity();
     checkPty(cases, argv[2], std::stoi(argv[3]));
     std::cout << "{\"passed\":true,\"golden_cases\":44,\"stream_chunk_sizes\":5,"
       "\"noise_bytes\":100000,\"pty_baud\":115200,\"physical_devices_opened\":0,"
-      "\"tracker_wrap_reset_gap\":true,\"pty_raw_exclusive_reopen_disconnect\":true}\n";
+      "\"tracker_wrap_reset_gap\":true,\"pty_raw_exclusive_reopen_disconnect\":true,"
+      "\"port_identity\":\"by-id reverse lookup + rule-chip dedup on temp symlinks; PTY degrades\"}\n";
     return 0;
   } catch (const std::exception & error) {
     std::cerr << "FAIL: " << error.what() << '\n';

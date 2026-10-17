@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 #include <string.h>
@@ -139,4 +140,71 @@ TEST(SerialPort, PeerCloseIsFatal)
   ssize_t n = 0;
   for (int i = 0; i < 5 && n == 0; ++i) {n = sp.readSome(buf, sizeof buf, 50);}
   EXPECT_LT(n, 0);
+}
+
+// 端口身份解析：临时目录模拟 /dev/serial/by-id，验证反查、同芯片去重与优雅降级。
+// glob 按名字排序：usb-FTDI < usb-QinHeng < usb-Silicon_Labs，同类芯片列表应为 [CH340, CP2102]。
+TEST(SerialPort, PortIdentityByIdReverseLookup)
+{
+  char dir_tpl[] = "/tmp/gimbal_byid_test_XXXXXX";
+  const char * dir = mkdtemp(dir_tpl);
+  ASSERT_NE(dir, nullptr);
+  const std::string by_id = std::string(dir) + "/by-id";
+  ASSERT_EQ(mkdir(by_id.c_str(), 0755), 0);
+  const std::string cp210_target = std::string(dir) + "/dev_cp210";
+  const std::string ch340_target = std::string(dir) + "/dev_ch340";
+  const std::string ftdi_target = std::string(dir) + "/dev_ftdi";
+  for (const auto & t : {cp210_target, ch340_target, ftdi_target}) {
+    const int fd = ::open(t.c_str(), O_CREAT | O_RDWR, 0644);
+    ASSERT_GE(fd, 0) << t;
+    ::close(fd);
+  }
+  const std::string cp210_entry =
+    by_id + "/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0";
+  const std::string cp210_entry2 = by_id + "/usb-Silicon_Labs_CP2104_OTHER_0002-if00-port0";
+  const std::string ch340_entry = by_id + "/usb-QinHeng_Electronics_CH340_serial_converter_55BB-if00-port0";
+  const std::string ftdi_entry = by_id + "/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0";
+  ASSERT_EQ(symlink(cp210_target.c_str(), cp210_entry.c_str()), 0);
+  ASSERT_EQ(symlink(cp210_target.c_str(), cp210_entry2.c_str()), 0);  // 同一设备的第二个接口条目
+  ASSERT_EQ(symlink(ch340_target.c_str(), ch340_entry.c_str()), 0);
+  ASSERT_EQ(symlink(ftdi_target.c_str(), ftdi_entry.c_str()), 0);
+
+  const auto id_cp = gimbal_serial::inspectPortIdentity(cp210_target, by_id);
+  EXPECT_FALSE(id_cp.resolved.empty());
+  EXPECT_EQ(id_cp.by_id, cp210_entry);
+  // 同类芯片按设备去重：CP210x 两条目只算一颗，FTDI 不算
+  ASSERT_EQ(id_cp.rule_chip_by_ids.size(), 2u);
+  EXPECT_EQ(id_cp.rule_chip_by_ids[0], ch340_entry);
+  EXPECT_EQ(id_cp.rule_chip_by_ids[1], cp210_entry);
+
+  // 打开 FTDI 目标：反查命中自己的条目；机器级同芯片统计与打开哪个设备无关
+  const auto id_ft = gimbal_serial::inspectPortIdentity(ftdi_target, by_id);
+  EXPECT_EQ(id_ft.by_id, ftdi_entry);
+  EXPECT_EQ(id_ft.rule_chip_by_ids.size(), 2u);
+
+  using gimbal_serial::isGimbalRuleChipByIdName;
+  EXPECT_TRUE(isGimbalRuleChipByIdName("usb-Silicon_Labs_CP2102_x"));
+  EXPECT_TRUE(isGimbalRuleChipByIdName("USB-QINHENG_CH340_Y"));
+  EXPECT_TRUE(isGimbalRuleChipByIdName("usb-wch_CH9102_z"));
+  EXPECT_FALSE(isGimbalRuleChipByIdName("usb-FTDI_FT232R_x"));
+  EXPECT_FALSE(isGimbalRuleChipByIdName(""));
+
+  // PTY：没有 by-id 条目，resolved 指向 /dev/pts
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  const auto id_pty = gimbal_serial::inspectPortIdentity(pty.slave, by_id);
+  EXPECT_EQ(id_pty.by_id, "");
+  EXPECT_EQ(id_pty.resolved.find("/dev/pts/"), 0u);
+
+  // by-id 目录不存在：全空不崩；路径不存在：resolved 为空
+  const auto id_none = gimbal_serial::inspectPortIdentity(cp210_target, std::string(dir) + "/no_such");
+  EXPECT_EQ(id_none.by_id, "");
+  EXPECT_EQ(id_none.rule_chip_by_ids.size(), 0u);
+  const auto id_ghost = gimbal_serial::inspectPortIdentity("/dev/definitely_not_here", by_id);
+  EXPECT_EQ(id_ghost.resolved, "");
+
+  for (const auto & e : {cp210_entry, cp210_entry2, ch340_entry, ftdi_entry}) {::unlink(e.c_str());}
+  for (const auto & t : {cp210_target, ch340_target, ftdi_target}) {::unlink(t.c_str());}
+  ::rmdir(by_id.c_str());
+  ::rmdir(dir);
 }

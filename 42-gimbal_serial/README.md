@@ -32,15 +32,23 @@ launch 参数留空就沿用 `config/bridge.yaml`。串口打不开时节点直�
 - 定位栈自建 TF 时用 `publish_tf:=false` 关掉本节点的 `world -> gimbal_link`，避免 `gimbal_link` 出现两个父节点。
 - 比赛机串口设备为 `/dev/ttyUSB*`/`/dev/ttyACM*`（权限 777），`port: auto` 会自动枚举；`/dev/gimbal` 的 udev 规则不依赖，装不装都行。
 
+## 选口诊断
+
+`/dev/gimbal` 由 `setup/99-gimbal.rules` 创建，规则按芯片 VID:PID 匹配（CP210x `10c4:ea60`、CH340 `1a86:7523`）。规则注释自己写明：同一台机器插了两颗同型号适配器时两个都匹配，`/dev/gimbal` 指向**后插的那颗**——桥打开成功不代表打开的是云台。为此桥在打开端口后打印三类诊断，全部只提示、不改变任何行为：
+
+1. 启动日志解析真实身份：`串口 /dev/gimbal（来源 udev）-> /dev/ttyUSB2（by-id: usb-Silicon_Labs_CP2102_...）`。PTY 等没有 by-id 条口的设备打印 `（无 by-id 条目，可能是 PTY）`。
+2. 机器上出现 ≥2 颗 CP210x/CH340 类适配器时告警一次，列出全部 by-id 名，并提醒用 `port:=/dev/serial/by-id/<名字>` 显式指定。
+3. 超过 `imu_wait_warn_s` 仍无 0x01 时按累计字节数分支：**0 字节**提示"指向错误适配器或物理无数据（供电/TX-RX 未交叉/未共地），也可能刚上电在温和标定"；**有字节无帧**提示"优先核对波特率 921600 与 TX/RX 接线"。实机排查命令：`lsusb`、`ls -l /dev/serial/by-id/`、`ls -l /dev/gimbal`。
+
 ## 参数
 
-- `port`（默认 `auto`）：显式写路径时原样使用，此时 `RM_SIM_SERIAL` 被忽略，日志里会提醒。
+- `port`（默认 `auto`）：显式写路径时原样使用，此时 `RM_SIM_SERIAL` 被忽略，日志里会提醒。实机建议直接写 `/dev/serial/by-id/<云台适配器的名字>`，见上面的“选口诊断”。
 - `baudrate`（921600）：8N1，无流控，raw 模式。
 - `imu_topic`（`/red_standard_robot1/gimbal`）：IMU 发布话题，赛题一要求的名字。
 - `imu_axis_sign`（`[1, 1, 1]`）：只作用于 accel 和 gyro，不作用于 q。每项必须是 1 或 -1。
 - `publish_tf`（true）：TF 只能由 IMU 一方发布。
 - `subscribe_cmd_vel`（false），`cmd_vel_topic`，`yaw_sign`，`pitch_sign`（都是 1）：发送前乘的符号，见契约第 8 节。
-- `imu_wait_warn_s`（15）：这么久没有第一帧 0x01 就提示一次。只提示，不退出，因为固件上电后要等到温和标定完成才发 0x01。
+- `imu_wait_warn_s`（15）：这么久没有第一帧 0x01 就提示一次，按累计字节数分“零字节/有字节无帧”两种话术（见“选口诊断”）。只提示，不退出，因为固件上电后要等到温和标定完成才发 0x01。
 
 ## 发布内容
 

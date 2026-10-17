@@ -65,4 +65,21 @@ PortChoice selectPort(
   const std::string & param, const std::string & env, bool gimbal_exists,
   const std::vector<std::string> & candidates);
 
+// 端口身份（纯函数，仅诊断日志用，不影响选口与读写）。by_id_dir 参数便于测试。
+// 背景：99-gimbal.rules 按 VID:PID 匹配 CP210x/CH340，同型号多颗适配器时 /dev/gimbal
+// 指向后插的那颗——打开成功不代表打开的是云台。全部字段解析失败时为空，优雅降级。
+struct PortIdentity
+{
+  std::string resolved;  // realpath 后的设备节点（/dev/gimbal -> /dev/ttyUSB2）；失败为空
+  std::string by_id;     // by_id_dir 下指向同一设备的稳定名；找不到为空（PTY 即此情况）
+  // 本机所有 CP210x/CH340 类适配器的 by-id 名，按 resolved 去重（多接口适配器只算一颗）
+  std::vector<std::string> rule_chip_by_ids;
+};
+
+PortIdentity inspectPortIdentity(
+  const std::string & path, const std::string & by_id_dir = "/dev/serial/by-id");
+
+// by-id 条目名是否属于 99-gimbal.rules 会匹配的芯片（CP210x / CH340 / CH9102）。
+bool isGimbalRuleChipByIdName(const std::string & by_id_basename);
+
 }  // namespace gimbal_serial

@@ -84,6 +84,7 @@ private:
   std::atomic<std::uint64_t> n_dropped_{0};
   std::atomic<std::uint64_t> n_bad_checksum_{0};
   std::atomic<std::uint64_t> n_bad_app_{0};
+  std::atomic<std::uint64_t> n_bytes_{0};  // 串口收到的原始字节数：区分“零字节”与“有字节无帧”
   std::uint64_t last_reported_[4] = {0, 0, 0, 0};
   std::chrono::steady_clock::time_point start_;
   bool warned_no_imu_ = false;

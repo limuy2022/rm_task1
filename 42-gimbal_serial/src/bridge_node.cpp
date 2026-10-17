@@ -84,9 +84,25 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
     throw SerialOpenError(
             "打开串口失败：" + err, SerialPort::isDeviceAbsentErrno(serial_.lastErrno()));
   }
+  // 身份只用于日志：/dev/gimbal 指向错误适配器时，打开成功不会有任何异常。
+  const PortIdentity identity = inspectPortIdentity(choice.path);
+  const std::string identity_note = identity.by_id.empty()
+    ? "（无 by-id 条目，可能是 PTY）"
+    : "（by-id: " + identity.by_id + "）";
   RCLCPP_INFO(
-    get_logger(), "串口 %s（来源 %s），%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
-    choice.path.c_str(), choice.source.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+    get_logger(), "串口 %s（来源 %s）-> %s%s，%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
+    choice.path.c_str(), choice.source.c_str(),
+    identity.resolved.empty() ? choice.path.c_str() : identity.resolved.c_str(),
+    identity_note.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+  if (identity.rule_chip_by_ids.size() >= 2) {
+    std::string listing;
+    for (const auto & name : identity.rule_chip_by_ids) {listing += " " + name;}
+    RCLCPP_WARN(
+      get_logger(),
+      "检测到 %zu 颗 CP210x/CH340 类适配器：%s。99-gimbal.rules 按芯片匹配，多颗同型号时 "
+      "/dev/gimbal 指向后插的那颗；若本次打开的不是云台，请用 port:=/dev/serial/by-id/<名字> 显式指定。",
+      identity.rule_chip_by_ids.size(), listing.c_str());
+  }
 
   imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(
     imu_topic_, rclcpp::QoS(rclcpp::KeepLast(200)).reliable().durability_volatile());
@@ -189,6 +205,7 @@ void BridgeNode::readLoop()
       parser_.feed(buf[i], [this](const std::uint8_t * f, std::size_t len) {onFrame(f, len);});
     }
     if (n > 0) {
+      n_bytes_ += static_cast<std::uint64_t>(n);
       n_bad_checksum_ = parser_.stats().bad_checksum;
       n_bad_app_ = parser_.stats().bad_app;
     }
@@ -277,10 +294,21 @@ void BridgeNode::onDiagTimer()
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count();
     if (waited > imu_wait_warn_s_) {
       warned_no_imu_ = true;
-      RCLCPP_WARN(
-        get_logger(),
-        "已等待 %.0f 秒仍没有 0x01。检查：固件是否上电并完成标定、TX/RX 是否交叉、共地、波特率 921600、"
-        "串口是否被别的进程占用。bridge 继续等待。", waited);
+      if (n_bytes_.load() == 0) {
+        RCLCPP_WARN(
+          get_logger(),
+          "已等待 %.0f 秒无 0x01 且累计 0 字节。常见原因：①云台刚上电还在温和标定（PROTOCOL.md 5.2 节，"
+          "约 N 秒）；②串口指向了错误的适配器（/dev/gimbal 的 udev 规则按芯片匹配，同型号多颗时指向后插的"
+          "那颗）或物理无数据（供电、TX/RX 未交叉、未共地）。核对：lsusb；ls -l /dev/serial/by-id/；"
+          "ls -l /dev/gimbal；必要时用 port:= 显式指定。bridge 继续等待。", waited);
+      } else {
+        RCLCPP_WARN(
+          get_logger(),
+          "已等待 %.0f 秒无 0x01，但已收到 %lu 字节（校验错 %lu）：有数据而帧不成立，优先核对波特率 921600 "
+          "与 TX/RX 接线。bridge 继续等待。", waited,
+          static_cast<unsigned long>(n_bytes_.load()),
+          static_cast<unsigned long>(n_bad_checksum_.load()));
+      }
     }
   }
 }
