@@ -1,0 +1,64 @@
+尺寸正确
+rgb8
+
+sensor_msgs/msg/PointCloud2
+/red_standard_robot1/livox/lidar有publisher，另一个没有
+
+/livox/imu不存在，/red_standard_robot1/livox/imu存在
+
+python3 "$T47_SRC/tools/read_imu.py" /red_standard_robot1/livox/imu
+正在读取 /red_standard_robot1/livox/imu，请保持设备静止，最多等待8秒……
+已收到 30 条不同时间戳消息；frame_id=livox_frame
+最后时间戳：1792161559.388176168
+最后加速度xyz：0.00931, 0.00564, 0.99545
+加速度模长中位数：0.99289；角速度模长中位数：0.01448
+加速度数值约1：与g单位相符，仍须核对驱动定义。
+四元数模长：1.00000，应接近1；这不是机械零位证明。
+
+ros2 launch gimbal_tracker_bringup team47_vision_check.launch.py target_id:=3
+[INFO] [launch]: All log files can be found below /home/dut0bug/.ros/log/2026-10-16-22-46-49-134039-dut0bug-NUC12WSKi7-8605
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [aruco_detector_node-1]: process started with pid [8606]
+[INFO] [marker_pnp_node-2]: process started with pid [8608]
+[marker_pnp_node-2] [INFO] [1792162009.531530167] [marker_pnp_node.pnp]: 感知节点启动：内参源=yaml（/home/dut0bug/ws_championship/team47_check_20261016/install/gimbal_tracker_bringup/share/gimbal_tracker_bringup/config/camera_team47.yaml），fx=1778.23，marker=0.1m，reproj_max=2.0px，源=single_topic(target=3, filter=off)，k_lat=5.000e-04 k_depth=4.000e-03
+[aruco_detector_node-1] [INFO] [1792162009.590372155] [aruco_detector_node.aruco_detector_node]: aruco_detector_node 启动: /image_raw → /team47_check/marker_corners，dict=DICT_4X4_50，target=3，30Hz
+[marker_pnp_node-2] [INFO] [1792162013.521432737] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.81px
+[marker_pnp_node-2] [INFO] [1792162013.560302637] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.53px
+[marker_pnp_node-2] [INFO] [1792162013.594370436] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.30px
+[marker_pnp_node-2] [INFO] [1792162013.690177819] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.43px
+[marker_pnp_node-2] [INFO] [1792162013.989317911] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.40px
+[marker_pnp_node-2] [INFO] [1792162014.024886746] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.78px
+[marker_pnp_node-2] [INFO] [1792162014.121712917] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.06px
+[marker_pnp_node-2] [INFO] [1792162014.160465717] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.90px
+[marker_pnp_node-2] [INFO] [1792162014.287898511] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.55px
+[marker_pnp_node-2] [INFO] [1792162014.356216613] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.17px
+[marker_pnp_node-2] [INFO] [1792162014.423716910] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.80px
+[marker_pnp_node-2] [INFO] [1792162014.624179663] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.10px
+[marker_pnp_node-2] [INFO] [1792162014.723151837] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.63px
+[marker_pnp_node-2] [INFO] [1792162014.758262425] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.01px
+[marker_pnp_node-2] [INFO] [1792162014.822895322] [marker_pnp_node.pnp]: PnP 拒绝：reproj_3.67px
+[marker_pnp_node-2] [INFO] [1792162014.863316177] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.14px
+[marker_pnp_node-2] [INFO] [1792162015.055157238] [marker_pnp_node.pnp]: PnP 拒绝：reproj_2.38px
+^C[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[aruco_detector_node-1] [INFO] [1792162017.258478256] [aruco_detector_node.aruco_detector_node]: aruco_detector_node 退出: 处理 229 帧，命中 63 帧（27.5%）
+[marker_pnp_node-2] [INFO] [1792162017.258541204] [marker_pnp_node.pnp]: 感知节点退出：有效观测 44 帧，拒绝 19 帧，过滤统计={'seen': 63, 'filtered': 0, 'malformed': 0}
+
+ros2 topic echo /team47_check/marker_cam --once --qos-reliability best_effort
+The message type 'gimbal_interfaces/msg/MarkerObservation' is invalid
+
+ros2 launch gimbal_serial_42 gimbal_serial.launch.py
+[INFO] [launch]: All log files can be found below /home/dut0bug/.ros/log/2026-10-16-22-58-38-411459-dut0bug-NUC12WSKi7-10329
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [robo_bridge_node-1]: process started with pid [10330]
+[robo_bridge_node-1] [INFO] [1792162718.503083511] [robo_bridge]: 串口 /dev/gimbal（来源 udev），921600 8N1，已独占。imu_axis_sign=(1, 1, 1)
+[robo_bridge_node-1] [INFO] [1792162718.505893280] [robo_bridge]: IMU 将发布到 /red_standard_robot1/gimbal（QoS reliable, keep_last 200），TF world -> gimbal_link
+[robo_bridge_node-1] [INFO] [1792162718.505972229] [robo_bridge]: 等待 IMU。固件上电后要等到温和标定完成才发第一帧 0x01（约 N 秒，见 PROTOCOL.md 5.2 节）。
+[robo_bridge_node-1] [WARN] [1792162733.506071664] [robo_bridge]: 已等待 15 秒仍没有 0x01。检查：固件是否上电并完成标定、TX/RX 是否交叉、共地、波特率 921600、串口是否被别的进程占用。bridge 继续等待。
+^C[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[robo_bridge_node-1] [INFO] [1792162853.486321361] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [robo_bridge_node-1]: process has finished cleanly [pid 10330]
+
+ros2 topic echo /team47_check/marker_cam --qos-reliability best_effort
+The message type 'gimbal_interfaces/msg/MarkerObservation' is invalid
+
+

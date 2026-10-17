@@ -84,9 +84,25 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
     throw SerialOpenError(
             "打开串口失败：" + err, SerialPort::isDeviceAbsentErrno(serial_.lastErrno()));
   }
+  // 身份只用于日志：/dev/gimbal 指向错误适配器时，打开成功不会有任何异常。
+  const PortIdentity identity = inspectPortIdentity(choice.path);
+  const std::string identity_note = identity.by_id.empty()
+    ? "（无 by-id 条目，可能是 PTY）"
+    : "（by-id: " + identity.by_id + "）";
   RCLCPP_INFO(
-    get_logger(), "串口 %s（来源 %s），%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
-    choice.path.c_str(), choice.source.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+    get_logger(), "串口 %s（来源 %s）-> %s%s，%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
+    choice.path.c_str(), choice.source.c_str(),
+    identity.resolved.empty() ? choice.path.c_str() : identity.resolved.c_str(),
+    identity_note.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+  if (identity.rule_chip_by_ids.size() >= 2) {
+    std::string listing;
+    for (const auto & name : identity.rule_chip_by_ids) {listing += " " + name;}
+    RCLCPP_WARN(
+      get_logger(),
+      "检测到 %zu 颗 CP210x/CH340 类适配器：%s。99-gimbal.rules 按芯片匹配，多颗同型号时 "
+      "/dev/gimbal 指向后插的那颗；若本次打开的不是云台，请用 port:=/dev/serial/by-id/<名字> 显式指定。",
+      identity.rule_chip_by_ids.size(), listing.c_str());
+  }
 
   imu_pub_ = create_publisher<sensor_msgs::msg::Imu>(
     imu_topic_, rclcpp::QoS(rclcpp::KeepLast(200)).reliable().durability_volatile());
@@ -295,8 +311,9 @@ void BridgeNode::onDiagTimer()
       const auto rx = n_rx_bytes_.load();
       if (rx == 0) {
         RCLCPP_WARN(
-          get_logger(), "已等待 %.0f 秒仍没有合格 0x01；累计 RX=0 字节。"
-          "串口已打开，但本进程尚未读到任何字节；保存端口身份和固件状态，不据此认定硬件故障。"
+          get_logger(), "已等待 %.0f 秒仍没有合格 0x01；累计 0 字节（RX=0 字节）。"
+          "串口已打开，但本进程尚未读到任何字节。核对 ls -l /dev/serial/by-id/、"
+          "ls -l /dev/gimbal 与固件状态，不据此认定硬件故障。"
           "bridge 继续等待，不主动探测或发送。", waited);
       } else {
         const auto last_rx = last_rx_ns_.load();
@@ -304,7 +321,7 @@ void BridgeNode::onDiagTimer()
         RCLCPP_WARN(
           get_logger(), "已等待 %.0f 秒仍没有合格 0x01；累计 RX=%lu 字节，最近 RX 距今 %.3f 秒，"
           "帧头候选 %lu，等待帧头噪声字节 %lu，地址拒绝 %lu，功能拒绝 %lu，长度拒绝 %lu，"
-          "校验错 %lu，应用层拒绝 %lu。已读到数据，但尚未通过预期协议；先核对端口身份及固件协议。"
+          "校验错 %lu，应用层拒绝 %lu。已收到数据，但尚未通过预期协议；先核对端口身份及固件协议。"
           "bridge 继续等待，不主动探测或发送。",
           waited, static_cast<unsigned long>(rx), rx_age,
           static_cast<unsigned long>(n_headers_seen_.load()),

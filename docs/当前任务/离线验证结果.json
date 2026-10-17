@@ -106,6 +106,25 @@
       "no physical 921600 line"
     ]
   },
+  "post_baseline_updates": [
+    {
+      "date": "2026-10-17",
+      "change": "gimbal_serial_42 选口诊断硬化：PortIdentity(by-id 反查+同芯片去重)、启动身份日志、多适配器歧义告警、无 0x01 告警按累计字节分支。纯日志层，不改选口顺序与任何行为。",
+      "protocol_offline_rerun": {
+        "host": "Arch Linux x64",
+        "compiler": "/usr/sbin/clang++",
+        "sanitizers": ["address", "undefined"],
+        "passed": true,
+        "port_identity": "by-id reverse lookup + rule-chip dedup on temp symlinks; PTY degrades"
+      },
+      "humble_docker_build_and_test": {
+        "image": "osrf/ros:humble-desktop-full",
+        "repo_mount": "read-only",
+        "colcon_test": "31 tests, 0 errors, 0 failures, 0 skipped",
+        "new_cases": ["SerialPort.PortIdentityByIdReverseLookup", "BridgeNode.NoImuWarningBranches"]
+      }
+    }
+  ],
   "synthetic_pipeline": {
     "kind": "synthetic_no_ROS_no_hardware",
     "virtual_duration_s": 180.0,

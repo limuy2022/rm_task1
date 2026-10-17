@@ -10,11 +10,15 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <rcutils/logging.h>
+#include <rcutils/time.h>
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -409,6 +413,88 @@ TEST(BridgeNode, PortAutoUsesRmSimSerial)
   pty.send(imuFrame(0, 0, {0, 0, 1365}, {0, 0, 0}, {32760, 0, 0, 0}));
   EXPECT_TRUE(probe.waitImus(1, 5s));
   unsetenv("RM_SIM_SERIAL");
+}
+
+// 无 0x01 告警按“零字节 vs 有字节无帧”分支。捕获 rcutils 日志逐条核对。
+namespace
+{
+std::mutex g_log_mu;
+std::vector<std::string> * g_logs = nullptr;
+
+void capturingLogHandler(
+  const rcutils_log_location_t * /*location*/, int /*severity*/, const char * /*name*/,
+  rcutils_time_point_value_t /*timestamp*/, const char * format, va_list * args)
+{
+  char buf[2048];
+  if (vsnprintf(buf, sizeof buf, format, *args) < 0) {return;}
+  std::lock_guard<std::mutex> l(g_log_mu);
+  if (g_logs) {g_logs->emplace_back(buf);}
+}
+
+bool logsContain(const std::vector<std::string> & logs, const char * needle)
+{
+  for (const auto & s : logs) {
+    if (s.find(needle) != std::string::npos) {return true;}
+  }
+  return false;
+}
+}  // namespace
+
+TEST(BridgeNode, NoImuWarningBranches)
+{
+  std::vector<std::string> logs;
+  {
+    std::lock_guard<std::mutex> l(g_log_mu);
+    g_logs = &logs;
+  }
+  const auto original_handler = rcutils_logging_get_output_handler();
+  rcutils_logging_set_output_handler(capturingLogHandler);
+
+  // 分支一：干净 PTY、零字节 -> 告警含“累计 0 字节”与适配器排查提示
+  {
+    Pty pty;
+    ASSERT_FALSE(pty.slave.empty());
+    auto bridge = std::make_shared<BridgeNode>(
+      rclcpp::NodeOptions().parameter_overrides(
+        {rclcpp::Parameter("port", pty.slave),
+          rclcpp::Parameter("imu_wait_warn_s", 0.3)}));
+    Spinner sp;
+    sp.add(bridge);
+    sp.start();
+    std::this_thread::sleep_for(1500ms);  // 诊断定时器 1 s 周期，首拍即触发
+    bridge.reset();
+  }
+  const bool zero_byte_branch = logsContain(logs, "累计 0 字节");
+  EXPECT_TRUE(logsContain(logs, "ls -l /dev/serial/by-id/"));
+  logs.clear();
+
+  // 分支二：构造后写噪声字节（open 会 tcflush，必须后写）-> 告警走“已收到 N 字节”
+  {
+    Pty pty;
+    ASSERT_FALSE(pty.slave.empty());
+    auto bridge = std::make_shared<BridgeNode>(
+      rclcpp::NodeOptions().parameter_overrides(
+        {rclcpp::Parameter("port", pty.slave),
+          rclcpp::Parameter("imu_wait_warn_s", 0.3)}));
+    Spinner sp;
+    sp.add(bridge);
+    sp.start();
+    const std::vector<std::uint8_t> noise(200, 0x55);
+    ASSERT_EQ(
+      write(pty.master, noise.data(), noise.size()), static_cast<ssize_t>(noise.size()));
+    std::this_thread::sleep_for(1500ms);
+    bridge.reset();
+  }
+  const bool bytes_branch = logsContain(logs, "已收到") && logsContain(logs, "字节");
+  EXPECT_FALSE(logsContain(logs, "累计 0 字节"));
+
+  rcutils_logging_set_output_handler(original_handler);
+  {
+    std::lock_guard<std::mutex> l(g_log_mu);
+    g_logs = nullptr;
+  }
+  EXPECT_TRUE(zero_byte_branch);
+  EXPECT_TRUE(bytes_branch);
 }
 
 int main(int argc, char ** argv)

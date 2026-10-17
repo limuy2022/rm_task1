@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>gimbal_common</name>
+  <version>1.0.0</version>
+  <description>跨包共享层：协议编解码、单调时钟、节点工厂、矩阵数学、帧常量、配置加载、日志节流、CSV 格式化。</description>
+  <maintainer email="team@example.com">gimbal_tracker_team</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+
+  <!-- 纯 Python 运行时依赖：numpy / yaml 仅在运行期 import
+       （frames.py / math_utils.py / protocol.py / config_loader.py），构建期不需要
+       （setup.py 的 install_requires 里只有 setuptools，无 numpy/yaml）。
+       且 depend 标签已隐含 exec_depend（= build + build_export + exec），
+       故此处只保留 exec_depend，不再用 depend 重复声明，消除 colcon 的冗余告警。 -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

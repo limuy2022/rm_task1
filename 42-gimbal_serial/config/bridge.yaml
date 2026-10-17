@@ -6,6 +6,9 @@
     #                 否则 /dev/gimbal（setup/99-gimbal.rules），否则第一个 /dev/ttyUSB*、/dev/ttyACM*。
     #   写成具体路径：原样使用，此时 RM_SIM_SERIAL 被忽略（日志里会提醒）。
     # 虚拟云台是 /tmp/ttyVGIMBAL。
+    # 启动日志会打印解析后的设备与 by-id 稳定名；机器上有多颗 CP210x/CH340 适配器时会告警
+    # （99-gimbal.rules 按芯片匹配，同型号多颗时 /dev/gimbal 指向后插的那颗）。
+    # 实机建议直接写 /dev/serial/by-id/<云台适配器的名字>，见 README“选口诊断”。
     port: auto
     baudrate: 921600          # 8N1，无流控（第 2 节）
 

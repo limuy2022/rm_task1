@@ -1,0 +1,71 @@
+ls src
+chassis_advisor                gimbal_interfaces       image_pipeline
+crystal-field-20261011-181013  gimbal_judge_io         log
+gimbal_common                  gimbal_localization     mk
+gimbal_control                 gimbal_perception       pb2025_sentry_nav
+gimbal_dataio                  gimbal_serial_bridge    small_gicp
+gimbal_debug                   gimbal_tracker_bringup
+gimbal_estimation              grid_mapper
+dut0bug@dut0bug-NUC12WSKi7:~/ws_championship$ colcon list --base-paths src
+camera_calibration	src/image_pipeline/camera_calibration	(ros.ament_python)
+chassis_advisor	src/chassis_advisor	(ros.ament_python)
+depth_image_proc	src/image_pipeline/depth_image_proc	(ros.ament_cmake)
+fake_vel_transform	src/pb2025_sentry_nav/fake_vel_transform	(ros.ament_cmake)
+gimbal_common	src/gimbal_common	(ros.ament_python)
+gimbal_control	src/gimbal_control	(ros.ament_python)
+gimbal_dataio	src/gimbal_dataio	(ros.ament_python)
+gimbal_debug	src/gimbal_debug	(ros.ament_python)
+gimbal_estimation	src/gimbal_estimation	(ros.ament_python)
+gimbal_interfaces	src/gimbal_interfaces	(ros.ament_cmake)
+gimbal_judge_io	src/gimbal_judge_io	(ros.ament_python)
+gimbal_localization	src/gimbal_localization	(ros.ament_python)
+gimbal_perception	src/gimbal_perception	(ros.ament_python)
+gimbal_serial_bridge	src/gimbal_serial_bridge	(ros.ament_python)
+gimbal_tracker_bringup	src/gimbal_tracker_bringup	(ros.ament_python)
+grid_mapper	src/grid_mapper	(ros.ament_python)
+ign_sim_pointcloud_tool	src/pb2025_sentry_nav/ign_sim_pointcloud_tool	(ros.ament_cmake)
+image_pipeline	src/image_pipeline/image_pipeline	(ros.ament_cmake)
+image_proc	src/image_pipeline/image_proc	(ros.ament_cmake)
+image_publisher	src/image_pipeline/image_publisher	(ros.ament_cmake)
+image_rotate	src/image_pipeline/image_rotate	(ros.ament_cmake)
+image_view	src/image_pipeline/image_view	(ros.ament_cmake)
+livox_ros_driver2	src/pb2025_sentry_nav/livox_ros_driver2	(ros.ament_cmake)
+loam_interface	src/pb2025_sentry_nav/loam_interface	(ros.ament_cmake)
+pb2025_nav_bringup	src/pb2025_sentry_nav/pb2025_nav_bringup	(ros.ament_cmake)
+pb2025_sentry_nav	src/pb2025_sentry_nav/pb2025_sentry_nav	(ros.ament_cmake)
+pb_nav2_plugins	src/pb2025_sentry_nav/pb_nav2_plugins	(ros.ament_cmake)
+pb_omni_pid_pursuit_controller	src/pb2025_sentry_nav/pb_omni_pid_pursuit_controller	(ros.ament_cmake)
+pb_teleop_twist_joy	src/pb2025_sentry_nav/pb_teleop_twist_joy	(ros.ament_cmake)
+point_lio	src/pb2025_sentry_nav/point_lio	(ros.ament_cmake)
+pointcloud_to_laserscan	src/pb2025_sentry_nav/pointcloud_to_laserscan	(ros.ament_cmake)
+sensor_scan_generation	src/pb2025_sentry_nav/sensor_scan_generation	(ros.ament_cmake)
+small_gicp	src/small_gicp	(ros.cmake)
+small_gicp_relocalization	src/pb2025_sentry_nav/small_gicp_relocalization(ros.ament_cmake)
+stereo_image_proc	src/image_pipeline/stereo_image_proc	(ros.ament_cmake)
+terrain_analysis	src/pb2025_sentry_nav/terrain_analysis	(ros.ament_cmake)
+terrain_analysis_ext	src/pb2025_sentry_nav/terrain_analysis_ext	(ros.ament_cmake)
+tracetools_image_pipeline	src/image_pipeline/tracetools_image_pipeline	(ros.ament_cmake)
+
+ros2 topic list -t
+/camera_info [sensor_msgs/msg/CameraInfo]
+/clicked_point [geometry_msgs/msg/PointStamped]
+/image_raw [sensor_msgs/msg/Image]
+/image_raw/compressed [sensor_msgs/msg/CompressedImage]
+/image_raw/compressedDepth [sensor_msgs/msg/CompressedImage]
+/image_raw/theora [theora_image_transport/msg/Packet]
+/initialpose [geometry_msgs/msg/PoseWithCovarianceStamped]
+/livox/imu [sensor_msgs/msg/Imu]
+/livox/lidar [sensor_msgs/msg/PointCloud2]
+/move_base_simple/goal [geometry_msgs/msg/PoseStamped]
+/parameter_events [rcl_interfaces/msg/ParameterEvent]
+/red_standard_robot1/livox/imu [sensor_msgs/msg/Imu]
+/red_standard_robot1/livox/lidar [sensor_msgs/msg/PointCloud2]
+/rosout [rcl_interfaces/msg/Log]
+/tf [tf2_msgs/msg/TFMessage]
+/tf_static [tf2_msgs/msg/TFMessage]
+dut0bug@dut0bug-NUC12WSKi7:~/ws_championship$ ros2 node list
+/hik_camera
+/livox_driver_node
+/livox_lidar_publisher
+/rviz
+/transform_listener_impl_5a5dbdaea560

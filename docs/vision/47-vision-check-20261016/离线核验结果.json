@@ -1,0 +1,10 @@
+{
+  "checks": [
+    "kit: all Python sources parsed",
+    "27 tutorial shell blocks and environment script passed syntax checks; no NUC commands executed",
+    "launch structure: exactly two perception nodes; explicit private corner/PnP topics; no hardware/control nodes",
+    "IMU helper: g, m/s², missing orientation and duplicate-stamp cases tested with stand-in ROS messages",
+    "ID helper: actual OpenCV 4.10.0 detected synthetic ID 3 with padded rows; no-image case returned failure"
+  ],
+  "nuc_ros_dds_hardware_verified": false
+}
