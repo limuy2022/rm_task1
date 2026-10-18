@@ -6,13 +6,16 @@
 # 构建镜像：
 #   docker build -t rm-task1-humble-test .
 #
-# 全量验证（colcon 构建 + pytest + tools 套件）：
+# 全量验证（colcon 构建 + C++ gtest + pytest + tools 套件）：
 #   docker run --rm -v "$PWD":/workspace -w /workspace \
 #     --user "$(id -u):$(id -g)" -e HOME=/tmp rm-task1-humble-test bash -c '
 #       source /opt/ros/humble/setup.bash &&
 #       colcon --log-base /tmp/clog build --build-base /tmp/cb \
 #              --install-base /tmp/ci --symlink-install &&
 #       source /tmp/ci/setup.bash &&
+#       colcon --log-base /tmp/clog test --build-base /tmp/cb \
+#              --install-base /tmp/ci --packages-select gimbal_serial_42 &&
+#       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
 #       python3 -B -m pytest -q src --import-mode=importlib &&
 #       python3 -B tools/verify_all_offline.py'
 #

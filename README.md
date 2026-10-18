@@ -23,6 +23,7 @@ bash "$HOME/ws_championship/src/47-visual-tracking-20261018-r3/run_here.bash" ta
 - **[相机标定](docs/教程/相机标定.md)**与**[坐标外参与整车接入](docs/教程/坐标外参与整车接入.md)**：内参标定、外参测量与整车接入。
 - **[底盘定位与点云建图](docs/教程/底盘定位与点云建图.md)**：Point-LIO + cloud_mapping 建图流程。
 - **[评分接口测试](docs/教程/评分接口测试.md)**：180 秒提交链三终端测试。
+- **[测试运行指南](docs/教程/测试运行指南.md)**：验证体系分层、容器内运行命令、新增测试清单与换标定影响。
 - **[云台控制与串口原理](docs/原理/云台控制与串口.md)**：识别→PD→0x30→下位机全链路原理与源码索引。
 - 记录与模板：[G坐标核查历史](docs/记录/G坐标核查_历史.md)、[现场记录表模板](docs/记录模板/现场记录表.md)；离线验证产物在 docs/验证。
 
@@ -49,6 +50,9 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
     colcon --log-base /tmp/clog build --build-base /tmp/cb \
            --install-base /tmp/ci --symlink-install &&
     source /tmp/ci/setup.bash &&
+    colcon --log-base /tmp/clog test --build-base /tmp/cb \
+           --install-base /tmp/ci --packages-select gimbal_serial_42 &&
+    colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
     python3 -B -m pytest -q src --import-mode=importlib &&
     python3 -B tools/verify_all_offline.py'
 ```

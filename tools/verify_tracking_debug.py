@@ -91,6 +91,7 @@ def load_actual_definitions():
         Node=HarnessNode, Image=Image, String=object, MarkerCorners=object,
         QoSProfile=lambda **kwargs: kwargs,
         ReliabilityPolicy=SimpleNamespace(BEST_EFFORT='best_effort'),
+        sensor_qos=lambda depth=10: SimpleNamespace(depth=depth),
         load_yaml=lambda path: {'camera': copy.deepcopy(CAMERA)})
     exec(compile(ast.Module(body=declarations, type_ignores=[]), str(SOURCE), 'exec'), environment)
     return environment

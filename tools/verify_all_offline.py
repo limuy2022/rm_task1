@@ -23,17 +23,27 @@ def main():
     env['PYTHONPATH'] = os.pathsep.join(package_paths + [env.get('PYTHONPATH', '')])
     names = ['perception','control','navigation','advisor','timing','kinematics','processing',
              'submission','protocol','pipeline']
+    # 按作业超时（秒）：默认 60；含真检测/闭环仿真的重作业放宽。
+    timeouts = {'verify_visual_tracking_pipeline': 240, 'aiming_robustness': 240}
     jobs = [('pytest', [sys.executable,'-B','-m','pytest','-q','src','--import-mode=importlib'])]
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/('verify_'+name+'_offline.py'))]) for name in names)
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/(name+'.py'))])
                 for name in ('verify_vision_and_gate','verify_coordinate_regressions',
-                             'verify_field_followup','verify_calibration_entry'))
+                             'verify_field_followup','verify_calibration_entry',
+                             'verify_visual_servo','verify_visual_pid',
+                             'verify_visual_tracking_pipeline',
+                             'verify_visual_tracking_launch',
+                             'verify_tracking_robustness',
+                             'verify_tracking_debug'))
+    jobs.append(('aiming_robustness',
+                 [sys.executable,'-B',str(ROOT/'tools'/'verify_aiming_robustness.py'),
+                  '--quick']))
     result = []
     for name, command in jobs:
         begin = time.perf_counter()
         try:
             proc = subprocess.run(command,cwd=ROOT,env=env,text=True,stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT,timeout=60)
+                                  stderr=subprocess.STDOUT,timeout=timeouts.get(name,60))
             code,text = proc.returncode,proc.stdout
         except (OSError,subprocess.TimeoutExpired) as exc: code,text = 1,repr(exc)
         (output/(name+'.log')).write_text(text)

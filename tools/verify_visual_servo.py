@@ -109,7 +109,11 @@ def create_harness(camera):
         UInt64=SimpleNamespace, load_yaml=lambda path: {'camera': copy.deepcopy(camera)},
         QoSProfile=lambda **kwargs: SimpleNamespace(**kwargs),
         ReliabilityPolicy=SimpleNamespace(BEST_EFFORT='best_effort', RELIABLE='reliable'),
-        DurabilityPolicy=SimpleNamespace(TRANSIENT_LOCAL='transient_local'))
+        DurabilityPolicy=SimpleNamespace(TRANSIENT_LOCAL='transient_local'),
+        # 节点 __init__ 经 gimbal_common.qos_utils 构造 QoS；harness 的发布/订阅
+        # 忽略 qos 实参，这里给出可调用的桩即可。
+        sensor_qos=lambda depth=10: SimpleNamespace(depth=depth),
+        latched_qos=lambda depth=1: SimpleNamespace(depth=depth))
     exec(compile(module, 'production_visual_servo_node.py', 'exec'), namespace)
     node = namespace['VisualServoNode']()
     return node, clock, node._params, published
