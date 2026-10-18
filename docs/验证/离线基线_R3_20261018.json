@@ -1,0 +1,890 @@
+{
+  "date": "2026-10-18",
+  "host": {
+    "os": "Darwin",
+    "machine": "arm64",
+    "python": "3.12.14"
+  },
+  "ROS_available": false,
+  "NUC_tested": false,
+  "hardware_accessed": false,
+  "submission_wall_clock": {
+    "passed": true,
+    "scope": "actual production CSV writer, wall-clock scheduler and separate OS reader on this host; no ROS or NUC",
+    "duration_requested_s": 180.0,
+    "elapsed_s": 180.03312625,
+    "hz": 10.0,
+    "ticks": 1800,
+    "rows_seen_while_writer_open": 1800,
+    "missing_ticks": 0,
+    "writer_dropped": 0,
+    "format_errors": [],
+    "partial_tail_bytes": 0,
+    "write_and_flush_ms": {
+      "mean": 0.29966640333333333,
+      "p95": 0.444667,
+      "max": 29.531958
+    },
+    "dispatch_to_reader_visible_ms": {
+      "mean": 1.7268247972222222,
+      "p95": 2.6120419999999998,
+      "max": 31.618833
+    },
+    "scheduled_to_reader_visible_ms": {
+      "mean": 5.173851345,
+      "p95": 7.4894169999999995,
+      "max": 58.620749999999994
+    },
+    "dispatch_jitter_ms": {
+      "mean": 3.4470265477777775,
+      "p95": 5.059208,
+      "max": 27.001917
+    },
+    "visible_ge_80ms": 0,
+    "visible_ge_60ms": 0,
+    "csv_sha256": "ca006f19b7c93bf73de67c1955fced771a9addd6766522f07e03abbebb191593",
+    "ROS_nodes_started": 0,
+    "hardware_accessed": false,
+    "limitations": [
+      "not a ROS /test/* transport test",
+      "not a measurement of NUC CPU/disk/DDS",
+      "baseline load; not a throughput ceiling stress test"
+    ]
+  },
+  "prediction": {
+    "kind": "offline prediction accuracy baseline",
+    "parameters": {
+      "duration": 20.0,
+      "rates": [
+        10.0,
+        30.0
+      ],
+      "noise_std": 0.02,
+      "latency": 0.04,
+      "jitter": 0.015,
+      "dropout": 0.03,
+      "warmup": 2.0,
+      "tick_hz": 10.0,
+      "horizon": 0.1,
+      "seed": 47
+    },
+    "metric_definition": "Euclidean XY error in metres; CA current scored at tick; all 100ms methods scored at tick+0.1. Same CA-valid tick mask after 2.0s warmup. CV fits only delivered measured positions in trailing 0.5s; no true velocity. Invalid and warmup ticks counted separately. Recorded truth is linearly interpolated for scoring only.",
+    "self_checks": {
+      "100ms_from_tick_including_latency": "PASS",
+      "no_future_observation_leakage": "PASS",
+      "sample_does_not_advance_filter": "PASS",
+      "truth_not_extrapolated": "PASS"
+    },
+    "cases": [
+      {
+        "name": "stationary",
+        "observation_hz": 10.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 186,
+          "result_init": 2,
+          "result_accepted": 184,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 100,
+          "ticks_coasting": 77,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.04279978410398765,
+            "mean_m": 0.03181525136396414,
+            "p95_m": 0.0647895050472161,
+            "max_m": 0.25997544592678523,
+            "axis_rmse_m": [
+              0.03305271845620381,
+              0.02719079480270625
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.06218460064919559,
+            "mean_m": 0.04700836277689572,
+            "p95_m": 0.10050698834747028,
+            "max_m": 0.33336709163881845,
+            "axis_rmse_m": [
+              0.04716742103567799,
+              0.04052356044010716
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.025527192791749947,
+            "mean_m": 0.022778296328884423,
+            "p95_m": 0.042707276677487443,
+            "max_m": 0.060439917534426034,
+            "axis_rmse_m": [
+              0.018471716790450485,
+              0.01761911605729868
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.0347314042550896,
+            "mean_m": 0.029386533695292805,
+            "p95_m": 0.06031752126438372,
+            "max_m": 0.11082240084684307,
+            "axis_rmse_m": [
+              0.02435065954433742,
+              0.02476521393580571
+            ]
+          }
+        }
+      },
+      {
+        "name": "stationary",
+        "observation_hz": 30.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 534,
+          "result_init": 2,
+          "result_accepted": 532,
+          "rejected": 22,
+          "result_out_of_order": 22,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 168,
+          "ticks_coasting": 9,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.022896482664862917,
+            "mean_m": 0.020086631792237734,
+            "p95_m": 0.038959675679939576,
+            "max_m": 0.0621838752746001,
+            "axis_rmse_m": [
+              0.016307063759850478,
+              0.016072603708003858
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.0367062118758478,
+            "mean_m": 0.03167913887461535,
+            "p95_m": 0.05878301076048834,
+            "max_m": 0.1409318409898861,
+            "axis_rmse_m": [
+              0.026680803816953515,
+              0.025208742490569983
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.027915097235689478,
+            "mean_m": 0.025075008807513424,
+            "p95_m": 0.04704472397371074,
+            "max_m": 0.06442195434462532,
+            "axis_rmse_m": [
+              0.02051151486703773,
+              0.018934899300954548
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.023574856180042705,
+            "mean_m": 0.020024548052468026,
+            "p95_m": 0.03534827934745778,
+            "max_m": 0.11113333398475406,
+            "axis_rmse_m": [
+              0.016754461267895003,
+              0.016584989343750082
+            ]
+          }
+        }
+      },
+      {
+        "name": "constant_velocity",
+        "observation_hz": 10.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 183,
+          "result_init": 2,
+          "result_accepted": 181,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 99,
+          "ticks_coasting": 78,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.03885267017228423,
+            "mean_m": 0.0329586716082566,
+            "p95_m": 0.06956677323990142,
+            "max_m": 0.13673640932988426,
+            "axis_rmse_m": [
+              0.031001357155753126,
+              0.02341892042810129
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.05782834855596335,
+            "mean_m": 0.04898993015415422,
+            "p95_m": 0.11189594664198632,
+            "max_m": 0.1871550346350064,
+            "axis_rmse_m": [
+              0.04605000884029055,
+              0.03497877331352764
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.14144785471443122,
+            "mean_m": 0.13536927226547155,
+            "p95_m": 0.1725668396147211,
+            "max_m": 0.40561977641266833,
+            "axis_rmse_m": [
+              0.13329170313020913,
+              0.04733727368536391
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.03633793351111433,
+            "mean_m": 0.03161706731792437,
+            "p95_m": 0.06502056841906564,
+            "max_m": 0.09815718038654918,
+            "axis_rmse_m": [
+              0.028848236632774634,
+              0.022095806277155957
+            ]
+          }
+        }
+      },
+      {
+        "name": "constant_velocity",
+        "observation_hz": 30.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 517,
+          "result_init": 2,
+          "result_accepted": 515,
+          "rejected": 39,
+          "result_out_of_order": 39,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 168,
+          "ticks_coasting": 9,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.02306016837912661,
+            "mean_m": 0.019880410220877828,
+            "p95_m": 0.03981134438931749,
+            "max_m": 0.07917713369096124,
+            "axis_rmse_m": [
+              0.017404447886661133,
+              0.015128005798325421
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.03691734277346657,
+            "mean_m": 0.03142204951981497,
+            "p95_m": 0.06479941032598996,
+            "max_m": 0.125885124688621,
+            "axis_rmse_m": [
+              0.027594042482593714,
+              0.02452466140280916
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.10879457862750784,
+            "mean_m": 0.10327881924203484,
+            "p95_m": 0.14834663115042443,
+            "max_m": 0.3480138626887345,
+            "axis_rmse_m": [
+              0.10128388285076391,
+              0.039721976453969694
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.02842157137112093,
+            "mean_m": 0.02029662314843906,
+            "p95_m": 0.04164751798901036,
+            "max_m": 0.24106879819366828,
+            "axis_rmse_m": [
+              0.022762119791218696,
+              0.017019742119489686
+            ]
+          }
+        }
+      },
+      {
+        "name": "constant_acceleration",
+        "observation_hz": 10.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 186,
+          "result_init": 2,
+          "result_accepted": 184,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 101,
+          "ticks_coasting": 76,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.037239810487401534,
+            "mean_m": 0.0324070890260508,
+            "p95_m": 0.06751576651555469,
+            "max_m": 0.10996768668326166,
+            "axis_rmse_m": [
+              0.024902247704917776,
+              0.027689014868364278
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.05647875361126581,
+            "mean_m": 0.04875805316880103,
+            "p95_m": 0.09705757594156711,
+            "max_m": 0.18894585891118387,
+            "axis_rmse_m": [
+              0.03753464086289618,
+              0.04220189977685218
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.14849252280906558,
+            "mean_m": 0.13814644824602154,
+            "p95_m": 0.2170455051557634,
+            "max_m": 0.3372029738520664,
+            "axis_rmse_m": [
+              0.14037036707308673,
+              0.04843747906288848
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.03887511452525938,
+            "mean_m": 0.03273054011279747,
+            "p95_m": 0.05959779740485962,
+            "max_m": 0.2046730117162379,
+            "axis_rmse_m": [
+              0.024408319262300963,
+              0.030257370674624397
+            ]
+          }
+        }
+      },
+      {
+        "name": "constant_acceleration",
+        "observation_hz": 30.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 526,
+          "result_init": 2,
+          "result_accepted": 524,
+          "rejected": 31,
+          "result_out_of_order": 31,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 169,
+          "ticks_coasting": 8,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.026450004139790304,
+            "mean_m": 0.02125231034941223,
+            "p95_m": 0.042552687586308785,
+            "max_m": 0.12899991361459814,
+            "axis_rmse_m": [
+              0.021578475402246836,
+              0.01529614717206763
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.039996520863044456,
+            "mean_m": 0.0332805548623719,
+            "p95_m": 0.06770776544113218,
+            "max_m": 0.15903724021691532,
+            "axis_rmse_m": [
+              0.03222588743792192,
+              0.023689952722332236
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.12275256936587312,
+            "mean_m": 0.11354310921508512,
+            "p95_m": 0.17818429776021696,
+            "max_m": 0.34109072520707656,
+            "axis_rmse_m": [
+              0.11659143675192438,
+              0.03840091355743388
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.026341659016279443,
+            "mean_m": 0.021383870881707602,
+            "p95_m": 0.04386636630643592,
+            "max_m": 0.10112802888783548,
+            "axis_rmse_m": [
+              0.01921704120099907,
+              0.018016335010457605
+            ]
+          }
+        }
+      },
+      {
+        "name": "turning",
+        "observation_hz": 10.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 184,
+          "result_init": 2,
+          "result_accepted": 182,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 99,
+          "ticks_coasting": 78,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.03831550965660392,
+            "mean_m": 0.03174410110186358,
+            "p95_m": 0.06347638590354746,
+            "max_m": 0.18990535844297873,
+            "axis_rmse_m": [
+              0.027495676597964213,
+              0.026684565738746266
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.056259118533318095,
+            "mean_m": 0.04628447999260756,
+            "p95_m": 0.09106042457900444,
+            "max_m": 0.269829980231377,
+            "axis_rmse_m": [
+              0.04000761406841364,
+              0.03955349838761177
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.1755080331334975,
+            "mean_m": 0.17056159192254405,
+            "p95_m": 0.23078074043120206,
+            "max_m": 0.4818255854311834,
+            "axis_rmse_m": [
+              0.12966578329087242,
+              0.11827871464449283
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.04889543723653477,
+            "mean_m": 0.04100945672644913,
+            "p95_m": 0.08410977702795279,
+            "max_m": 0.20104943366566477,
+            "axis_rmse_m": [
+              0.03856396955647135,
+              0.030059674559107623
+            ]
+          }
+        }
+      },
+      {
+        "name": "turning",
+        "observation_hz": 30.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 534,
+          "result_init": 2,
+          "result_accepted": 532,
+          "rejected": 25,
+          "result_out_of_order": 25,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 167,
+          "ticks_coasting": 10,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.02367197190617984,
+            "mean_m": 0.019832246173379482,
+            "p95_m": 0.03953652664324861,
+            "max_m": 0.10320338013593627,
+            "axis_rmse_m": [
+              0.01641476624131275,
+              0.01705630977585793
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.03912120611858897,
+            "mean_m": 0.031842981632690365,
+            "p95_m": 0.06154228130545103,
+            "max_m": 0.18304637534789725,
+            "axis_rmse_m": [
+              0.027346532752550744,
+              0.027975630727238167
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.1388763232889134,
+            "mean_m": 0.13247266958843362,
+            "p95_m": 0.17596564517197905,
+            "max_m": 0.44871053588941984,
+            "axis_rmse_m": [
+              0.09750906089544367,
+              0.09888688595327212
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.035260944096880464,
+            "mean_m": 0.030949622051353785,
+            "p95_m": 0.05871015403722573,
+            "max_m": 0.13621439283286504,
+            "axis_rmse_m": [
+              0.02501914533137124,
+              0.024847063116011394
+            ]
+          }
+        }
+      },
+      {
+        "name": "stop_start",
+        "observation_hz": 10.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 187,
+          "result_init": 2,
+          "result_accepted": 185,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 99,
+          "ticks_coasting": 78,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.0459030704120164,
+            "mean_m": 0.03725229511342322,
+            "p95_m": 0.0822884234393881,
+            "max_m": 0.20367232132628763,
+            "axis_rmse_m": [
+              0.030951894627699674,
+              0.03389796590071905
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.07063867491377288,
+            "mean_m": 0.05804212687830055,
+            "p95_m": 0.12709864777240965,
+            "max_m": 0.25389469273906295,
+            "axis_rmse_m": [
+              0.05035832487581343,
+              0.04953646645932382
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.10383041880888977,
+            "mean_m": 0.08027431494484087,
+            "p95_m": 0.16808892691314611,
+            "max_m": 0.4442293885957754,
+            "axis_rmse_m": [
+              0.09477788183196065,
+              0.04240175686780391
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.053498865723922234,
+            "mean_m": 0.03990347351994039,
+            "p95_m": 0.1262543194475279,
+            "max_m": 0.21898946887099205,
+            "axis_rmse_m": [
+              0.04327860239738256,
+              0.031449820480815724
+            ]
+          }
+        }
+      },
+      {
+        "name": "stop_start",
+        "observation_hz": 30.0,
+        "counts": {
+          "ticks_total": 200,
+          "ticks_warmup": 20,
+          "accepted": 532,
+          "result_init": 2,
+          "result_accepted": 530,
+          "rejected": 26,
+          "result_out_of_order": 26,
+          "ticks_evaluated": 177,
+          "ticks_fresh": 161,
+          "ticks_coasting": 16,
+          "ticks_tracker_invalid": 3
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 177,
+            "rmse_m": 0.02663655756547639,
+            "mean_m": 0.02240429233253073,
+            "p95_m": 0.04936041886919606,
+            "max_m": 0.07830460598323362,
+            "axis_rmse_m": [
+              0.01994444416826153,
+              0.017655745403636645
+            ]
+          },
+          "ca_100ms": {
+            "n": 177,
+            "rmse_m": 0.047184621744553665,
+            "mean_m": 0.038680040067522174,
+            "p95_m": 0.08772494911436143,
+            "max_m": 0.14558061721831259,
+            "axis_rmse_m": [
+              0.036910187859873586,
+              0.02939432872724681
+            ]
+          },
+          "hold_100ms": {
+            "n": 177,
+            "rmse_m": 0.08274064744524329,
+            "mean_m": 0.06359616582033298,
+            "p95_m": 0.14049599106689828,
+            "max_m": 0.38702985779423427,
+            "axis_rmse_m": [
+              0.07518552855420528,
+              0.034542018407771505
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 177,
+            "rmse_m": 0.03796339930570025,
+            "mean_m": 0.026838589663027424,
+            "p95_m": 0.07410288908105614,
+            "max_m": 0.14802806322012727,
+            "axis_rmse_m": [
+              0.030772312418990408,
+              0.022232509422737034
+            ]
+          }
+        }
+      },
+      {
+        "name": "teaching_virtual_gimbal_bag",
+        "observation_hz": null,
+        "counts": {
+          "ticks_total": 592,
+          "ticks_warmup": 20,
+          "rejected": 8,
+          "result_invalid_or_stale": 7,
+          "accepted": 1765,
+          "result_init": 1,
+          "result_accepted": 1764,
+          "ticks_evaluated": 572,
+          "ticks_fresh": 572,
+          "result_out_of_order": 1
+        },
+        "metrics": {
+          "ca_current": {
+            "n": 572,
+            "rmse_m": 0.0222877317741326,
+            "mean_m": 0.019790980517880474,
+            "p95_m": 0.03685754037056578,
+            "max_m": 0.05338772951353575,
+            "axis_rmse_m": [
+              0.021795839975378917,
+              0.004656645509737011
+            ]
+          },
+          "ca_100ms": {
+            "n": 572,
+            "rmse_m": 0.026222259095496355,
+            "mean_m": 0.022155309884312743,
+            "p95_m": 0.04696508759459518,
+            "max_m": 0.07923000950703263,
+            "axis_rmse_m": [
+              0.025624641255842052,
+              0.0055663841567698755
+            ]
+          },
+          "hold_100ms": {
+            "n": 572,
+            "rmse_m": 0.03054360398719257,
+            "mean_m": 0.027841273769687844,
+            "p95_m": 0.051583158897804335,
+            "max_m": 0.0753145727155389,
+            "axis_rmse_m": [
+              0.025397223241881515,
+              0.01696740393013848
+            ]
+          },
+          "cv_fit_100ms": {
+            "n": 572,
+            "rmse_m": 0.022451649425723027,
+            "mean_m": 0.01980590789622452,
+            "p95_m": 0.03788008758371721,
+            "max_m": 0.055015819850837776,
+            "axis_rmse_m": [
+              0.022231401637541226,
+              0.0031370915137908808
+            ]
+          }
+        }
+      }
+    ],
+    "limitations": [
+      "Synthetic noise is independent XY Gaussian; it does not model PnP depth bias, TF/extrinsic error, clock drift or NUC CPU latency.",
+      "Abrupt maneuvers challenge a constant-acceleration model. Do not claim all targets have the same accuracy; inspect maneuver and dropout counts.",
+      "Teaching bag is a virtual gimbal recording, not a real chassis validation."
+    ]
+  },
+  "synthetic_map": {
+    "scans": 120,
+    "points": 57600,
+    "wall_coverage_within_one_cell": 1.0,
+    "interior_free_coverage": 0.9878129117259552,
+    "remaining_observed_person_ghost_samples": 0,
+    "outside_room_unknown": true,
+    "pgm_roundtrip_and_orientation": true,
+    "duration_seconds": 2.3101,
+    "scan_hz_this_mac": 51.9
+  },
+  "cloud_mapping_verification": {
+    "pointcloud2": {
+      "layouts": "little/big endian; mixed float32/64; shuffled offsets; organized row padding",
+      "finite_filter": true,
+      "malformed_rejected": 5
+    },
+    "pose": {
+      "offset_read_from_lio_config": [
+        -0.011,
+        -0.02329,
+        0.04412
+      ],
+      "full_rotation_checked": true,
+      "out_of_order_frame_child_invalid_q_rejected": true
+    },
+    "cell_semantics": {
+      "unknown_not_filled": true,
+      "height_filter": true,
+      "no_inflation": true,
+      "observed_ghost_cleared": true,
+      "empty_filtered_clouds_do_not_refresh_map": true
+    },
+    "synthetic_room": {
+      "scans": 120,
+      "points": 57600,
+      "wall_coverage_within_one_cell": 1.0,
+      "interior_free_coverage": 0.9878129117259552,
+      "remaining_observed_person_ghost_samples": 0,
+      "outside_room_unknown": true,
+      "pgm_roundtrip_and_orientation": true,
+      "duration_seconds": 2.4332,
+      "scan_hz_this_mac": 49.3
+    },
+    "ros_adapter": {
+      "actual_adapter_class_executed": true,
+      "cloud_before_pose_pairing": true,
+      "frame_stale_future_order_rejected": true,
+      "saved_frame_camera_init": true,
+      "nonzero_floor_z_ros_and_yaml_preserved": true,
+      "empty_filtered_clouds_neither_save_nor_refresh": true
+    },
+    "launch": {
+      "lio_extrinsic_loaded_not_duplicated": true,
+      "changed_offset_propagates": true,
+      "estimated_extrinsic_rejected": true,
+      "only_one_mapper_no_drivers_tf_motor": true
+    },
+    "scope": "Offline synthetic geometry and real node methods only; no ROS middleware, real bag or NUC accuracy claim."
+  },
+  "cloud_update_performance_this_host": {
+    "environment": "local Mac development environment; not NUC or ROS timing",
+    "timed": "CloudGrid.update only; dense full-360-degree room returns, 0.5 degree bins; no sleep",
+    "runs": [
+      {
+        "input_points": 20000,
+        "iteration": 1,
+        "seconds": 0.0446719169995049,
+        "rays": 720,
+        "occupied": 944
+      },
+      {
+        "input_points": 20000,
+        "iteration": 2,
+        "seconds": 0.040768874998320825,
+        "rays": 720,
+        "occupied": 944
+      },
+      {
+        "input_points": 20000,
+        "iteration": 3,
+        "seconds": 0.04090970898687374,
+        "rays": 720,
+        "occupied": 944
+      },
+      {
+        "input_points": 50000,
+        "iteration": 1,
+        "seconds": 0.06383779201132711,
+        "rays": 720,
+        "occupied": 943
+      },
+      {
+        "input_points": 50000,
+        "iteration": 2,
+        "seconds": 0.06292741699144244,
+        "rays": 720,
+        "occupied": 944
+      },
+      {
+        "input_points": 50000,
+        "iteration": 3,
+        "seconds": 0.06362645799526945,
+        "rays": 720,
+        "occupied": 944
+      }
+    ],
+    "maximum_seconds": 0.06383779201132711,
+    "mean_seconds": 0.05279036133045641,
+    "decision": "No rate limiter added: all six measured updates were below 100 ms. ROS callback/publish overhead and NUC must still be measured."
+  },
+  "advisor_checks": {
+    "real_node_methods_with_ROS_transport_standins": 22,
+    "existing_pure_kernel_tests": 21,
+    "NUC_tested": false
+  },
+  "remaining": [
+    "ROS180s /test transport and NUC deadlines",
+    "physical gimbal tracking tuning",
+    "real Point-LIO and floor height for cloud map",
+    "final mount calibration and full match coordinate chain"
+  ]
+}

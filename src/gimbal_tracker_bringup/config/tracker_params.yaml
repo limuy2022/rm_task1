@@ -64,7 +64,7 @@
     # --- control.bearing（相机方位闭环 gimbal_bearing_node；审计 P0 控制ROS接入）---
     # 实机完整操作手册见 launch/bearing_hardware.launch.py 文件头（上机前置、
     # 三步启动、四道安全开关、运行时调参速查）；仿真验证证据见
-    # docs/当前任务/轴承闭环仿真验证.md。
+    # docs/验证/轴承闭环仿真验证.md。
     # 与 control.enabled（旧 world 控制器）互斥：两个节点同发 /gimbal/cmd_omega，
     # launch 层保证同时只启动一个。
     control.bearing.enabled: false            # ⚠ 操作员开关；上机按 D5 检查单分步打开
@@ -163,7 +163,8 @@
     # --- 赛题一方向项（权重 0.2，误差(度)/180）-------------------------
     chassis.dir_mode: analytic          # analytic（连续解析）| quantized（旧 13 方向 12.5°）
     chassis.dir_lookahead_m: 1.0        # 官方规定射线最长 1 m
-    chassis.dir_block_unknown: false    # 评分标准方向按真值地图算 → 未知格不算障碍
+    chassis.dir_block_unknown: true     # 未观测区域不当作可通过空地
+    chassis.map_timeout_s: 0.0          # 静态锁存地图不失效；实时建图配置可设5秒
     chassis.dir_use_pred: false         # false=朝目标当前位置，true=朝预测位置
     chassis.v_floor: 0.30               # 远离目标时 |v| 下限（官方 <0.02 判停车记满分误差）
     chassis.stop_radius_m: 0.45         # 与官方 0.5 m 判据留 0.05 m 余量
@@ -201,7 +202,7 @@
     judge.output_dir: ~/ws_championship/output
     judge.emit_t_tick: true           # 已确认九列
     judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
-    judge.enforce_v_floor: true         # 防止 |v|<0.02 被判停车记满分误差
+    judge.enforce_v_floor: false        # advisor已保留非零速度；不把接近减速重新抬至0.30
     judge.v_floor: 0.30
     judge.stop_radius_m: 0.45
     judge.watchdog_period_s: 0.2

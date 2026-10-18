@@ -16,6 +16,7 @@
   <exec_depend>gimbal_common</exec_depend>
   <exec_depend>gimbal_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

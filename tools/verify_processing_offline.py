@@ -58,13 +58,18 @@ class ProcessingTests(unittest.TestCase):
             self.assertNotIn('judge_io_node',executables)
             self.assertFalse(any(x and ('bridge' in x or 'controller' in x or 'driver' in x) for x in executables))
             args['submission']='true'
-            actions = setup_actions(args)
-            judge = next(a for a in actions if isinstance(a, LaunchNodeAction)
-                         and node_executable(a)=='judge_io_node')
-            parameters = evaluate_parameters(
-                LaunchContext(), list(judge._Node__parameters))[-1]
-            self.assertEqual(parameters['judge.team_id'],'47')
-            self.assertFalse(parameters['judge.fresh_run'])
+            # team_id 必须以字符串原样透传（'0047'/'true' 不得被类型吞掉）
+            for team_id in ('47','0047','true'):
+                with self.subTest(team_id=team_id):
+                    args['team_id']=team_id
+                    actions = setup_actions(args)
+                    judge = next(a for a in actions if isinstance(a, LaunchNodeAction)
+                                 and node_executable(a)=='judge_io_node')
+                    parameters = evaluate_parameters(
+                        LaunchContext(), list(judge._Node__parameters))[-1]
+                    self.assertIsInstance(parameters['judge.team_id'],str)
+                    self.assertEqual(parameters['judge.team_id'],team_id)
+                    self.assertFalse(parameters['judge.fresh_run'])
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

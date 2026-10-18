@@ -9,6 +9,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from gimbal_tracker_bringup.deployment_config import load_vehicle_config
 
 
@@ -40,7 +41,7 @@ def _setup(context):
     if submission:
         result.append(Node(package='gimbal_judge_io', executable='judge_io_node', name='judge_io_node',
             output='screen', parameters=common+[{'judge.emit_t_tick': True, 'judge.fresh_run': False,
-                'judge.team_id': str(LaunchConfiguration('team_id').perform(context)),
+                'judge.team_id': ParameterValue(LaunchConfiguration('team_id').perform(context), value_type=str),
                 'judge.output_dir': LaunchConfiguration('output_dir').perform(context)}]))
     return result
 

@@ -1,6 +1,20 @@
 # RoboMaster 赛题一
 
-Ubuntu 22.04 / ROS2 Humble，队号暂用47。2026-10-16现场记录已证明专用视觉入口在NUC运行：识别63帧，其中PnP有效44帧、拒绝19帧；雷达IMU收到连续消息。用户补充确认首次视觉第4步与O/C通过，消息类型错误发生在后续重试；真实距离精度、云台反馈和整车链仍未验收。相机已固定在云台上，整套装置此前尚未安装到底盘；不把模板零值当成安装外参。
+当前已有独立图像跟踪程序：ArUco → 图像偏差 → P/PI/PD/PID → 两轴角速度 → C++ 串口桥。它不等待地图或底盘定位；默认运动关闭。云台通信已确认 ttyUSB0、IMU 轴 [1,1,1]；新相机 K/D 已更新。真实转动效果仍待 NUC 试验。
+
+按[云台跟踪教程](docs/教程/云台跟踪.md)将源码包装到自己的独立 NUC 目录后运行：
+
+```bash
+bash "$HOME/ws_championship/src/47-visual-tracking-20261018-r3/run_here.bash" target_id:=0
+```
+
+默认只看不动；真实串口模式加 `with_bridge:=true port:=/dev/ttyUSB0`，由人在参数终端开启 motion_enabled。停止在启动终端 Ctrl+C，或设置 motion_enabled=false。先做 3 秒单轴方向试验，再做两轴。参数默认值、调整现象和保存方法见[调参检查清单](docs/教程/上机调参检查清单.md)。
+
+代码保留在 src 与既有 42-gimbal_serial；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
+
+本机完成实际写出器 180 秒/1800 行基线：漏拍 0，读者可见延迟平均 1.73ms、最大 31.62ms；没有 ROS/DDS，也不代表 NUC 验收。点云地图、预测对比与其它离线结果见 docs/验证 的 JSON；原始实验产物不提交 Git。
+
+---
 
 **当前现场任务仍是[G坐标核查](docs/当前任务/G坐标定义核查_实际操作.md)：首次视觉及O/C不重复验证。新增[云台转向教程](docs/当前任务/云台如何转向目标_源码与操作教程.md)，解释识别→PD→0x30→下位机边界，第10节只读核查已运行链路。**
 
@@ -47,40 +61,4 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
 
 测试环境即运行环境：被测的 rclpy / OpenCV / numpy / pyserial 等全部来自 humble 镜像的 apt 包，不用 pip 覆盖（**不要在NUC用pip覆盖ROS的OpenCV/numpy**）。串口伪终端验证所需的 C++ 编译器镜像内已有；脚本本身不安装依赖、不假装通过。日志及合成产物放在被 Git 忽略的`build/offline/`。
 
-1800拍合成链路采用已知几何、0.1px角点噪声、40ms图像延迟及0.8秒遮挡。它检验PnP→坐标→滤波→tick采样→方向→CSV/地图；不代表NUC实时性、真实图像精度或真实云台闭环通过。
-
-## 实际数据流和入口
-
-```text
-现有/image_raw → detector → MarkerCorners(ID+图像stamp) → PnP → MarkerObservation
-自有Point-LIO Odometry → base_pose_provider → odom/base_link原始底盘位姿
-底盘位姿 + 云台IMU + 实测两轴模型 → 同stamp关节估计和base→camera TF
-replay_start → 起点插值冻结map→odom
-MarkerObservation + 图像时刻完整map←camera TF → TargetState
-自有OccupancyGrid → grid_mapper → /map/grid、/map/ray_grid
-TargetState + 比赛系底盘 + 地图 → ChassisAdvice
-以上状态按/judge/tick采样 → 47.csv、47_map.pgm、47_map.yaml
-```
-
-- `vision.launch.py`：检测/PnP，默认ID=-1等待赛前指定，不控制运动。
-- `submission.launch.py`：只启动提交器；个人Ubuntu合成实验必须用`/test/`映射和新测试目录。
-- `hardware_interface.launch.py`：打开真实串口，仅由现场人员按手册执行；默认不订阅运动指令，adapter转发也关闭。
-- `lio_only.launch.py`：只启动已安装的Point-LIO，复用现有雷达输入；先验证CustomMsg类型/IMU单位，无驱动和Nav2。
-- `processing.launch.py`：完整实测配置通过检查后，只处理现有数据，提交显式选择；不启动驱动、串口或控制器。配置模板是`config/vehicle_template.yaml`，原样会被拒绝。
-- 原`competition.launch.py`、`sim.launch.py`和`mapping.launch.py`保留作历史/仿真参考，**不是当前实机比赛启动说明**。mapping入口消费地图或生成示例图，本身不是雷达SLAM。
-
-地图最短候选为Point-LIO云→pointcloud_to_laserscan→slam_toolbox。真实高度裁剪、TF与地图参考仍需数据；不启动完整Nav2替代这些检查。建图SLAM与比赛原点不能同时给odom两个父节点，具体分阶段做法见手册第九部分。
-
-## 还不能宣布完成的部分
-
-专用检测/PnP的NUC启动和节点内有效观测已有现场日志支持，但额外终端加载自定义消息失败尚需复查。NUC端到端80ms时限、真实PnP/定位/预测误差、实际地图、最终安装外参与时延、机械零位/限位、真实串口有效IMU及云台闭环均待实测。当前控制器的装配假设也必须据实际几何复核；离线通过不等于可直接使能。
-
-每轮开始前运行定位并预热历史；收到真实replay_start后按其stamp冻结，缺历史/缺TF就明确等待，不用最新位姿或单位阵伪造。桥重启或MCU复位后必须重做IMU世界对齐并更新对应epoch。最终输出只追加，不修补/改名已提交记录。
-
-## Git提交范围
-
-这批应提交修改后的`src/`、`42-gimbal_serial/`、`tools/`、`.gitignore`和当前文档，**代码与文档一起提交**。不提交`.venv/、build/、install/、log/`和实验bag/CSV/地图。只保留一份当前实验室手册，历史副本不重新放回仓库。
-
-GitHub Desktop选`rm_task1`→确认Changes包含本批源码与文档→Summary填写“修复赛题一时序、坐标与离线集成”→Commit→Push origin。只有Push后队友才拿得到；当前交付没有代替你执行Git提交或推送。
-
-仅操作选手工作区；不访问主办方保护目录，不向`/judge/*`发布消息。本批未部署、未操作真实硬件。保留源码原版权和许可证声明，未给全部第三方代码重新指定许可证。
+本机离线验证环境：个人电脑的隔离 .venv，依赖列在 tools/requirements-offline.txt。公共 NUC 不用 pip 覆盖 ROS 的 OpenCV/numpy，不全量构建，不改 .bashrc，不读取主办方保护目录，不向 /judge/* 发布测试消息。保留现有源码版权及许可证声明。

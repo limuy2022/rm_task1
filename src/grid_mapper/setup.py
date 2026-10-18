@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'grid_mapper_node = grid_mapper.grid_mapper_node:main',
+            'cloud_mapping_node = grid_mapper.cloud_mapping_node:main',
         ],
     },
 )

@@ -81,7 +81,7 @@ geometry_verified           相机-云台旋转外参实测确认后置 true
 只读跑通数据链 → kp=0.5/omega_max=0.5 验证转向正确 → 按 30s 闭环表现逐步升
 kp 与 omega_max → 遮挡测试停止行为。每步通过判据见手册 B5 表格；
 仿真证据与坑（残留进程、延迟-增益稳定性、日志修复）见
-docs/当前任务/轴承闭环仿真验证.md。正式默认值集中在
+docs/验证/轴承闭环仿真验证.md。正式默认值集中在
 config/tracker_params.yaml 的 control.bearing.* 段；仿真专用参数隔离在
 config/vehicle_sim.yaml，不照抄到实机。
 """
