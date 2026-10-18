@@ -130,10 +130,8 @@ class GimbalBearingNode(Node):
         d('gimbal.limit_margin', DEFAULT_LIMIT_MARGIN)
 
         # pitch 符号的唯一入口在 gimbal_common.frames；与旧控制器同款透传。
-        _set_pitch_sign = getattr(frames, 'set_pitch_sign', None)
-        if callable(_set_pitch_sign):
-            d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
-            _set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
+        d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
+        frames.set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
 
         p = self.get_parameter
         rate_hz = float(p('control.bearing.rate_hz').value)

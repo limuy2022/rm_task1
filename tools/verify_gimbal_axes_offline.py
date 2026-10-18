@@ -1,4 +1,5 @@
-"""验证G判轴所需的数学、黄金帧及只读显示计算；不导入ROS、不访问设备。"""
+"""验证G判轴所需的数学、黄金帧及只读显示计算；在 ROS 2 Humble 容器内运行，
+本脚本不启动节点、不做DDS通信、不访问设备。"""
 from pathlib import Path
 import json
 import math
@@ -82,7 +83,7 @@ def main():
               'physical_devices_opened':0,'ros_nodes_started':0,
               'limitations':['黄金帧/已知模型，不是现场固件或真实IMU',
                              '不确认板型、芯片到PCB安装或实际S到F矩阵',
-                             '只读工具的实际Humble通信待现场验证']}
+                             '只读工具的实际DDS通信与实机联调待现场验证']}
     output = ROOT/'build/offline/gimbal_axes_result.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')

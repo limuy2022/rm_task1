@@ -6,12 +6,11 @@
 * 8N1、无流控、raw 模式。
 * ``read_bytes()`` 非阻塞（timeout=read_timeout_s）读一块，供上层定时器轮询。
 * ``write()`` 失败抛 :class:`SerialPortError`，由链路状态机转成故障。
-
-pyserial 惰性导入：本模块可被 import 而不需要串口硬件。
 """
 
 from __future__ import annotations
 
+import serial
 from typing import Optional
 
 __all__ = ['SerialPortError', 'SerialPort']
@@ -62,16 +61,14 @@ class SerialPort:
     @property
     def is_open(self) -> bool:
         """串口是否已打开。"""
-        return self._ser is not None and bool(getattr(self._ser, 'is_open', False))
+        return self._ser is not None and self._ser.is_open
 
     def open(self) -> None:
         """独占打开串口。
 
         Raises:
-            SerialPortError: pyserial 缺失、打开失败或被其它进程占用。
+            SerialPortError: 打开失败或被其它进程占用。
         """
-        import serial  # 惰性导入
-
         if self.is_open:
             return
         try:

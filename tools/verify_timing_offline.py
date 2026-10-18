@@ -1,11 +1,16 @@
-"""Production time/TF adapters with in-memory ROS stand-ins; NOT DDS/Humble."""
-import ast
+"""Production time/TF adapters on real ROS Humble node classes and messages.
+
+Node constructors are bypassed via ``__new__`` and their internal fields are
+injected (controllable clock, parameter lookups, capture publishers); every
+executed method and every message class is the real production code. No DDS
+traffic is created and no spin loop is entered.
+"""
 import copy
 import math
-import sys
 import os
-import time
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -14,41 +19,65 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 for pkg in ('gimbal_common', 'gimbal_estimation', 'gimbal_judge_io', 'gimbal_localization'):
     sys.path.insert(0, str(ROOT/'src'/pkg))
+from builtin_interfaces.msg import Time as Stamp
+from geometry_msgs.msg import Quaternion, TransformStamped, Vector3
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Header
+from tf2_ros import TransformException
+
+from gimbal_interfaces.msg import ChassisAdvice, MarkerObservation, TargetState
+
 from gimbal_common import frames as FR
 from gimbal_common.time_buffer import TimeBuffer, PoseHistory, stamp_seconds
-from gimbal_estimation.stamped_tracker import StampedTracker
-from gimbal_estimation.observation_builder import ObservationBuilder
 from gimbal_estimation.ca_kalman import CAKalman
+from gimbal_estimation.observation_builder import ObservationBuilder
+from gimbal_estimation.stamped_tracker import StampedTracker
+from gimbal_judge_io import judge_io_node as judge_module
+from gimbal_judge_io.judge_io_node import JudgeIoNode
+from gimbal_judge_io.tick_csv import TickCsvWriter
 from gimbal_judge_io.tick_sampler import TickSampler
-from gimbal_judge_io.tick_csv import TickCsvWriter, V_STOP
+from gimbal_localization.map_frame_broadcaster_node import (
+    PARAM_DEFAULTS as MAP_PARAM_DEFAULTS,
+    MapFrameBroadcasterNode,
+    _xyz_rpy_to_T,
+)
+from gimbal_estimation.target_estimator_node import TargetEstimatorNode
 
 
 def stamp(t):
     ns = round(t*1e9)
-    return NS(sec=ns//1000000000, nanosec=ns%1000000000)
+    return Stamp(sec=ns//1000000000, nanosec=ns%1000000000)
 
 
 def vec(values=(0., 0., 0.)):
-    return NS(**dict(zip(('x', 'y', 'z'), map(float, values))))
+    return Vector3(**dict(zip(('x', 'y', 'z'), map(float, values))))
 
 
 def quat(R=None):
     q = FR.quat_from_mat(np.eye(3) if R is None else R)
-    return NS(**dict(zip(('w', 'x', 'y', 'z'), map(float, q))))
+    return Quaternion(**dict(zip(('w', 'x', 'y', 'z'), map(float, q))))
 
 
 def transform(T=None):
     T = np.eye(4) if T is None else T
-    return NS(header=NS(stamp=stamp(0), frame_id=''), child_frame_id='',
-              transform=NS(translation=vec(T[:3, 3]), rotation=quat(T[:3, :3])))
+    msg = TransformStamped()
+    msg.header.stamp = stamp(0); msg.header.frame_id = ''; msg.child_frame_id = ''
+    msg.transform.translation.x, msg.transform.translation.y, msg.transform.translation.z = \
+        map(float, T[:3, 3])
+    msg.transform.rotation = quat(T[:3, :3])
+    return msg
 
 
 def odom(t=0., xyz=(0., 0., 0.), rpy=(0., 0., 0.)):
-    return NS(header=NS(stamp=stamp(t), frame_id='odom'), child_frame_id='base_link',
-              pose=NS(pose=NS(position=vec(xyz), orientation=quat(FR.rpy_to_mat(rpy))),
-                      covariance=list(np.diag([1., 2., 3., 4., 5., 6.]).flat)),
-              twist=NS(twist=NS(linear=vec((.2, .1, .05)), angular=vec((.01, .02, .03))),
-                       covariance=[0.]*36))
+    msg = Odometry()
+    msg.header.stamp = stamp(t); msg.header.frame_id = 'odom'; msg.child_frame_id = 'base_link'
+    msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z = map(float, xyz)
+    msg.pose.pose.orientation = quat(FR.rpy_to_mat(rpy))
+    msg.pose.covariance = list(map(float, np.diag([1., 2., 3., 4., 5., 6.]).flat))
+    msg.twist.twist.linear = vec((.2, .1, .05))
+    msg.twist.twist.angular = vec((.01, .02, .03))
+    msg.twist.covariance = [0.]*36
+    return msg
 
 
 class Publisher:
@@ -56,112 +85,168 @@ class Publisher:
     def publish(self, msg): self.messages.append(copy.deepcopy(msg))
 
 
-class FakeNode:
-    overrides = {}
-    def __init__(self, *args):
-        self.params = dict(self.overrides); self.now = 1000.04; self.publishers = {}
-    def declare_parameter(self, name, value): self.params.setdefault(name, value)
-    def get_parameter(self, name): return NS(value=self.params[name])
-    def get_logger(self): return LOG
-    def create_publisher(self, typ, topic, qos):
-        self.publishers[topic] = Publisher(); return self.publishers[topic]
-    def create_subscription(self, *args): return None
-    def create_timer(self, *args): return None
+class MutableClock:
+    """Controllable ROS-clock injection: ``clock.now`` is seconds of ROS time."""
+
+    def __init__(self, now=1000.04): self.now = now
+
     def get_clock(self):
-        return NS(now=lambda: NS(nanoseconds=round(self.now*1e9), to_msg=lambda: stamp(self.now)))
+        clock = self
+        return NS(now=lambda: NS(nanoseconds=round(clock.now*1e9),
+                                 to_msg=lambda: stamp(clock.now)))
 
 
 LOG = NS(info=lambda *a: None, warning=lambda *a: None, error=lambda *a: None)
 
 
-def load_ast(relative_path, names, env):
-    """Execute actual source definitions, excluding unavailable ROS imports."""
-    path = ROOT/relative_path
-    tree = ast.parse(path.read_text())
-    body = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names
-            or isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id in names for t in n.targets)
-            or isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id in names]
-    exec(compile(ast.Module(body=body, type_ignores=[]), str(path), 'exec'), env)
-    return env
+class TfBroadcaster:
+    def __init__(self, node=None): self.messages = []
+    def sendTransform(self, msg): self.messages.append(copy.deepcopy(msg))
 
 
 def map_node():
-    class Broadcaster:
-        def __init__(self, node): self.messages = []
-        def sendTransform(self, msg): self.messages.append(copy.deepcopy(msg))
-    node = FakeNode()
-    env = load_ast('src/gimbal_localization/gimbal_localization/map_frame_broadcaster_node.py',
-        {'PARAM_DEFAULTS', '_xyz_rpy_to_T', 'MapFrameBroadcasterNode'},
-        dict(copy=copy, np=np, FR=FR, math=math, PoseHistory=PoseHistory,
-             stamp_seconds=stamp_seconds, TransformStamped=transform, Odometry=object,
-             Header=object, StaticTransformBroadcaster=Broadcaster,
-             _latched_qos=lambda: None, _sensor_qos=lambda: None,
-             LU=NS(get_logger=lambda *a: LOG, throttled=lambda *a: None),
-             NU=NS(declare_params=lambda node, defaults: dict(defaults, **node.params)),
-             TU=NS(now=lambda: node.now)))
-    return node, env['MapFrameBroadcasterNode'](node)
+    """Real MapFrameBroadcasterNode with its constructor-time state injected."""
+    clock = MutableClock(1000.04)
+    app = MapFrameBroadcasterNode.__new__(MapFrameBroadcasterNode)
+    app._node = clock
+    app._log = LOG
+    app._params = dict(MAP_PARAM_DEFAULTS)
+    app._origin_mode = str(app._params['localization.origin_mode'])
+    app._history = PoseHistory(capacity=2000)
+    app._frozen = False
+    app._T_map_odom = None
+    app._T_map_world = None
+    app._origin_stamp = None
+    app._last_msg = None
+    app._last_published_stamp = None
+    app._t_first_valid = None
+    app._n_pose = 0
+    app._freeze_requested = False
+    app._T_world_odom = _xyz_rpy_to_T(app._params['localization.world_odom_xyz_rpy'])
+    app._world_confirmed = bool(app._params['localization.world_alignment_confirmed'])
+    app._publish_map_odom = bool(app._params['localization.publish_map_odom'])
+    app._pub_t = Publisher()
+    app._pub_pose = Publisher()
+    app._static_tf = TfBroadcaster()
+    return clock, app
 
 
-class MissingTransform(Exception): pass
+class FakeTfBuffer:
+    """TF lookup injection: records requests, can raise the real TransformException."""
+
+    def __init__(self):
+        self.calls = []; self.missing = False; self.T = np.eye(4)
+
+    def lookup_transform(self, target, source, stamp, **kwargs):
+        self.calls.append((target, source, stamp_seconds(stamp.to_msg())))
+        if self.missing: raise TransformException('no transform')
+        return transform(self.T)
 
 
 def target_node(confirmed=True):
-    class Base(FakeNode):
-        overrides = {'estimation.geometry_confirmed': confirmed}
-    class TF:
-        def __init__(self, **kwargs):
-            self.calls = []; self.missing = False; self.T = np.eye(4)
-        def lookup_transform(self, target, source, time, **kwargs):
-            self.calls.append((target, source, stamp_seconds(time)))
-            if self.missing: raise MissingTransform()
-            return transform(self.T)
-    class Policy:
-        BEST_EFFORT = RELIABLE = TRANSIENT_LOCAL = 0
-    env = load_ast('src/gimbal_estimation/gimbal_estimation/target_estimator_node.py',
-        {'TargetEstimatorNode'}, dict(Node=Base, math=math, np=np, frames=FR,
-            CAKalman=CAKalman, StampedTracker=StampedTracker, ObservationBuilder=ObservationBuilder,
-            stamp_seconds=stamp_seconds, get_logger=lambda *a: LOG, throttled=lambda *a: None,
-            Buffer=TF, TransformListener=lambda *a: None, Duration=lambda **kwargs: kwargs,
-            Time=NS(from_msg=lambda x: x), TransformException=MissingTransform,
-            QoSProfile=lambda **kwargs: kwargs, ReliabilityPolicy=Policy, DurabilityPolicy=Policy,
-            TargetState=lambda: NS(header=NS()), MarkerObservation=object, UInt64=object))
-    return env['TargetEstimatorNode']()
+    """Real TargetEstimatorNode with constructor-time state injected."""
+    clock = MutableClock(1000.04)
+    app = TargetEstimatorNode.__new__(TargetEstimatorNode)
+    app._log = LOG
+    app._frame = 'map'
+    app._camera_frame = 'camera_optical_frame'
+    app._horizon = .1
+    kf = CAKalman(**{key: value for key, value in (
+        ('jerk_std', 1.), ('max_dt', .5), ('nis_gate', 16.81), ('reinit_jump_m', 1.),
+        ('p_max_trace', 100.), ('init_sigma_p', .05), ('init_sigma_v', 1.),
+        ('init_sigma_a', 5.), ('cv_degrade_enable', False), ('cv_hold_s', .5))})
+    app._tracker = StampedTracker(kf=kf, max_observation_delay=.3,
+                                  lost_timeout=.5, fresh_timeout=.1)
+    app._builder = ObservationBuilder(r_min_sigma=.002)
+    app._tf_buffer = FakeTfBuffer()
+    app._pending = []
+    app._epoch = None
+    app._last_now = None
+    app._n_observed = 0
+    app._n_rejected = 0
+    app._pub = Publisher()
+    params = {'estimation.geometry_confirmed': confirmed}
+    app.get_parameter = lambda name: NS(value=params[name])
+    app.get_clock = clock.get_clock
+    return clock, app
+
+
+def judge_node(output_dir):
+    """Real JudgeIoNode with paths/writer/sampler wired to a temp directory."""
+    app = JudgeIoNode.__new__(JudgeIoNode)
+    app._log = LOG
+    params = dict(judge_module.PARAM_DEFAULTS)
+    params.update({'judge.output_dir': output_dir, 'judge.enforce_v_floor': False})
+    app._params = params
+    out_dir = os.path.expanduser(str(params['judge.output_dir']))
+    team = str(params['judge.team_id'])
+    os.makedirs(out_dir, exist_ok=True)
+    app._csv_path = os.path.join(out_dir, '%s.csv' % team)
+    app._map_pgm = os.path.join(out_dir, '%s_map.pgm' % team)
+    app._map_yaml = os.path.join(out_dir, '%s_map.yaml' % team)
+    app._map_image_name = '%s_map.pgm' % team
+    app._writer = TickCsvWriter(app._csv_path, logger=app._log,
+                                with_tick=bool(params['judge.emit_t_tick']))
+    assert app._writer.open(), 'CSV writer must open on a fresh test directory'
+    app._pred = np.zeros(2); app._cur = np.zeros(2)
+    app._base = np.zeros(2); app._vel = np.zeros(2)
+    app._has_target = app._has_base = app._has_advice = False
+    app._sampler = TickSampler(float(params['judge.state_timeout_s']),
+                                float(params['judge.observation_timeout_s']))
+    app._tick_index = -1
+    app._n_tick = 0
+    app._t_last_tick_mono = time.monotonic()
+    app._origin_frozen = False
+    app._grid = None
+    app._grid_res = 0.05
+    app._grid_origin = np.zeros(2, dtype=float)
+    app._grid_yaw = 0.0
+    app._t_last_map_save = 0.0
+    app._map_saved_final = False
+    app._pub_origin_freeze = Publisher()
+    return app
 
 
 def observation(t, xyz=(.1, .2, 2.), marker_id=3):
-    return NS(header=NS(stamp=stamp(t), frame_id='camera_optical_frame'),
-              marker_id=marker_id, valid=True, x=xyz[0], y=xyz[1], z=xyz[2],
-              cov_optical=list((np.eye(3)*.0001).flat))
+    msg = MarkerObservation()
+    msg.header.stamp = stamp(t); msg.header.frame_id = 'camera_optical_frame'
+    msg.marker_id = marker_id; msg.valid = True
+    msg.x, msg.y, msg.z = map(float, xyz)
+    msg.cov_optical = list(map(float, (np.eye(3)*.0001).flat))
+    return msg
 
 
 class TimingTests(unittest.TestCase):
     def test_actual_submission_callback_sampling_and_body_twist(self):
         with tempfile.TemporaryDirectory() as directory:
-            class Base(FakeNode):
-                overrides = {'judge.output_dir': directory, 'judge.enforce_v_floor': False}
-            env = load_ast('src/gimbal_judge_io/gimbal_judge_io/judge_io_node.py',
-                {'JudgeIoNode','PARAM_DEFAULTS','_stamp_to_sec'}, dict(Node=Base, Any=object,
-                    Dict=dict, Optional=object, np=np, math=math, os=os, time=time,
-                    Header=lambda:NS(), Odometry=object, OccupancyGrid=object,
-                    ChassisAdvice=object, TargetState=object, V_STOP=V_STOP,
-                    TickCsvWriter=TickCsvWriter, TickSampler=TickSampler, frames=FR,
-                    stamp_seconds=stamp_seconds, NODE_NAME='judge_io_node',
-                    _sensor_qos=lambda *a:None, _latched_qos=lambda *a:None, _judge_tick_qos=lambda:None))
-            app = env['JudgeIoNode']()
-            m = NS(header=NS(stamp=stamp(1000.),frame_id='map'), cur_x=1.,cur_y=2.,
-                vel_x=.4,vel_y=-.2,acc_x=0.,acc_y=0.,valid=True,track_status=1,last_obs_age=0.)
+            app = judge_node(directory)
+            m = TargetState()
+            m.header.stamp = stamp(1000.); m.header.frame_id = 'map'
+            m.cur_x, m.cur_y = 1., 2.
+            m.vel_x, m.vel_y = .4, -.2
+            m.acc_x, m.acc_y = 0., 0.
+            m.valid = True; m.track_status = 1; m.last_obs_age = 0.
             app._on_target(m)
-            b = odom(1000., (2.,3.,0.), (0.,0.,math.pi/2)); b.header.frame_id='map'
-            b.twist.twist.linear=vec((.5,0.,0.)); app._on_base_pose(b)
-            app._on_advice(NS(header=NS(stamp=stamp(1000.),frame_id='map'),cmd_vx=.3,cmd_vy=.4,valid=True))
-            app._on_replay_start(NS(stamp=stamp(1000.),frame_id='replay'))
-            app._on_tick(NS(stamp=stamp(1000.04),frame_id='0'))
+            b = odom(1000., (2., 3., 0.), (0., 0., math.pi/2)); b.header.frame_id = 'map'
+            b.twist.twist.linear = vec((.5, 0., 0.)); app._on_base_pose(b)
+            advice = ChassisAdvice()
+            advice.header.stamp = stamp(1000.); advice.header.frame_id = 'map'
+            advice.cmd_vx, advice.cmd_vy, advice.valid = .3, .4, True
+            app._on_advice(advice)
+            replay = Header(); replay.stamp = stamp(1000.); replay.frame_id = 'replay'
+            app._on_replay_start(replay)
+            tick = Header(); tick.stamp = stamp(1000.04); tick.frame_id = '0'
+            app._on_tick(tick)
             values = list(map(float, Path(app._csv_path).read_text().strip().split(',')))
             np.testing.assert_allclose(values, [1.056,1.972,1.016,1.992,2.,3.02,.3,.4,1000.04])
-            app._on_advice(NS(header=NS(stamp=stamp(1000.05),frame_id='map'),cmd_vx=3.,cmd_vy=4.,valid=False))
-            app._on_tick(NS(stamp=stamp(1000.06),frame_id='1'))
+            invalid = ChassisAdvice()
+            invalid.header.stamp = stamp(1000.05); invalid.header.frame_id = 'map'
+            invalid.cmd_vx, invalid.cmd_vy, invalid.valid = 3., 4., False
+            app._on_advice(invalid)
+            tick = Header(); tick.stamp = stamp(1000.06); tick.frame_id = '1'
+            app._on_tick(tick)
             self.assertFalse(app._has_advice)
-            np.testing.assert_array_equal(app._vel, [0.,0.])
+            np.testing.assert_array_equal(app._vel, [0., 0.])
             app._writer.close()
 
     def test_pose_slerp_short_arc_and_no_extrapolation(self):
@@ -184,11 +269,11 @@ class TimingTests(unittest.TestCase):
             with self.assertRaises(ValueError): h.put(bad, None)
 
     def test_delayed_replay_freezes_at_source_stamp_not_latest(self):
-        node, app = map_node()
+        clock, app = map_node()
         app._on_base_pose(odom(1000., (2, -1, .4), (.1, .05, math.pi/2)))
-        app._on_origin_freeze(NS(stamp=stamp(1000.04)))
+        app._on_origin_freeze(Header(stamp=stamp(1000.04)))
         self.assertFalse(app.frozen)
-        node.now = 1000.12
+        clock.now = 1000.12
         src = odom(1000.1, (2, -.9, .4), (.1, .05, math.pi/2))
         app._on_base_pose(src); app._tick()
         self.assertTrue(app.frozen)
@@ -199,15 +284,15 @@ class TimingTests(unittest.TestCase):
         self.assertAlmostEqual(np.asarray(out.pose.covariance).reshape(6, 6)[0, 0], 2.)
         self.assertEqual([(x.header.frame_id, x.child_frame_id) for x in app._static_tf.messages], [('map', 'odom')])
         app._tick(); self.assertEqual(len(app._pub_pose.messages), 1)
-        node.now = 1001.; app._tick(); self.assertEqual(len(app._pub_pose.messages), 1)
+        clock.now = 1001.; app._tick(); self.assertEqual(len(app._pub_pose.messages), 1)
 
     def test_no_timeout_origin_fallback_or_new_round_rebase(self):
-        node, app = map_node(); node.now = 2000.
+        clock, app = map_node(); clock.now = 2000.
         app._on_base_pose(odom(2000., (9, 10, 0))); app._tick()
         self.assertFalse(app.frozen)
-        app._on_origin_freeze(NS(stamp=stamp(1990.)))
+        app._on_origin_freeze(Header(stamp=stamp(1990.)))
         self.assertFalse(app.frozen)
-        app._on_origin_freeze(NS(stamp=stamp(2000.)))
+        app._on_origin_freeze(Header(stamp=stamp(2000.)))
         self.assertFalse(app.frozen)
         self.assertEqual(app._origin_stamp, 1990.)
 
@@ -261,31 +346,31 @@ class TimingTests(unittest.TestCase):
         self.assertFalse(b.build_from_transform([0, 0, 2], -C, np.eye(4)).valid)
 
     def test_actual_estimator_adapter_requests_image_time(self):
-        app = target_node(); app.now = 1000.04
+        clock, app = target_node(); clock.now = 1000.04
         app._tf_buffer.T = FR.compose_T(FR.rotz(.3), [1., 2., .5])
         msg = observation(1000.)
         app.on_marker(msg); app.tick()
         self.assertEqual(app._tf_buffer.calls[0], ('map', 'camera_optical_frame', 1000.))
         self.assertEqual(app._n_observed, 1)
         out = app._pub.messages[-1]; self.assertTrue(out.valid)
-        self.assertEqual(stamp_seconds(out.header.stamp), app.now)
+        self.assertEqual(stamp_seconds(out.header.stamp), clock.now)
         expected = app._tf_buffer.T@np.array([.1, .2, 2, 1])
         np.testing.assert_allclose([out.cur_x, out.cur_y], expected[:2])
 
     def test_missing_tf_waits_then_drops_no_identity_fallback(self):
-        app = target_node(); app._tf_buffer.missing = True
+        clock, app = target_node(); app._tf_buffer.missing = True
         app.on_marker(observation(1000.)); app.tick()
         self.assertEqual(len(app._pending), 1); self.assertFalse(app._pub.messages[-1].valid)
-        app.now = 1000.4; app.tick()
+        clock.now = 1000.4; app.tick()
         self.assertFalse(app._pending); self.assertFalse(app._pub.messages[-1].valid)
         self.assertEqual(app._n_observed, 0)
 
     def test_unconfirmed_geometry_and_clock_rewind_are_invalid(self):
-        app = target_node(False); app.on_marker(observation(1000.)); app.tick()
+        clock, app = target_node(False); app.on_marker(observation(1000.)); app.tick()
         self.assertFalse(app._pub.messages[-1].valid); self.assertFalse(app._tf_buffer.calls)
-        app = target_node(); app.on_marker(observation(1000.)); app.tick()
+        clock, app = target_node(); app.on_marker(observation(1000.)); app.tick()
         self.assertTrue(app._pub.messages[-1].valid)
-        app.now = 999.; app.tick(); self.assertFalse(app._pub.messages[-1].valid)
+        clock.now = 999.; app.tick(); self.assertFalse(app._pub.messages[-1].valid)
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

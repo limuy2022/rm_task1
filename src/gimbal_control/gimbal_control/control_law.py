@@ -486,8 +486,7 @@ def gimbal_origin_world(base_pos_odom: Sequence[float],
     ``p_base_world   = T_world←odom ∘ p_base_odom``
     ``p_gimbal_world = p_base_world + R_world←odom · Rz(yaw_base) · mount_xyz``
 
-    优先委托 ``gimbal_common.frames.gimbal_origin_world``（单一真源）；
-    该函数不存在时使用本地等价实现。
+    薄封装 ``gimbal_common.frames.gimbal_origin_world``（单一真源）。
 
     Args:
         base_pos_odom: 底盘在 odom 系的 (x, y) 或 (x, y, z)。
@@ -498,47 +497,19 @@ def gimbal_origin_world(base_pos_odom: Sequence[float],
     Returns:
         云台原点在 world 系下的坐标，shape (3,)。
     """
-    fn = getattr(frames, 'gimbal_origin_world', None)
-    if callable(fn):
-        out = np.asarray(fn(base_pos_odom, float(base_yaw), mount_xyz, T_world_odom),
-                         dtype=np.float64).reshape(3)
-        return out if np.all(np.isfinite(out)) else np.zeros(3, dtype=np.float64)
-
-    p = np.asarray(base_pos_odom, dtype=np.float64).reshape(-1)
-    p3 = np.array([p[0], p[1], p[2] if p.size > 2 else 0.0], dtype=np.float64)
-    T_wo = (np.eye(4, dtype=np.float64) if T_world_odom is None
-            else np.asarray(T_world_odom, dtype=np.float64).reshape(4, 4))
-    R2 = np.asarray(frames.rotz2(float(base_yaw)), dtype=np.float64).reshape(2, 2)
-    m = np.asarray(mount_xyz, dtype=np.float64).reshape(3)
-    off_body = np.array([R2[0, 0] * m[0] + R2[0, 1] * m[1],
-                         R2[1, 0] * m[0] + R2[1, 1] * m[1],
-                         m[2]], dtype=np.float64)
-    out = T_wo[0:3, 0:3] @ p3 + T_wo[0:3, 3] + T_wo[0:3, 0:3] @ off_body
+    out = np.asarray(frames.gimbal_origin_world(base_pos_odom, float(base_yaw), mount_xyz,
+                                                T_world_odom),
+                     dtype=np.float64).reshape(3)
     return out if np.all(np.isfinite(out)) else np.zeros(3, dtype=np.float64)
 
 
 def r_gimbal_from_opt() -> np.ndarray:
     """取得 ``R_gimbal←opt``（optical 系 → gimbal_link 系）。
 
-    与 estimation 侧同一套**物理方向自检**逻辑：optical 的 z（向前）必须映射到
-    gimbal_link 的 x（向前），即 ``R[:, 2] == (1, 0, 0)``；否则转置纠正。
-    这样无论 ``frames.R_link_from_opt`` / ``frames.R_opt_from_link`` 的命名如何，
-    都能拿到方向正确的矩阵。
+    取自单一真源 ``gimbal_common.frames.R_opt_from_link()``（历史命名方向相反：
+    该函数实际返回 R_gimbal←opt）。
 
     Returns:
         shape (3, 3) 的旋转矩阵 ``R_gimbal←opt``。
     """
-    forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    candidates = []
-    fn_link_from_opt = getattr(frames, 'R_link_from_opt', None)
-    if callable(fn_link_from_opt):
-        candidates.append(np.asarray(fn_link_from_opt(), dtype=np.float64).reshape(3, 3))
-    fn_opt_from_link = getattr(frames, 'R_opt_from_link', None)
-    if callable(fn_opt_from_link):
-        candidates.append(np.asarray(fn_opt_from_link(), dtype=np.float64).reshape(3, 3).T)
-    for R in candidates:
-        if np.allclose(R[:, 2], forward, atol=1e-6) and np.allclose(R @ R.T, np.eye(3), atol=1e-6):
-            return R
-    return np.array([[0.0, 0.0, 1.0],
-                     [-1.0, 0.0, 0.0],
-                     [0.0, -1.0, 0.0]], dtype=np.float64)
+    return np.asarray(frames.R_opt_from_link(), dtype=np.float64).reshape(3, 3)

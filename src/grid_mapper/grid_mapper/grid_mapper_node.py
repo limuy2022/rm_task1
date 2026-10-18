@@ -21,9 +21,6 @@
 时钟约定（主理人拍板 1，混合时钟）：
 - 外部地图原样保留 `header.stamp`；配置图才使用当前 ROS 时钟
 - 所有 dt / 超时 / 定时器周期计算用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
-
-⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
 """
 
 from __future__ import annotations
@@ -33,9 +30,7 @@ import math
 import sys
 from typing import Any
 from typing import Dict
-from typing import List
 from typing import Optional
-from typing import Tuple
 
 import rclpy
 from rclpy.node import Node
@@ -55,7 +50,7 @@ from .field_config import FieldConfig
 from .grid_builder import GridMap
 from .pgm_io import write_map
 from .png_draw import draw_preview
-from .grid_geometry import planar_quaternion_yaw, compose_grid_origin
+from .grid_geometry import compose_grid_origin, planar_quaternion_yaw, resolve_map_origin
 
 # 默认参数（与 DESIGN §6.13 的 `grid.*` 命名空间一致）
 DEFAULTS: Dict[str, Any] = {
@@ -79,71 +74,25 @@ DEFAULTS: Dict[str, Any] = {
 
 
 def _resolve_field_yaml() -> str:
-    """在未显式配置 `grid.field_yaml` 时，尽力定位 `field.yaml`。
+    """在未显式配置 `grid.field_yaml` 时，定位 `field.yaml`。
 
     查找顺序：
       1. 环境变量 `GIMBAL_FIELD_YAML`
       2. `ament_index_python` 查到的 `gimbal_tracker_bringup` 安装 share 目录
-      3. 工作区源树 `src/gimbal_tracker_bringup/config/field.yaml`
-      4. 当前工作目录下的 `field.yaml`
 
     Returns:
         str：找到的第一个存在的文件路径；都找不到时返回空串（节点随后用默认场地）。
     """
-    cands: list = []
     env = os.environ.get('GIMBAL_FIELD_YAML', '')
-    if env:
-        cands.append(env)
+    if env and os.path.isfile(env):
+        return env
     from ament_index_python.packages import get_package_share_directory
     try:
-        cands.append(os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
-                                  'config', 'field.yaml'))
-    except Exception:  # pragma: no cover - 无 ament / 包未安装
-        pass
-    here = os.path.dirname(os.path.abspath(__file__))     # <ws>/src/grid_mapper/grid_mapper
-    ws_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
-    cands.append(os.path.join(ws_root, 'src', 'gimbal_tracker_bringup',
-                              'config', 'field.yaml'))
-    cands.append(os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup',
-                              'config', 'field.yaml'))
-    cands.append(os.path.join(os.getcwd(), 'field.yaml'))
-    for c in cands:
-        if c and os.path.isfile(c):
-            return c
-    return ''
-
-
-def resolve_map_origin(grid_map: Any,
-                       params_origin_xyz: Any) -> Tuple[List[float], str]:
-    """决定写进 `map.yaml` 的 origin，并给出不一致时的告警文本。
-
-    **必须以栅格自身的 `origin_xy` 为准**，不能套 `grid.origin_xyz`：
-
-    * `map_source=config`：栅格 origin 来自 `field.yaml`，可能与 `grid.origin_xyz` 不同；
-    * `map_source=topic`：栅格 origin 是**外部 SLAM 地图自带**的，
-      与 `grid.origin_xyz`（12×12m 窗口那个 -6,-6）毫无关系——套错会让整张图平移。
-
-    Args:
-        grid_map: `GridMap`（用其 `origin_xy`）。
-        params_origin_xyz: 参数里的 `grid.origin_xyz`（仅用于比对告警）。
-
-    Returns:
-        (origin_xyz, warning)：`origin_xyz` 为 `[x, y, yaw]`；一致时 `warning` 为空串。
-    """
-    try:
-        got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), float(getattr(grid_map, 'origin_yaw', 0.0))]
-    except Exception:  # pragma: no cover - 兜底
-        return [0.0, 0.0, 0.0], ''
-    try:
-        want = [float(params_origin_xyz[0]), float(params_origin_xyz[1]),
-                float(params_origin_xyz[2]) if len(params_origin_xyz) > 2 else 0.0]
-    except Exception:
-        return got, ''
-    if any(abs(got[i]-want[i]) > 1e-9 for i in range(3)):
-        return got, ('grid.origin_xyz=%s 与栅格实际 origin=%s 不一致'
-                     '（map_source=topic 时外部地图自带 origin）→ map.yaml 按栅格 origin 写'
-                     % (want, got))
-    return got, ''
+        cand = os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
+                            'config', 'field.yaml')
+    except Exception:  # pragma: no cover - 包未安装（无 share 目录）
+        return ''
+    return cand if os.path.isfile(cand) else ''
 
 
 class GridMapperNode(Node):  # type: ignore[misc]
@@ -213,8 +162,6 @@ class GridMapperNode(Node):  # type: ignore[misc]
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1 的 QoS（锁存）。"""
-        if QoSProfile is None:  # pragma: no cover
-            return None
         try:
             return QoSProfile(
                 depth=1,
@@ -334,7 +281,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
     # -- 发布 -----------------------------------------------------------------
     def _publish_all(self) -> None:
         """发布 `/map/grid`（干净三态）与 `/map/ray_grid`（含膨胀）。"""
-        if self._grid_map is None or OccupancyGrid is None:
+        if self._grid_map is None:
             return
         try:
             self._pub_grid.publish(self._to_msg(self._grid_map, use_ray=False))

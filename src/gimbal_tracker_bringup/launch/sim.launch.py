@@ -16,7 +16,6 @@
 | `rviz` | `false` | **`true`** |
 
 ⚠ 仿真**不要**启动 `robo_bridge_edu` 或其它串口桥：`world → gimbal_link` 只能有一个发布者。
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证。
 """
 
 from __future__ import annotations

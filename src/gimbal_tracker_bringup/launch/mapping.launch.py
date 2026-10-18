@@ -15,7 +15,6 @@
     ros2 launch gimbal_tracker_bringup mapping.launch.py exit_after_build_s:=5.0
 
 ⚠ 产出的 `map.pgm` / `map.yaml` 必须能被 `nav2_map_server` 加载（PRD A4）。
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证。
 """
 
 from __future__ import annotations

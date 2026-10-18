@@ -7,6 +7,8 @@ this planar implementation and is rejected rather than silently flattened.
 """
 from __future__ import annotations
 import math
+from typing import Any, List, Tuple
+
 import numpy as np
 
 
@@ -35,3 +37,36 @@ def compose_grid_origin(origin_xy, origin_yaw: float,
     out = np.array([[c, -s], [s, c]]) @ xy + translation[:2]
     angle = math.atan2(math.sin(yaw+origin_yaw), math.cos(yaw+origin_yaw))
     return out, angle
+
+
+def resolve_map_origin(grid_map: Any,
+                       params_origin_xyz: Any) -> Tuple[List[float], str]:
+    """决定写进 `map.yaml` 的 origin，并给出不一致时的告警文本。
+
+    **必须以栅格自身的 `origin_xy` 为准**，不能套 `grid.origin_xyz`：
+
+    * `map_source=config`：栅格 origin 来自 `field.yaml`，可能与 `grid.origin_xyz` 不同；
+    * `map_source=topic`：栅格 origin 是**外部 SLAM 地图自带**的，
+      与 `grid.origin_xyz`（12×12m 窗口那个 -6,-6）毫无关系——套错会让整张图平移。
+
+    Args:
+        grid_map: `GridMap`（用其 `origin_xy`，鸭子类型，无需 ROS）。
+        params_origin_xyz: 参数里的 `grid.origin_xyz`（仅用于比对告警）。
+
+    Returns:
+        (origin_xyz, warning)：`origin_xyz` 为 `[x, y, yaw]`；一致时 `warning` 为空串。
+    """
+    try:
+        got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), float(getattr(grid_map, 'origin_yaw', 0.0))]
+    except Exception:  # pragma: no cover - 兜底
+        return [0.0, 0.0, 0.0], ''
+    try:
+        want = [float(params_origin_xyz[0]), float(params_origin_xyz[1]),
+                float(params_origin_xyz[2]) if len(params_origin_xyz) > 2 else 0.0]
+    except Exception:
+        return got, ''
+    if any(abs(got[i]-want[i]) > 1e-9 for i in range(3)):
+        return got, ('grid.origin_xyz=%s 与栅格实际 origin=%s 不一致'
+                     '（map_source=topic 时外部地图自带 origin）→ map.yaml 按栅格 origin 写'
+                     % (want, got))
+    return got, ''

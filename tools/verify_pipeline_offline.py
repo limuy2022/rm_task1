@@ -1,7 +1,8 @@
 """1800 virtual ticks through real PnP, geometry, filter, sampler, advice, writer.
 
 Synthetic known geometry, 40ms image transport delay, pixel noise and a 0.8s
-occlusion. No ROS processes, physical device, official scoring or NUC deadline.
+occlusion. Runs inside the ROS 2 Humble container but starts no ROS nodes and
+exchanges no DDS messages: no physical device, official scoring or NUC deadline.
 Outputs are explicitly synthetic and live under build/offline/pipeline only.
 """
 import csv
@@ -114,13 +115,13 @@ def main():
     metadata = yaml.safe_load(Path(paths['yaml']).read_text())
     np.testing.assert_allclose(metadata['origin'], [-2., -2., 0.])
     rmse = lambda a: np.sqrt(np.mean(np.asarray(a)**2, axis=0)).tolist()
-    report = dict(kind='synthetic_no_ROS_no_hardware', virtual_duration_s=180., ticks=1800,
+    report = dict(kind='synthetic_no_hardware', virtual_duration_s=180., ticks=1800,
         pnp_images=n_pnp, pixel_noise_std=.1, image_delay_s=.04, invalid_ticks=invalid,
         diagnostic_exclusions='t<2s and 60<=t<63s; formal synthetic score includes all ticks',
         current_xy_rmse_m=rmse(errors), prediction_xy_rmse_m=rmse(pred_errors), base_xy_rmse_m=rmse(base_errors),
         synthetic_score=evaluate(submitted, ref, field_long_side_m=10.)['total'],
         wall_duration_s=time.perf_counter()-start,
-        not_verified=['DDS','Humble','NUC 80ms deadline','real imagery/TF/map/geometry','physical control'])
+        not_verified=['DDS node-to-node transport','NUC 80ms deadline','real imagery/TF/map/geometry','physical control'])
     assert max(report['current_xy_rmse_m']) < .04, report
     assert max(report['prediction_xy_rmse_m']) < .05, report
     assert max(report['base_xy_rmse_m']) < 1e-5, report

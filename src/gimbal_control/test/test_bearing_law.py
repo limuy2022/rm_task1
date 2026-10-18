@@ -240,7 +240,7 @@ def test_feedforward_base_turning_left_compensates_right():
 
 
 def test_r_gimbal_from_opt_convention():
-    """r_gimbal_from_opt 的兜底矩阵与本测试使用的 R_GO 同约定（optical z→gimbal x）。"""
+    """r_gimbal_from_opt 的矩阵与本测试使用的 R_GO 同约定（optical z→gimbal x）。"""
     R = r_gimbal_from_opt()
     assert np.allclose(R, R_GO) or np.allclose(R @ R.T, np.eye(3), atol=1e-6)
     assert np.allclose(R[:, 2], (1.0, 0.0, 0.0), atol=1e-6)

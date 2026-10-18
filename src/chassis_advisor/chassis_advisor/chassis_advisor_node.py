@@ -25,9 +25,6 @@
 时钟（主理人拍板 1，混合时钟）：
 - `header.stamp` 用 **ROS 系统时钟** `node.get_clock().now()`（**不替换 node clock**）
 - 所有 dt / 超时 / 定时器周期用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
-
-⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
 """
 
 from __future__ import annotations

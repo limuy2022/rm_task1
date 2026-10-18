@@ -23,7 +23,7 @@ import pytest
 
 # --- pytest 引导（同时支持 `pytest test/test_control_law.py` 与直接运行本文件） ---
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402  conftest 同目录
-import conftest  # noqa: F401,E402  触发 sys.path / stub 安装
+import conftest  # noqa: F401,E402  触发 sys.path 注入
 
 from gimbal_common import frames  # noqa: E402
 from gimbal_common.math_utils import wrap_pi  # noqa: E402
@@ -545,12 +545,11 @@ def test_gimbal_origin_with_world_odom():
 
 def test_gimbal_origin_matches_frames_single_source():
     """与 ``gimbal_common.frames.gimbal_origin_world`` 结果一致（单一真源）。"""
-    fn = getattr(frames, 'gimbal_origin_world', None)
-    if not callable(fn):  # pragma: no cover - 桩环境跳过
-        pytest.skip('gimbal_common.frames.gimbal_origin_world 不可用')
     T_wo = _T_world_odom_from_rpy_t(np.eye(3), (0.3, -0.2, 0.1))
     a = gimbal_origin_world(np.array([1.0, 2.0, 0.0]), 0.6, (0.1, 0.05, 0.2), T_wo)
-    b = np.asarray(fn(np.array([1.0, 2.0, 0.0]), 0.6, (0.1, 0.05, 0.2), T_wo), dtype=np.float64)
+    b = np.asarray(frames.gimbal_origin_world(np.array([1.0, 2.0, 0.0]), 0.6,
+                                              (0.1, 0.05, 0.2), T_wo),
+                   dtype=np.float64)
     np.testing.assert_allclose(a, b.reshape(3), atol=1e-12)
 
 

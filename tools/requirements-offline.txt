@@ -1,5 +1,0 @@
-# Personal-computer .venv only. Do not pip-install over NUC ROS/OpenCV packages.
-numpy>=1.23,<3
-opencv-contrib-python-headless==4.10.0.84
-pytest==8.4.2
-PyYAML==6.0.3

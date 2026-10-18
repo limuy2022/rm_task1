@@ -12,9 +12,6 @@
 给定点原点(品红十字)。
 
 ⚠ 本包依赖 `grid_mapper` 的 `GridMap` / `png_draw`（同一工作区内，已在 package.xml 声明）。
-
-⚠ **待 Ubuntu 24.04 + ROS2 Jazzy 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
 """
 
 from __future__ import annotations

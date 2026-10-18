@@ -22,7 +22,7 @@ import pytest
 
 # --- pytest 引导（同时支持 `pytest test/test_ca_kalman.py` 与直接运行本文件） ---
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402  conftest 同目录
-import conftest  # noqa: F401,E402  触发 sys.path / stub 安装
+import conftest  # noqa: F401,E402  触发 sys.path 注入
 
 from gimbal_estimation.ca_kalman import (  # noqa: E402
     DEFAULT_INIT_SIGMA_A,

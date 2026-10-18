@@ -97,7 +97,7 @@ _CURVE_HEADER = '# t_mono,t_rel_s,e_ang_deg,bearing_deg,track_status,est_err_m\n
 # 小工具
 # ---------------------------------------------------------------------------
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包 share → 工作区源树 → 原样返回）。"""
+    """解析 ``virtual.yaml`` 路径（绝对路径 → 包 share；未命中原样返回）。"""
     if not name_or_path:
         name_or_path = 'virtual.yaml'
     if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
@@ -107,16 +107,8 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
     try:
         cand = os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
                             'config', base)
-        if os.path.isfile(cand):
-            return cand
-    except Exception:  # pragma: no cover - 无 ament / 未安装
-        pass
-    here = os.path.dirname(os.path.abspath(__file__))
-    ws_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
-    cand = os.path.join(ws_root, 'src', 'gimbal_tracker_bringup', 'config', base)
-    if os.path.isfile(cand):
-        return cand
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config', base)
+    except Exception:  # pragma: no cover - 未安装（无 share 目录）
+        return name_or_path
     return cand if os.path.isfile(cand) else name_or_path
 
 

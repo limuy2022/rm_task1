@@ -102,26 +102,6 @@ QOS_LATCHED = QoSProfile(
 )
 
 
-def _rpy_to_mat(rpy) -> np.ndarray:
-    """固定轴 XYZ（roll-pitch-yaw）→ 3x3 旋转矩阵。
-
-    优先复用 ``gimbal_common.frames.rpy_to_mat``（若提供），否则本地实现。
-    """
-    fn = getattr(frames, 'rpy_to_mat', None)
-    if callable(fn):
-        M = np.asarray(fn(rpy), dtype=np.float64)
-        if M.shape == (3, 3):
-            return M
-    r, p, y = (float(v) for v in np.asarray(rpy, dtype=np.float64).reshape(3))
-    cr, sr = math.cos(r), math.sin(r)
-    cp, sp = math.cos(p), math.sin(p)
-    cy, sy = math.cos(y), math.sin(y)
-    Rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
-    Ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
-    Rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]])
-    return Rz @ Ry @ Rx
-
-
 def _resolve_virtual_yaml(name_or_path: str) -> str:
     """解析 ``virtual.yaml`` 路径（包名相对 → 绝对；缺失时返回原样由调用方兜底）。
 
@@ -135,13 +115,9 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
     from ament_index_python.packages import get_package_share_directory
     try:
         share = get_package_share_directory('gimbal_tracker_bringup')
-        cand = os.path.join(share, 'config', os.path.basename(name_or_path))
-        if os.path.isfile(cand):
-            return cand
-    except Exception:
-        pass
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config',
-                        os.path.basename(name_or_path))
+    except Exception:  # pragma: no cover - 未安装（无 share 目录）
+        return name_or_path
+    cand = os.path.join(share, 'config', os.path.basename(name_or_path))
     return cand if os.path.isfile(cand) else name_or_path
 
 
@@ -274,10 +250,8 @@ class GimbalControllerNode(Node):
 
         # pitch 符号的唯一入口在 gimbal_common.frames；此处只透传 ROS 参数，
         # 默认值直接取 frames.PITCH_SIGN，避免本文件出现任何符号字面量。
-        _set_pitch_sign = getattr(frames, 'set_pitch_sign', None)
-        if callable(_set_pitch_sign):
-            d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
-            _set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
+        d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
+        frames.set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
 
         p = self.get_parameter
         rate_hz = float(p('control.rate_hz').value)
@@ -321,7 +295,7 @@ class GimbalControllerNode(Node):
 
         # ---------------------------------------------------------- 外部标定
         w_o = [float(v) for v in p('localization.world_odom_xyz_rpy').value]
-        self._R_world_odom = _rpy_to_mat(w_o[3:6])
+        self._R_world_odom = frames.rpy_to_mat(w_o[3:6])
         self._t_world_odom = np.array(w_o[0:3], dtype=np.float64)
         mnt = [float(v) for v in p('localization.gimbal_mount_xyz_rpy').value]
         self._mount_xyz = np.array(mnt[0:3], dtype=np.float64)
@@ -591,7 +565,7 @@ class GimbalControllerNode(Node):
             R_wg = np.asarray(frames.quat_to_mat(q / n), dtype=np.float64).reshape(3, 3)
             # optical → gimbal_link → world：只关心 z，用与 §6.6 完全相同的链路
             p_gimbal = self._camera_xyz_rpy[:3] + (
-                _rpy_to_mat(self._camera_xyz_rpy[3:]) @ r_gimbal_from_opt()) @ p_opt
+                frames.rpy_to_mat(self._camera_xyz_rpy[3:]) @ r_gimbal_from_opt()) @ p_opt
             p_world = self.gimbal_origin_world() + R_wg @ p_gimbal
             if not math.isfinite(float(p_world[2])):
                 return

@@ -31,9 +31,6 @@ TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mis
 **单一数据源**：本文件刻意把大部分 launch 参数默认留空 = 「不覆盖」，
 即沿用 `config/tracker_params.yaml` 的值；只有场地文件路径与任务时长会被显式注入，
 以保证 launch 与节点看到同一份配置。
-
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证；待 Ubuntu 24.04 + ROS 2 Jazzy 上
-``ros2 launch gimbal_tracker_bringup competition.launch.py --show-args`` 与实跑验证。
 """
 
 from __future__ import annotations

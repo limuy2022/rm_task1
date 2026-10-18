@@ -13,9 +13,6 @@
 
 ⚠ `static_transform_publisher` 的数值来自 YAML 文件内容，本文件不出现任何相机内参 / 外参字面量
 （DESIGN §8.6）；光学系旋转会与 `gimbal_common.frames.R_opt_from_link()` 做**运行时一致性断言**。
-
-⚠ 本文件无法在 Windows（无 ROS 2）上验证，待 Ubuntu 24.04 + ROS 2 Jazzy 上
-``ros2 launch ... --show-args`` 与 ``ros2 run tf2_ros tf2_echo`` 验证。
 """
 
 from __future__ import annotations

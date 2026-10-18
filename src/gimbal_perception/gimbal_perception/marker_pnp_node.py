@@ -67,7 +67,7 @@ def _sensor_qos(depth: int = 10) -> QoSProfile:
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包名相对 → 绝对；缺失时返回原样由上层 FATAL）。"""
+    """解析 ``virtual.yaml`` 路径（绝对路径 → 包 share；未命中原样返回由上层 FATAL）。"""
     if not name_or_path:
         name_or_path = 'virtual.yaml'
     if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
@@ -75,13 +75,9 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
     from ament_index_python.packages import get_package_share_directory
     try:
         share = get_package_share_directory('gimbal_tracker_bringup')
-        cand = os.path.join(share, 'config', os.path.basename(name_or_path))
-        if os.path.isfile(cand):
-            return cand
-    except Exception:
-        pass
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config',
-                        os.path.basename(name_or_path))
+    except Exception:  # pragma: no cover - 未安装（无 share 目录）
+        return name_or_path
+    cand = os.path.join(share, 'config', os.path.basename(name_or_path))
     return cand if os.path.isfile(cand) else name_or_path
 
 

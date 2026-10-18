@@ -1,8 +1,10 @@
-"""Run owned offline checks with existing dependencies; no installs/ROS/hardware.
+"""Run owned regression checks in a sourced ROS2 Humble environment (see repo Dockerfile).
 
-Uses the calling Python. C++ check compiles only protocol+PTY test code under
-build/offline. Logs/results are saved there. A missing prerequisite is a failed
-check, not an invented pass. Run from any directory via this script's path.
+Uses the calling Python; expects /opt/ros + the workspace install to be sourced
+so rclpy/launch/gimbal_interfaces are importable. C++ check compiles only
+protocol+PTY test code under build/offline. Logs/results are saved there.
+A missing prerequisite is a failed check, not an invented pass.
+Run from any directory via this script's path.
 """
 import json
 import os
@@ -38,9 +40,10 @@ def main():
         row = dict(name=name,returncode=code,seconds=round(time.perf_counter()-begin,3))
         result.append(row); print(('PASS' if code==0 else 'FAIL'),name,flush=True)
         if code: print(text[-5000:],flush=True)
-    report = {'kind':'offline_only','python':sys.version,'checks':result,
+    report = {'kind':'ros_humble_container','python':sys.version,'checks':result,
               'passed':all(r['returncode']==0 for r in result),
-              'not_verified':['ROS2/Humble/DDS','NUC deadlines','real sensors/TF/accuracy','physical gimbal control']}
+              'not_verified':['real sensors and real-scene TF accuracy',
+                              'physical gimbal control','NUC realtime deadlines']}
     (output/'result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
     return 0 if report['passed'] else 1
 

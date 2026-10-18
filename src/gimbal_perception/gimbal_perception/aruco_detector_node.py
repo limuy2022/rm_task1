@@ -43,7 +43,6 @@ from gimbal_interfaces.msg import MarkerCorners
 from cv_bridge import CvBridge
 
 from gimbal_common.log_utils import get_logger, throttled
-from gimbal_common.time_utils import now
 
 NODE_NAME = 'aruco_detector_node'
 
@@ -88,8 +87,6 @@ def _make_detector_params(logger: Any = None) -> Any:
 
     返回 None 表示两套 API 都不可用（调用方据此降级）。
     """
-    if cv2 is None:  # pragma: no cover
-        return None
     # 先试新 API（>= 4.7）
     try:
         return cv2.aruco.DetectorParameters()          # precheck:ok-e5 双分支兜底
@@ -106,71 +103,15 @@ def _make_detector_params(logger: Any = None) -> Any:
         return None
 
 
-class _Logger:
-    """gimbal_common 不可用时的极简 logger。"""
-
-    def __init__(self, node: Any, name: str) -> None:
-        self._node = node
-        self._name = name
-        self._last: Dict[str, float] = {}
-
-    def _emit(self, level: str, msg: str) -> None:
-        try:
-            getattr(self._node.get_logger(), level)(msg)
-        except Exception:
-            print('[%s] %s %s' % (self._name, level, msg))
-
-    def info(self, msg: str) -> None:
-        self._emit('info', msg)
-
-    def warn(self, msg: str) -> None:
-        self._emit('warning', msg)
-
-    def warning(self, msg: str) -> None:
-        self._emit('warning', msg)
-
-    def error(self, msg: str) -> None:
-        self._emit('error', msg)
-
-
-def _make_logger(node: Any, name: str) -> Any:
-    """取一个可用 logger。"""
-    if get_logger is not None:
-        try:
-            return get_logger(node, name)
-        except Exception:
-            pass
-    return _Logger(node, name)
-
-
-def _throttled(log: Any, level: str, msg: str, key: str, period: float) -> None:
-    """节流日志（gimbal_common 不可用时退化为直接打）。"""
-    if throttled is not None and now is not None:
-        try:
-            throttled(log, level, msg, key, period)
-            return
-        except Exception:
-            pass
-    try:
-        getattr(log, level)(msg)
-    except Exception:
-        pass
-
-
 class ArucoDetectorNode(Node):  # type: ignore[misc]
     """ArUco 检测节点：图像 → 角点。"""
 
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
-        self._log = _make_logger(self, name)
+        self._log = get_logger(self, name)
         self._params: Dict[str, Any] = {}
         for key, val in PARAM_DEFAULTS.items():
             self._params[key] = self._declare(key, val)
-
-        if not hasattr(cv2, 'aruco'):
-            self._log.error('cv2.aruco 不可用（OpenCV 未带 contrib/aruco 模块）')
-            self._ok = False
-            return
 
         self._bridge = CvBridge()
         self._dict = self._make_dict(str(self._params['perception.aruco_dict']))
@@ -270,14 +211,14 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                     and not self._loss_announced:
                 self._publish(None, self.get_clock().now().to_msg())
                 self._loss_announced = True
-            _throttled(self._log, 'warn', '还没有收到 /image_raw',
+            throttled(self._log, 'warn', '还没有收到 /image_raw',
                        'aruco.no_image', 2.0)
             return
         self._latest = None                 # 只处理最新帧，旧的直接丢
         try:
             gray = self._to_gray(msg)
         except Exception as exc:
-            _throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
+            throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
                        'aruco.conv_err', 1.0)
             self._publish(None, msg.header.stamp)
             return
@@ -329,7 +270,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                 return rows.reshape((h, w))
         except Exception:
             return None
-        _throttled(self._log, 'error', '不支持的图像编码 %r' % msg.encoding,
+        throttled(self._log, 'error', '不支持的图像编码 %r' % msg.encoding,
                    'aruco.enc', 2.0)
         return None
 
@@ -343,7 +284,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                     gray, self._dict, parameters=self._detector)
             return corners, ids
         except Exception as exc:
-            _throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
+            throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
                        'aruco.detect_err', 1.0)
             return [], None
 
@@ -395,7 +336,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         try:
             self._pub.publish(msg)
         except Exception as exc:  # pragma: no cover
-            _throttled(self._log, 'error', '角点发布失败: %r' % (exc,),
+            throttled(self._log, 'error', '角点发布失败: %r' % (exc,),
                        'aruco.pub_err', 1.0)
 
     def shutdown(self) -> None:

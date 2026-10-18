@@ -44,32 +44,13 @@ _EYE4 = np.eye(4, dtype=np.float64)
 def _r_gimbal_from_opt() -> np.ndarray:
     """取得 ``R_gimbal←opt``（把 optical 系向量转到 gimbal_link 系）。
 
-    真源在 ``gimbal_common.frames``。由于历史命名存在歧义（``R_opt_from_link`` 与
-    ``R_link_from_opt`` 在不同实现里含义可能相反），这里做**物理方向自检**而不是
-    盲目相信函数名：optical 的 z 轴（向前）必须映射到 gimbal_link 的 x 轴（向前），
-    即 ``R[:, 2] == (1, 0, 0)``；不满足则转置纠正。
+    取自单一真源 ``gimbal_common.frames.R_opt_from_link()``（历史命名方向相反：
+    该函数实际返回 R_gimbal←opt，见其自身 docstring 的轴向量校验）。
 
     Returns:
         shape (3, 3) 的旋转矩阵 ``R_gimbal←opt``。
     """
-    forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    candidates = []
-
-    fn_link_from_opt = getattr(frames, 'R_link_from_opt', None)
-    if callable(fn_link_from_opt):
-        candidates.append(np.asarray(fn_link_from_opt(), dtype=np.float64).reshape(3, 3))
-    fn_opt_from_link = getattr(frames, 'R_opt_from_link', None)
-    if callable(fn_opt_from_link):
-        candidates.append(np.asarray(fn_opt_from_link(), dtype=np.float64).reshape(3, 3).T)
-
-    for R in candidates:
-        if np.allclose(R[:, 2], forward, atol=1e-6) and np.allclose(R @ R.T, np.eye(3), atol=1e-6):
-            return R
-
-    # 兜底（两函数都不存在时）：optical(x右,y下,z前) → gimbal_link(x前,y左,z上)
-    return np.array([[0.0, 0.0, 1.0],
-                     [-1.0, 0.0, 0.0],
-                     [0.0, -1.0, 0.0]], dtype=np.float64)
+    return np.asarray(frames.R_opt_from_link(), dtype=np.float64).reshape(3, 3)
 
 
 def _rotz2(theta: float) -> np.ndarray:

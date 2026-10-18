@@ -8,6 +8,11 @@ import math
 from pathlib import Path
 import time
 
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Imu
+
 
 def orientation_values(q_xyzw, available=True):
     """返回ZYX欧拉角和静止比力预测；q表示G到world的旋转。"""
@@ -56,14 +61,6 @@ def main(argv=None):
         parser.error('--seconds必须在1到600秒之间')
     if not args.label or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.label):
         parser.error('--label仅使用英文字母、数字、下划线或短横线')
-    try:
-        import rclpy
-        from rclpy.node import Node
-        from rclpy.qos import qos_profile_sensor_data
-        from sensor_msgs.msg import Imu
-    except ImportError as exc:
-        print(f'ROS环境没有加载：{exc}。先source Humble；不安装依赖。')
-        return 2
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output = args.output_dir/(args.label+'_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'.jsonl')
     rclpy.init()

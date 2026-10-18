@@ -31,21 +31,21 @@ Ubuntu 22.04 / ROS2 Humble，队号暂用47。2026-10-16现场记录已证明专
 
 10月17日控制追踪增量：修复高度速度被低通滞后放大的问题；控制回归18项、适配/门控13项、既有控制单元39项通过。没有改变放行开关和增益；未部署、未控制真实电机。world控制仍有装配/高度同步/机械可达路径限制，见转向教程第11节。
 
-当前离线证据见[离线验证结果](docs/当前任务/离线验证结果.json)。可复跑：
+当前验证统一在 ROS2 Humble 容器中复跑（与 NUC 同源环境，apt OpenCV 4.5.4；`Dockerfile` 见仓库根）：
 
 ```bash
-.venv/bin/python -B tools/verify_all_offline.py
+docker build -t rm-task1-humble-test .
+docker run --rm -v "$PWD":/workspace -w /workspace \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp rm-task1-humble-test bash -c '
+    source /opt/ros/humble/setup.bash &&
+    colcon --log-base /tmp/clog build --build-base /tmp/cb \
+           --install-base /tmp/ci --symlink-install &&
+    source /tmp/ci/setup.bash &&
+    python3 -B -m pytest -q src --import-mode=importlib &&
+    python3 -B tools/verify_all_offline.py'
 ```
 
-本地协作仓库不复制本批独立开发副本的`.venv`。如果个人电脑尚无隔离环境，可在个人仓库根目录准备（不要在NUC照做）：
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r tools/requirements-offline.txt
-.venv/bin/python -B tools/verify_all_offline.py
-```
-
-串口伪终端验证还需要已有C++编译器；缺少时脚本会报告失败，不假装通过，不自动安装。脚本本身不安装依赖、不启动ROS或真实设备。个人电脑的隔离环境依赖列在`tools/requirements-offline.txt`；本批环境为Python3.12、numpy2.3.5、OpenCV4.10.0、pytest8.4.2、PyYAML6.0.3。**不要在NUC用pip覆盖ROS的OpenCV/numpy。**日志及合成产物放在被Git忽略的`build/offline/`。
+测试环境即运行环境：被测的 rclpy / OpenCV / numpy / pyserial 等全部来自 humble 镜像的 apt 包，不用 pip 覆盖（**不要在NUC用pip覆盖ROS的OpenCV/numpy**）。串口伪终端验证所需的 C++ 编译器镜像内已有；脚本本身不安装依赖、不假装通过。日志及合成产物放在被 Git 忽略的`build/offline/`。
 
 1800拍合成链路采用已知几何、0.1px角点噪声、40ms图像延迟及0.8秒遮挡。它检验PnP→坐标→滤波→tick采样→方向→CSV/地图；不代表NUC实时性、真实图像精度或真实云台闭环通过。
 

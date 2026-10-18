@@ -5,13 +5,13 @@
 * ``throttled(...)`` 用 :func:`gimbal_common.time_utils.now` 做节流，
   **不用** 墙上时钟，避免系统时钟跳变导致节流失效。
 * 状态迁移 / 首次冻结 / reinit / 丢失重捕获等必打日志用 WARN 或 INFO。
-
-rclpy 在本模块内**惰性导入**，因此纯 Python 环境下可以 import 本模块。
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Union
+
+import rclpy.logging
 
 from . import time_utils
 
@@ -93,9 +93,8 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
     Returns:
         rclpy logger。
     """
-    import rclpy.logging as _rclpy_logging
     base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
-    return _FormatLogger(_rclpy_logging.get_logger(f'{base}.{name}'))
+    return _FormatLogger(rclpy.logging.get_logger(f'{base}.{name}'))
 
 
 def throttled(logger: Any, level: Union[str, int], msg: str, key: str,

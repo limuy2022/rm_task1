@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Offline control regression, using real algorithms and AST-loaded node methods.
+"""Offline control regression against the real node classes and ROS messages.
 
 Run: python tools/verify_control_offline.py
-Requires numpy; no ROS, serial access, hardware or files are used. The ideal
-velocity-actuator closed loops verify geometry and signs, not motor dynamics or
-real-time ROS delivery. AST-loaded methods are unit tests, not a ROS emulator.
+Requires a sourced ROS 2 Humble environment. Node constructors are bypassed
+(``__new__``) and internal fields injected (controllable clocks, parameter
+lookups, publisher capture); the executed callbacks and message classes are the
+production code. No DDS traffic, serial access or hardware is used. The ideal
+velocity-actuator closed loops verify geometry and signs, not motor dynamics.
 """
 from __future__ import annotations
 
-import ast
 import math
 from pathlib import Path
 import sys
@@ -20,7 +21,17 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 for package in ('gimbal_control', 'gimbal_common'):
     sys.path.insert(0, str(ROOT / 'src' / package))
+from builtin_interfaces.msg import Time as Stamp
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Header, UInt64
+
+from gimbal_interfaces.msg import GimbalState, MarkerObservation, TargetState
+
 from gimbal_common import frames
+import gimbal_control.gimbal_bearing_node as bearing_module
+import gimbal_control.gimbal_controller_node as controller_module
+from gimbal_control.gimbal_bearing_node import GimbalBearingNode
+from gimbal_control.gimbal_controller_node import GimbalControllerNode, HeightTracker
 from gimbal_control.bearing_supervisor import BearingSupervisor
 from gimbal_control.control_law import (
     BearingControlLaw, ControlLaw, feedforward, r_gimbal_from_opt,
@@ -30,40 +41,38 @@ from gimbal_control.search_pattern import make_small_search
 
 def message_stamp(seconds, frame='map'):
     sec = int(math.floor(seconds))
-    return NS(frame_id=frame, stamp=NS(sec=sec, nanosec=int(round((seconds - sec) * 1e9))))
+    header = Header()
+    header.stamp = Stamp(sec=sec, nanosec=int(round((seconds - sec) * 1e9)))
+    header.frame_id = frame
+    return header
 
 
-class FakeCommand:
-    def __init__(self):
-        self.header = NS(stamp=None, frame_id='')
-        self.yaw_omega = self.pitch_omega = 0.0
-        self.valid = False
+def marker_message(seconds, frame='camera_optical_frame', x=-.3, y=0., z=2.,
+                   valid=True, marker_id=3):
+    msg = MarkerObservation()
+    msg.header = message_stamp(seconds, frame)
+    msg.x, msg.y, msg.z = float(x), float(y), float(z)
+    msg.valid = bool(valid)
+    msg.marker_id = marker_id
+    return msg
+
+
+def ros_clock_view(clock):
+    """Injection view of node.get_clock(): ROS seconds come from ``clock.ros``."""
+    return NS(now=lambda: NS(nanoseconds=int(clock.ros * 1e9),
+                             to_msg=lambda: message_stamp(clock.ros).stamp))
 
 
 def node_harness():
-    """Load exact selected node methods without importing unavailable ROS."""
-    tree = ast.parse((ROOT / 'src/gimbal_control/gimbal_control/gimbal_controller_node.py').read_text())
-    source = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'GimbalControllerNode')
-    selected = {'_source_time', '_source_age', 'on_target_state', '_mode_of_age',
-                '_target_age', 'on_gimbal_state', 'on_joint_state', '_stop', 'tick'}
-    cls = ast.ClassDef(name='NodeHarness', bases=[], keywords=[],
-                      body=[n for n in source.body if isinstance(n, ast.FunctionDef)
-                            and n.name in selected], decorator_list=[])
-    module = ast.Module(body=[ast.ImportFrom(module='__future__',
-                       names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])
+    """Real GimbalControllerNode; fields injected exactly as the node sets them."""
     clock = NS(ros=10.0, mono=100.0)
-    scope = {'np': np, 'math': math, 'frames': frames, 'now': lambda: clock.mono,
-             'MODE_IDLE': 'idle', 'MODE_TRACK': 'track', 'MODE_COAST': 'coast',
-             'MODE_SEARCH': 'search', 'MODE_WIDE': 'wide',
-             'GimbalOmegaCmd': FakeCommand, 'throttled': lambda *args: None}
-    exec(compile(ast.fix_missing_locations(module), '<actual-control-methods>', 'exec'), scope)
-    node = scope['NodeHarness']()
+    controller_module.now = lambda: clock.mono   # module-level monotonic clock mock
+    node = GimbalControllerNode.__new__(GimbalControllerNode)
     parameters = {'control.enabled': False, 'control.world_geometry_verified': False,
                   'control.search_enabled': False, 'control.joint_yaw_name': 'yaw',
                   'control.joint_pitch_name': 'pitch'}
     node.get_parameter = lambda name: NS(value=parameters[name])
-    node.get_clock = lambda: NS(now=lambda: NS(nanoseconds=int(clock.ros * 1e9),
-                                                 to_msg=lambda: message_stamp(clock.ros).stamp))
+    node.get_clock = lambda: ros_clock_view(clock)
     node._input_timeout_s = 0.15
     node._imu_timeout_s = 0.1
     node._lost_timeout_s = 0.3
@@ -77,22 +86,10 @@ def node_harness():
     node._t_last_cmd = None
     node._search_entry_t = None
     node._joint_angles = None
-    node._pub = NS(publish=lambda msg: sent.append(msg))
-    node._log = NS(warn=lambda *args: None)
     sent = []
+    node._pub = NS(publish=lambda msg: sent.append(msg))
+    node._log = NS(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
     return node, clock, parameters, sent
-
-
-def height_tracker_class():
-    """Exercise the production height filter without importing a ROS node."""
-    source = ROOT / 'src/gimbal_control/gimbal_control/gimbal_controller_node.py'
-    tree = ast.parse(source.read_text())
-    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'HeightTracker')
-    module = ast.Module(body=[ast.ImportFrom(module='__future__',
-                        names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])
-    scope = {'math': math}
-    exec(compile(ast.fix_missing_locations(module), str(source), 'exec'), scope)
-    return scope['HeightTracker']
 
 
 class HeightTrackerRegressions(unittest.TestCase):
@@ -100,14 +97,14 @@ class HeightTrackerRegressions(unittest.TestCase):
         for speed in (.2, -.35):
             for dt in (.01, .02, .05):
                 with self.subTest(speed=speed, sample_interval=dt):
-                    height = height_tracker_class()(cutoff_hz=8.)
+                    height = HeightTracker(cutoff_hz=8.)
                     for i in range(501):
                         elapsed = i * dt
                         height.update(3. + speed * elapsed, 100. + elapsed)
                     self.assertAlmostEqual(height.vz, speed, places=9)
 
     def test_static_height_has_no_velocity_and_moving_target_can_stop(self):
-        height = height_tracker_class()()
+        height = HeightTracker()
         for i in range(100):
             height.update(1.5, 100. + i * .02)
         self.assertEqual(height.height(), 1.5)
@@ -121,7 +118,7 @@ class HeightTrackerRegressions(unittest.TestCase):
         self.assertAlmostEqual(height.vz, 0., places=9)
 
     def test_reset_and_first_sample_do_not_reuse_old_velocity(self):
-        height = height_tracker_class()()
+        height = HeightTracker()
         self.assertEqual(height.height(default=7.), 7.)
         height.update(1., 100.)
         self.assertEqual((height.height(), height.vz), (1., 0.))
@@ -140,7 +137,7 @@ class HeightTrackerRegressions(unittest.TestCase):
         self.assertEqual(height.vz, 0.)
 
     def test_invalid_samples_do_not_move_the_valid_difference_baseline(self):
-        height = height_tracker_class()()
+        height = HeightTracker()
         for z, t in ((1., float('nan')), (1., float('inf')), (float('nan'), 100.)):
             height.update(z, t)
             self.assertIsNone(height.z)
@@ -316,13 +313,17 @@ class ControlRegressions(unittest.TestCase):
 
     def test_estimator_heartbeat_does_not_renew_old_observation(self):
         node, clock, params, _ = node_harness()
-        msg = NS(header=message_stamp(10), valid=True, track_status=2,
-                 last_obs_age=.8, cur_x=2, cur_y=0, pred_x=2, pred_y=0, vel_x=0, vel_y=0)
+        msg = TargetState()
+        msg.header = message_stamp(10)
+        msg.valid = True; msg.track_status = 2; msg.last_obs_age = .8
+        msg.cur_x, msg.cur_y = 2., 0.
+        msg.pred_x, msg.pred_y = 2., 0.
+        msg.vel_x, msg.vel_y = 0., 0.
         node.on_target_state(msg)
         self.assertAlmostEqual(node._target_age(clock.mono), .8)
         self.assertEqual(node._mode_of_age(.8), 'idle')
         self.assertFalse(node._have_ever_tracked)
-        msg.last_obs_age = 0; msg.track_status = 1
+        msg.last_obs_age = 0.; msg.track_status = 1
         node.on_target_state(msg)
         self.assertEqual(node._mode_of_age(0), 'track')
         msg.valid = False
@@ -336,17 +337,21 @@ class ControlRegressions(unittest.TestCase):
 
     def test_stamped_imu_and_joint_inputs(self):
         node, clock, _, _ = node_harness()
-        imu = NS(header=message_stamp(9.95, 'gimbal_link'), quat=[1, 0, 0, 0], gyro=[0, 0, 0])
+        imu = GimbalState()
+        imu.header = message_stamp(9.95, 'gimbal_link')
+        imu.quat = [1., 0., 0., 0.]; imu.gyro = [0., 0., 0.]
         node.on_gimbal_state(imu)
         self.assertAlmostEqual(node._t_last_gimbal, 99.95)
         # Repeated old source stamp cannot be refreshed merely by another callback.
         clock.ros = 10.2; clock.mono = 100.2
         node.on_gimbal_state(imu)
         self.assertIsNone(node._gimbal_state)
-        imu.header = message_stamp(10.2, 'gimbal_link'); imu.gyro = [float('nan'), 0, 0]
+        imu.header = message_stamp(10.2, 'gimbal_link'); imu.gyro = [float('nan'), 0., 0.]
         node.on_gimbal_state(imu)
         self.assertIsNone(node._gimbal_state)
-        joint = NS(header=message_stamp(10.2), name=['pitch', 'yaw'], position=[-.1, .2])
+        joint = JointState()
+        joint.header = message_stamp(10.2); joint.name = ['pitch', 'yaw']
+        joint.position = [-.1, .2]
         node.on_joint_state(joint)
         np.testing.assert_allclose(node._joint_angles, [.2, -.1])
         joint.name = ['yaw', 'yaw']
@@ -359,12 +364,17 @@ class ControlRegressions(unittest.TestCase):
 
     def test_wrong_target_or_imu_frame_is_rejected(self):
         node, _, _, _ = node_harness()
-        target = NS(header=message_stamp(10, 'camera_optical_frame'), valid=True,
-                    track_status=1, last_obs_age=0, cur_x=2, cur_y=0,
-                    pred_x=2, pred_y=0, vel_x=0, vel_y=0)
+        target = TargetState()
+        target.header = message_stamp(10, 'camera_optical_frame')
+        target.valid = True; target.track_status = 1; target.last_obs_age = 0.
+        target.cur_x, target.cur_y = 2., 0.
+        target.pred_x, target.pred_y = 2., 0.
+        target.vel_x, target.vel_y = 0., 0.
         node.on_target_state(target)
         self.assertIsNone(node._target)
-        imu = NS(header=message_stamp(10, 'world'), quat=[1, 0, 0, 0], gyro=[0, 0, 0])
+        imu = GimbalState()
+        imu.header = message_stamp(10, 'world')
+        imu.quat = [1., 0., 0., 0.]; imu.gyro = [0., 0., 0.]
         node.on_gimbal_state(imu)
         self.assertIsNone(node._gimbal_state)
 
@@ -382,49 +392,39 @@ class ControlRegressions(unittest.TestCase):
 
 
 def bearing_node_harness():
-    """Load exact gimbal_bearing_node methods without importing unavailable ROS."""
-    source = ROOT / 'src/gimbal_control/gimbal_control/gimbal_bearing_node.py'
-    tree = ast.parse(source.read_text())
-    cls_def = next(n for n in tree.body if isinstance(n, ast.ClassDef)
-                   and n.name == 'GimbalBearingNode')
-    selected = {'_source_time', '_mono_of', 'on_marker', 'on_joint_state',
-                'on_epoch', 'tick'}
-    cls = ast.ClassDef(name='BearingNodeHarness', bases=[], keywords=[],
-                       body=[n for n in cls_def.body if isinstance(n, ast.FunctionDef)
-                             and n.name in selected], decorator_list=[])
-    module = ast.Module(body=[ast.ImportFrom(module='__future__',
-                        names=[ast.alias(name='annotations')], level=0), cls],
-                        type_ignores=[])
+    """Real GimbalBearingNode; fields injected exactly as the node sets them."""
     clock = NS(ros=100.0, mono=200.0)
-    scope = {'math': math, 'np': np, 'now': lambda: clock.mono,
-             'GimbalOmegaCmd': FakeCommand, 'throttled': lambda *args: None,
-             'MARKER_FRAME_ID': 'camera_optical_frame'}
-    exec(compile(ast.fix_missing_locations(module), '<actual-bearing-methods>', 'exec'), scope)
-    node = scope['BearingNodeHarness']()
+    bearing_module.now = lambda: clock.mono    # module-level monotonic clock mock
+    node = GimbalBearingNode.__new__(GimbalBearingNode)
     parameters = {'control.bearing.enabled': False,
                   'control.bearing.geometry_verified': False,
                   'control.joint_yaw_name': 'yaw',
                   'control.joint_pitch_name': 'pitch'}
     node.get_parameter = lambda name: NS(value=parameters[name])
-    node.get_clock = lambda: NS(now=lambda: NS(nanoseconds=int(clock.ros * 1e9),
-                                               to_msg=lambda: message_stamp(clock.ros).stamp))
+    node.get_clock = lambda: ros_clock_view(clock)
     node._sup = BearingSupervisor(
         BearingControlLaw(kp_yaw=6., kp_pitch=6., ff_gain=0.),
         max_age_s=.15, joint_timeout_s=.2, default_dt_s=.02)
     node._prev_enabled = False
+    sent = []
     node._pub = NS(publish=lambda msg: sent.append(msg))
     node._log = NS(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
-    sent = []
     return node, clock, parameters, sent
+
+
+def joint_message(seconds, names, positions):
+    joint = JointState()
+    joint.header = message_stamp(seconds)
+    joint.name = list(names)
+    joint.position = [float(p) for p in positions]
+    return joint
 
 
 class BearingNodeRegressions(unittest.TestCase):
     def test_node_disabled_by_default_and_gates_inputs(self):
         node, clock, params, sent = bearing_node_harness()
-        node.on_marker(NS(header=message_stamp(99.95, 'camera_optical_frame'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'pitch'],
-                               position=[0., 0.]))
+        node.on_marker(marker_message(99.95))
+        node.on_joint_state(joint_message(99.96, ['yaw', 'pitch'], [0., 0.]))
         node.tick()
         self.assertEqual(len(sent), 1)
         self.assertFalse(sent[-1].valid)                  # control.bearing.enabled=False
@@ -441,17 +441,13 @@ class BearingNodeRegressions(unittest.TestCase):
         node, clock, params, sent = bearing_node_harness()
         params.update({'control.bearing.enabled': True,
                        'control.bearing.geometry_verified': True})
-        node.on_marker(NS(header=message_stamp(99.95, 'map'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'yaw'],
-                               position=[0., 0.]))
+        node.on_marker(marker_message(99.95, frame='map'))
+        node.on_joint_state(joint_message(99.96, ['yaw', 'yaw'], [0., 0.]))
         node.tick()
         self.assertFalse(sent[-1].valid)                  # frame/关节名不符 -> 停止
         # 修正输入后恢复
-        node.on_marker(NS(header=message_stamp(99.97, 'camera_optical_frame'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(99.98), name=['yaw', 'pitch'],
-                               position=[0., 0.]))
+        node.on_marker(marker_message(99.97))
+        node.on_joint_state(joint_message(99.98, ['yaw', 'pitch'], [0., 0.]))
         node.tick()
         self.assertTrue(sent[-1].valid)
 
@@ -459,11 +455,9 @@ class BearingNodeRegressions(unittest.TestCase):
         node, clock, params, sent = bearing_node_harness()
         params.update({'control.bearing.enabled': True,
                        'control.bearing.geometry_verified': True})
-        node.on_marker(NS(header=message_stamp(99.95, 'camera_optical_frame'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'pitch'],
-                               position=[0., 0.]))
-        node.on_epoch(NS(data=5))
+        node.on_marker(marker_message(99.95))
+        node.on_joint_state(joint_message(99.96, ['yaw', 'pitch'], [0., 0.]))
+        node.on_epoch(UInt64(data=5))
         node.tick()
         self.assertTrue(sent[-1].valid)
         # 观测断流 0.5s：源龄超 max_age -> invalid 零指令（保活帧仍在发）
@@ -471,11 +465,9 @@ class BearingNodeRegressions(unittest.TestCase):
         node.tick()
         self.assertFalse(sent[-1].valid)
         # 恢复观测，但 epoch 复位 -> fault
-        node.on_marker(NS(header=message_stamp(clock.ros - .02, 'camera_optical_frame'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(clock.ros - .01), name=['yaw', 'pitch'],
-                               position=[0., 0.]))
-        node.on_epoch(NS(data=6))
+        node.on_marker(marker_message(clock.ros - .02))
+        node.on_joint_state(joint_message(clock.ros - .01, ['yaw', 'pitch'], [0., 0.]))
+        node.on_epoch(UInt64(data=6))
         node.tick()
         self.assertFalse(sent[-1].valid)
         self.assertTrue(node._sup.fault)
@@ -486,11 +478,9 @@ class BearingNodeRegressions(unittest.TestCase):
         node.tick()
         self.assertFalse(node._sup.fault)
         # fault 时观测已被清空：重新喂新鲜观测/关节后恢复
-        node.on_marker(NS(header=message_stamp(clock.ros - .02, 'camera_optical_frame'),
-                          x=-.3, y=0, z=2, valid=True, marker_id=3))
-        node.on_joint_state(NS(header=message_stamp(clock.ros - .01), name=['yaw', 'pitch'],
-                               position=[0., 0.]))
-        node.on_epoch(NS(data=6))                      # 与新上膛值相同：不再 fault
+        node.on_marker(marker_message(clock.ros - .02))
+        node.on_joint_state(joint_message(clock.ros - .01, ['yaw', 'pitch'], [0., 0.]))
+        node.on_epoch(UInt64(data=6))                     # 与新上膛值相同：不再 fault
         node.tick()
         self.assertTrue(sent[-1].valid)
 
