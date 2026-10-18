@@ -19,6 +19,7 @@ import yaml
 from gimbal_common.config_loader import ConfigError
 from grid_mapper.field_config import FieldConfig
 from grid_mapper.grid_builder import (FREE, OCCUPIED, UNKNOWN, GridMap, inflate)
+from grid_mapper.grid_geometry import resolve_map_origin
 from grid_mapper.pgm_io import (PGM_FREE, PGM_OCCUPIED, PGM_UNKNOWN,
                                 grid_to_pgm_image, grid_to_pgm_bytes,
                                 pgm_to_grid, read_pgm, write_map, write_map_yaml,
@@ -323,8 +324,6 @@ def test_from_occupancy_grid_inflates_ray_grid_only():
 
 def test_resolve_map_origin_prefers_grid_origin():
     """map.yaml 的 origin 取栅格自身的 origin；与参数不一致时给告警。"""
-    from grid_mapper.grid_geometry import resolve_map_origin
-
     gm = GridMap.from_arrays(np.zeros((4, 4), dtype=np.int8), 0.05, (1.5, -2.5))
     # 参数与栅格 origin 一致 → 取栅格值、无告警
     org, warn = resolve_map_origin(gm, [1.5, -2.5, 0.0])

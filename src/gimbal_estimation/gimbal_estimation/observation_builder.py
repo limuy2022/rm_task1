@@ -40,8 +40,15 @@ FALLBACK_K_DEPTH = 0.0   # >0 时按 σ_depth = k_depth · z² 构造
 
 
 def _r_gimbal_from_opt() -> np.ndarray:
-    """Simulation's fixed optical-to-link rotation from the production common module."""
-    return frames.R_opt_from_link()
+    """取得 ``R_gimbal←opt``（把 optical 系向量转到 gimbal_link 系）。
+
+    取自单一真源 ``gimbal_common.frames.R_opt_from_link()``（历史命名方向相反：
+    该函数实际返回 R_gimbal←opt，见其自身 docstring 的轴向量校验）。
+
+    Returns:
+        shape (3, 3) 的旋转矩阵 ``R_gimbal←opt``。
+    """
+    return np.asarray(frames.R_opt_from_link(), dtype=np.float64).reshape(3, 3)
 
 
 def _rotz2(theta: float) -> np.ndarray:

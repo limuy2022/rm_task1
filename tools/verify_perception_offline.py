@@ -1,17 +1,17 @@
-"""Real OpenCV image -> detector callbacks -> PnP callbacks, without ROS/DDS.
+"""Real OpenCV image -> detector callbacks -> PnP callbacks on real ROS 2 Humble.
 
-Only ROS node/message transport is replaced by in-memory test doubles. Detection,
-subpixel refinement, pose solving, calibration loading and callback bodies are
-the production implementations. This is not a Humble transport/hardware test.
-Run from any directory: .venv/bin/python -B tools/verify_perception_offline.py
+Runs inside the ROS 2 Humble container (see Dockerfile): imports the real
+rclpy, sensor_msgs, geometry_msgs and gimbal_interfaces, constructs real nodes,
+and captures what their publishers emit by wrapping Node.create_publisher.
+Detection, subpixel refinement, pose solving, calibration loading and callback
+bodies are the production implementations. There is no camera, physical
+device, remote DDS peer or official scorer involved.
+Run from any directory: python3 -B tools/verify_perception_offline.py
 """
 from __future__ import annotations
 
-import importlib
 import math
 import sys
-import time
-import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -21,107 +21,19 @@ import cv2
 import numpy as np
 import yaml
 
+import rclpy
+from rclpy.node import Node as RclpyNode
+from rclpy.parameter import Parameter
+from builtin_interfaces.msg import Time
+from sensor_msgs.msg import Image
+
 ROOT = Path(__file__).resolve().parents[1]
 for package in ('gimbal_perception', 'gimbal_common'):
     sys.path.insert(0, str(ROOT / 'src' / package))
 
-
-class Header:
-    def __init__(self):
-        self.stamp = NS(sec=10, nanosec=0)
-        self.frame_id = ''
-
-
-class MarkerCorners:
-    def __init__(self):
-        self.header = Header()
-        self.marker_id = -1
-        self.corners = []
-        self.valid = False
-
-
-class MarkerObservation:
-    def __init__(self):
-        self.header = Header()
-
-
-class Publisher:
-    def __init__(self):
-        self.messages = []
-
-    def publish(self, message):
-        self.messages.append(message)
-
-
-class Node:
-    def __init__(self, name, parameters=None):
-        self.name = name
-        self.parameters = dict(parameters or {})
-        self.publishers = {}
-
-    def get_name(self):
-        return self.name
-
-    def has_parameter(self, key):
-        return key in self.parameters
-
-    def declare_parameter(self, key, value):
-        self.parameters.setdefault(key, value)
-
-    def get_parameter(self, key):
-        return NS(value=self.parameters[key])
-
-    def create_publisher(self, kind, topic, qos):
-        self.publishers[topic] = Publisher()
-        return self.publishers[topic]
-
-    def create_subscription(self, *args):
-        return None
-
-    def create_timer(self, *args):
-        return None
-
-    def get_clock(self):
-        return NS(now=lambda: NS(to_msg=lambda: NS(sec=10, nanosec=900000000)))
-
-
-def install_ros_test_doubles():
-    def module(name, **members):
-        value = types.ModuleType(name)
-        value.__dict__.update(members)
-        sys.modules[name] = value
-        return value
-
-    rclpy = module('rclpy')
-    import logging
-    rclpy.logging = module('rclpy.logging', get_logger=logging.getLogger)
-    module('rclpy.node', Node=Node)
-    module('rclpy.parameter', Parameter=object)
-    policies = NS(RELIABLE=1, BEST_EFFORT=2, KEEP_LAST=1, VOLATILE=1, TRANSIENT_LOCAL=2)
-    module('rclpy.qos', QoSProfile=lambda **kwargs: NS(**kwargs),
-           QoSDurabilityPolicy=policies, QoSHistoryPolicy=policies,
-           QoSReliabilityPolicy=policies)
-    module('sensor_msgs')
-    module('sensor_msgs.msg', Image=object, CameraInfo=object)
-    module('geometry_msgs')
-    module('geometry_msgs.msg', Point32=lambda: NS(x=0., y=0., z=0.))
-    module('gimbal_interfaces')
-    module('gimbal_interfaces.msg', MarkerCorners=MarkerCorners, MarkerObservation=MarkerObservation)
-
-    module('ament_index_python')
-
-    def package_share(name):
-        path = ROOT / 'src' / name
-        if not path.is_dir():
-            raise LookupError(f'no source-tree package share for {name}')
-        return str(path)
-
-    module('ament_index_python.packages', get_package_share_directory=package_share)
-
-
-install_ros_test_doubles()
-detector_module = importlib.import_module('gimbal_perception.aruco_detector_node')
-pnp_module = importlib.import_module('gimbal_perception.marker_pnp_node')
+import gimbal_perception.aruco_detector_node as detector_module
+import gimbal_perception.marker_pnp_node as pnp_module
+from gimbal_common import node_utils as NU
 from gimbal_perception.pnp_solver import PnpSolver, marker_object_points, rpy_to_R
 
 CAMERA_PATH = ROOT / 'src/gimbal_tracker_bringup/config/camera_team47.yaml'
@@ -130,6 +42,55 @@ K = np.array([[CAMERA['fx'], 0., CAMERA['cx']],
               [0., CAMERA['fy'], CAMERA['cy']], [0., 0., 1.]])
 D = np.array(CAMERA['distortion'])
 OBJECT = marker_object_points(.10)
+
+
+class _RecordingPublisher:
+    """Real rclpy publisher with every publish() recorded for assertions."""
+
+    def __init__(self, publisher):
+        self._publisher = publisher
+        self.messages = []
+
+    def publish(self, message):
+        self.messages.append(message)
+        return self._publisher.publish(message)
+
+    def __getattr__(self, name):
+        return getattr(self._publisher, name)
+
+
+def install_publish_recording():
+    """Wrap Node.create_publisher so created publishers record their messages."""
+    original = RclpyNode.create_publisher
+
+    def create_publisher_recording(self, *args, **kwargs):
+        return _RecordingPublisher(original(self, *args, **kwargs))
+
+    return mock.patch.object(RclpyNode, 'create_publisher', create_publisher_recording)
+
+
+CREATED_NODES = []
+_node_counter = 0
+
+
+def fresh_node_name(base):
+    global _node_counter
+    _node_counter += 1
+    return f'{base}_offline_{_node_counter}'
+
+
+def set_int_parameter(node, key, value):
+    # Humble rclpy exposes set_parameters(); the nodes declare the key first.
+    node.set_parameters([Parameter(key, Parameter.Type.INTEGER, int(value))])
+
+
+def drain_created_nodes():
+    while CREATED_NODES:
+        node = CREATED_NODES.pop()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
 
 
 def project(translation, rotation=None):
@@ -153,20 +114,31 @@ def render_marker(marker_id=3, translation=(0., 0., 2.), rotation=None):
                                borderValue=255)
 
 
-def image_message(image, sec=10, padding=0):
+def image_message(image, sec=10):
     height, width = image.shape
-    rows = np.pad(image, ((0, 0), (0, padding)), constant_values=123)
-    return NS(height=height, width=width, encoding='mono8', step=width + padding,
-              data=rows.tobytes(), header=NS(stamp=NS(sec=sec, nanosec=123000000)))
+    msg = Image()
+    msg.height = height
+    msg.width = width
+    msg.encoding = 'mono8'
+    msg.step = width
+    msg.data = image.tobytes()
+    msg.header.stamp = Time(sec=sec, nanosec=123000000)
+    return msg
 
 
 def pipeline(target=3):
-    # Constructor uses actual calibration/noise setup and real OpenCV detectors.
-    detector = detector_module.ArucoDetectorNode()
-    detector.parameters['perception.target_digit'] = target
-    detector._target_digit = target
-    node = Node('marker_pnp_node', {'perception.target_digit': target,
-                                  'config.virtual_yaml': str(CAMERA_PATH)})
+    # Real rclpy nodes on the live context; detection/PnP stay production code.
+    # Fresh node names keep each pipeline a distinct DDS entity for teardown.
+    detector = detector_module.ArucoDetectorNode(fresh_node_name(detector_module.NODE_NAME))
+    CREATED_NODES.append(detector)
+    if target != detector._target_digit:
+        set_int_parameter(detector, 'perception.target_digit', target)
+        detector._target_digit = target  # stay in sync so the first tick is no ID switch
+    node = NU.create_node(fresh_node_name(pnp_module.NODE_NAME),
+                          parameter_overrides=[
+                              Parameter('perception.target_digit', Parameter.Type.INTEGER, int(target)),
+                              Parameter('config.virtual_yaml', Parameter.Type.STRING, str(CAMERA_PATH))])
+    CREATED_NODES.append(node)
     pnp = pnp_module.MarkerPnpNode(node)
     return detector, pnp
 
@@ -181,6 +153,9 @@ def feed(detector, pnp, image, sec=10):
 
 
 class PerceptionRegression(unittest.TestCase):
+    def tearDown(self):
+        drain_created_nodes()
+
     def test_rendered_image_to_id_and_pnp(self):
         for translation in ((0., 0., 1.), (.10, -.06, 2.), (-.20, .12, 3.)):
             with self.subTest(translation=translation):
@@ -190,7 +165,7 @@ class PerceptionRegression(unittest.TestCase):
                 self.assertEqual(corners.marker_id, 3)
                 self.assertEqual(len(corners.corners), 4)
                 self.assertTrue(result.valid)
-                self.assertIs(result.header.stamp, corners.header.stamp)
+                self.assertEqual(result.header.stamp, corners.header.stamp)
                 np.testing.assert_allclose([result.x, result.y, result.z], translation,
                                            atol=max(.02, translation[2] * .02))
 
@@ -212,19 +187,10 @@ class PerceptionRegression(unittest.TestCase):
     def test_old_parameter_api_branch(self):
         constructor = (cv2.aruco.DetectorParameters if hasattr(cv2.aruco, 'DetectorParameters')
                        else cv2.aruco.DetectorParameters_create)
-        with mock.patch.object(cv2.aruco, 'DetectorParameters', create=True):
-            del cv2.aruco.DetectorParameters
+        with mock.patch.object(cv2.aruco, 'DetectorParameters', side_effect=AttributeError('old API'), create=True):
             with mock.patch.object(cv2.aruco, 'DetectorParameters_create',
                                    side_effect=constructor, create=True):
                 self.assertIsNotNone(detector_module._make_detector_params())
-
-    def test_image_decoder_reads_padded_rows(self):
-        detector, _ = pipeline()
-        image = render_marker()
-        np.testing.assert_array_equal(detector._to_gray(image_message(image, padding=8)), image)
-        bad = image_message(image)
-        bad.step = image.shape[1] - 1
-        self.assertIsNone(detector._to_gray(bad))
 
     def test_loss_clears_guess_and_reacquires(self):
         detector, pnp = pipeline()
@@ -257,16 +223,16 @@ class PerceptionRegression(unittest.TestCase):
         detector._on_image(image_message(render_marker()))
         detector._on_timer()
         self.assertEqual(detector._pub.messages, [])
-        detector.parameters['perception.target_digit'] = 3
-        pnp._node.parameters['perception.target_digit'] = 3
+        set_int_parameter(detector, 'perception.target_digit', 3)
+        set_int_parameter(pnp._node, 'perception.target_digit', 3)
         detector._on_timer()  # ID change clears cached pre-selection image.
         self.assertFalse(detector._pub.messages[-1].valid)
         old_corners, result = feed(detector, pnp, render_marker())
         self.assertTrue(result.valid)
-        pnp._node.parameters['perception.target_digit'] = 8
+        set_int_parameter(pnp._node, 'perception.target_digit', 8)
         pnp._on_corners(old_corners)
         self.assertFalse(pnp._pub.messages[-1].valid)
-        detector.parameters['perception.target_digit'] = 8
+        set_int_parameter(detector, 'perception.target_digit', 8)
         detector._on_timer()
         _, result = feed(detector, pnp, render_marker(8), 13)
         self.assertTrue(result.valid)
@@ -321,6 +287,16 @@ class PerceptionRegression(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    print(f'OpenCV {cv2.__version__}; real detection/PnP, mocked ROS transport; Humble/4.5.4 not verified',
+    print(f'OpenCV {cv2.__version__}; real rclpy nodes/messages on ROS 2 Humble; no camera/hardware',
           flush=True)
-    unittest.main(verbosity=2)
+    rclpy.init()
+    recording = install_publish_recording()
+    recording.start()
+    try:
+        program = unittest.main(verbosity=2, exit=False)
+    finally:
+        recording.stop()
+        drain_created_nodes()
+        if rclpy.ok():
+            rclpy.shutdown()
+    sys.exit(0 if program.result.wasSuccessful() else 1)

@@ -5,17 +5,17 @@
 * ``throttled(...)`` 用 :func:`gimbal_common.time_utils.now` 做节流，
   **不用** 墙上时钟，避免系统时钟跳变导致节流失效。
 * 状态迁移 / 首次冻结 / reinit / 丢失重捕获等必打日志用 WARN 或 INFO。
-
-rclpy 在本模块内**惰性导入**，因此纯 Python 环境下可以 import 本模块。
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Union
 
+import rclpy.logging
+
 from . import time_utils
 
-__all__ = ['get_logger', 'throttled', 'reset_throttle', 'LEVELS']
+__all__ = ['emit', 'get_logger', 'throttled', 'reset_throttle', 'LEVELS']
 
 LEVELS = ('debug', 'info', 'warn', 'error', 'fatal')
 
@@ -60,8 +60,12 @@ _EMIT_BY_LEVEL = {
 }
 
 
-def _emit(logger: Any, level: Union[str, int], msg: str) -> None:
-    """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。"""
+def emit(logger: Any, level: Union[str, int], msg: str) -> None:
+    """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。
+
+    供持有任意 logger 的模块复用；等级分发必须走上面每级一个的模块级
+    函数，不要在调用方重新写单一分发帧（rclpy 按调用点缓存严重级）。
+    """
     lv = str(level).lower() if isinstance(level, str) else level
     _EMIT_BY_LEVEL[lv](logger, msg)
 
@@ -91,9 +95,8 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
     Returns:
         rclpy logger。
     """
-    import rclpy.logging as _rclpy_logging
     base = node.get_name() if node is not None else 'gimbal'
-    return _FormatLogger(_rclpy_logging.get_logger(f'{base}.{name}'))
+    return _FormatLogger(rclpy.logging.get_logger(f'{base}.{name}'))
 
 
 def throttled(logger: Any, level: Union[str, int], msg: str, key: str,
@@ -115,7 +118,7 @@ def throttled(logger: Any, level: Union[str, int], msg: str, key: str,
     if last is not None and (t - last) < float(period_s):
         return False
     _LAST_EMIT[key] = t
-    _emit(logger, level, msg)
+    emit(logger, level, msg)
     return True
 
 

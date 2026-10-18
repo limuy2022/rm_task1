@@ -45,12 +45,6 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (
-    QoSDurabilityPolicy,
-    QoSHistoryPolicy,
-    QoSProfile,
-    QoSReliabilityPolicy,
-)
 
 from sensor_msgs.msg import JointState
 from std_msgs.msg import UInt64
@@ -59,6 +53,7 @@ from gimbal_interfaces.msg import GimbalOmegaCmd, MarkerObservation
 
 from gimbal_common import frames
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_common.time_utils import now
 
 from .bearing_supervisor import BearingSupervisor
@@ -87,19 +82,9 @@ TOPIC_EPOCH = '/task1/gimbal_reset_epoch'
 
 MARKER_FRAME_ID = 'camera_optical_frame'
 
-QOS_SENSOR = QoSProfile(
-    depth=10,
-    history=QoSHistoryPolicy.KEEP_LAST,
-    reliability=QoSReliabilityPolicy.BEST_EFFORT,
-    durability=QoSDurabilityPolicy.VOLATILE,
-)
+QOS_SENSOR = sensor_qos(10)
 
-QOS_LATCHED = QoSProfile(
-    depth=1,
-    history=QoSHistoryPolicy.KEEP_LAST,
-    reliability=QoSReliabilityPolicy.RELIABLE,
-    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-)
+QOS_LATCHED = latched_qos(1)
 
 
 class GimbalBearingNode(Node):

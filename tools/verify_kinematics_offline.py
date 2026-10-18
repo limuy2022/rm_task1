@@ -2,9 +2,7 @@
 import math
 import sys
 import unittest
-import types
 from types import SimpleNamespace as NS
-from unittest.mock import patch
 from pathlib import Path
 import numpy as np
 
@@ -12,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 for pkg in ('gimbal_common', 'gimbal_localization'):
     sys.path.insert(0, str(ROOT/'src'/pkg))
 from gimbal_common import frames as FR
-from gimbal_localization.gimbal_kinematics import GimbalKinematics, SynchronizedKinematics, quaternion_rotation
+from gimbal_localization import gimbal_kinematics_node as kinematics_node_module
+from gimbal_localization.gimbal_kinematics import GimbalKinematics, SynchronizedKinematics
 
 
 def calibration():
@@ -27,44 +26,56 @@ def calibration():
 
 class KinematicsTests(unittest.TestCase):
     def test_actual_node_defaults_and_full_stamped_tf_reset_gate(self):
-        from verify_timing_offline import FakeNode, load_ast, transform, odom, quat, stamp
+        from sensor_msgs.msg import Imu
+        from std_msgs.msg import UInt64
         from gimbal_common.time_buffer import stamp_seconds
+        from verify_timing_offline import Publisher, odom, quat, stamp
+
         class Broadcaster:
-            def __init__(self, node): self.messages = []
+            def __init__(self, node=None): self.messages = []
             def sendTransform(self, messages):
                 self.messages.extend(messages if isinstance(messages, list) else [messages])
-        class Base(FakeNode): overrides = {}
-        env = load_ast('src/gimbal_localization/gimbal_localization/gimbal_kinematics_node.py',
-            {'DEFAULTS','GimbalKinematicsNode'},dict(Node=Base, np=np, FR=FR,
-                GimbalKinematics=GimbalKinematics,SynchronizedKinematics=SynchronizedKinematics,
-                quaternion_rotation=quaternion_rotation,stamp_seconds=stamp_seconds,
-                TransformBroadcaster=Broadcaster,StaticTransformBroadcaster=Broadcaster,
-                TransformStamped=transform,JointState=lambda:NS(header=NS()),
-                Odometry=object,Imu=object,UInt64=object,QoSProfile=lambda **kw:kw,
-                ReliabilityPolicy=NS(BEST_EFFORT=0,RELIABLE=1),DurabilityPolicy=NS(TRANSIENT_LOCAL=1)))
-        disabled = env['GimbalKinematicsNode'](); disabled.on_epoch(NS(data=7));disabled.tick()
+        logger = NS(info=lambda *a: None, error=lambda *a: None)
+
+        def make_node(overrides):
+            node = kinematics_node_module.GimbalKinematicsNode.__new__(
+                kinematics_node_module.GimbalKinematicsNode)
+            clock = NS(now=1000.04)
+            node.get_clock = lambda: NS(now=lambda: NS(nanoseconds=round(clock.now*1e9)))
+            node.get_logger = lambda: logger
+            merged = dict(kinematics_node_module.DEFAULTS); merged.update(overrides)
+            node.cfg = {k.removeprefix('kinematics.'): v for k, v in merged.items()}
+            model = GimbalKinematics(node.cfg) if node.cfg['calibration_confirmed'] else None
+            node.sync = SynchronizedKinematics(model,
+                calibrated_epoch=node.cfg['calibrated_epoch'],
+                max_age=node.cfg['max_age_s'], max_gap=node.cfg['max_gap_s'])
+            node.dynamic = Broadcaster(); node.static = Broadcaster()
+            node.sent_static = False; node.last_now = None
+            node.pub = Publisher()
+            return node
+
+        disabled = make_node({})
+        disabled.on_epoch(UInt64(data=7)); disabled.tick()
         self.assertFalse(disabled.pub.messages); self.assertFalse(disabled.dynamic.messages)
-        Base.overrides = {'kinematics.'+k:v for k,v in calibration().items()}
-        Base.overrides['kinematics.calibrated_epoch']=7
-        app = env['GimbalKinematicsNode'](); app.on_epoch(NS(data=7))
+        overrides = {'kinematics.'+k:v for k,v in calibration().items()}
+        overrides['kinematics.calibrated_epoch']=7
+        app = make_node(overrides); app.on_epoch(UInt64(data=7))
         model = GimbalKinematics(calibration()); R_ob = FR.rpy_to_mat([.1, -.1, .8])
         app.on_base(odom(1000.,(1.,2.,.3),(.1,-.1,.8)))
         chain = model.forward(.3,-.2)
         R_wg = model.R_odom_world.T@R_ob@chain.base_gimbal[:3,:3]
-        msg = NS(header=NS(stamp=stamp(1000.),frame_id='gimbal_link'),
-                 orientation=quat(R_wg),orientation_covariance=[0.]*9)
+        msg = Imu()
+        msg.header.stamp = stamp(1000.); msg.header.frame_id = 'gimbal_link'
+        msg.orientation = quat(R_wg); msg.orientation_covariance = [0.]*9
         app.on_imu(msg)
-        fake = types.ModuleType('builtin_interfaces.msg')
-        fake.Time=lambda **kw:NS(**kw)
-        with patch.dict(sys.modules,{'builtin_interfaces':types.ModuleType('builtin_interfaces'),
-                                    'builtin_interfaces.msg':fake}): app.tick()
+        app.tick()
         self.assertEqual(stamp_seconds(app.pub.messages[-1].header.stamp),1000.)
         np.testing.assert_allclose(app.pub.messages[-1].position,[.3,-.2])
         self.assertEqual([(x.header.frame_id,x.child_frame_id) for x in app.static.messages],
                          [('gimbal_link','camera_link'),('camera_link','camera_optical_frame')])
         self.assertEqual([(x.header.frame_id,x.child_frame_id) for x in app.dynamic.messages],
                          [('base_link','gimbal_link')])
-        app.on_epoch(NS(data=8)); app.on_imu(msg); app.tick()
+        app.on_epoch(UInt64(data=8)); app.on_imu(msg); app.tick()
         self.assertEqual(len(app.pub.messages),1)
 
     def test_forward_inverse_full_attitude_and_nonzero_zero(self):

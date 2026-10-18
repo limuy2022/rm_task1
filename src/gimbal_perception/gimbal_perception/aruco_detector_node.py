@@ -34,14 +34,15 @@ import cv2
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
-                           QoSProfile, QoSReliabilityPolicy)
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point32
 from gimbal_interfaces.msg import MarkerCorners
 
-from gimbal_common.log_utils import get_logger, throttled as _throttled
-from gimbal_common.time_utils import now
+from cv_bridge import CvBridge, CvBridgeError
+
+from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
+from gimbal_common.qos_utils import reliable_qos
 
 NODE_NAME = 'aruco_detector_node'
 
@@ -60,14 +61,6 @@ PARAM_DEFAULTS: Dict[str, Any] = {
 }
 
 
-def _reliable_keep_last(depth: int = 1) -> Any:
-    """RELIABLE + KEEP_LAST（官方明确要求 `/image_raw` 用这个）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.VOLATILE)
-
-
 def _make_detector_params(logger: Any = None) -> Any:
     """Humble OpenCV 4.5 与离线 OpenCV 4.10 的确采用不同参数构造 API。"""
     if hasattr(cv2.aruco, 'DetectorParameters'):
@@ -81,10 +74,9 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in PARAM_DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, PARAM_DEFAULTS)
 
+        self._bridge = CvBridge()
         self._dict = self._make_dict(str(self._params['perception.aruco_dict']))
         self._detector = _make_detector_params()
         # Detector class changed between the two OpenCV versions we use.
@@ -102,10 +94,10 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._t_last_detect: float = 0.0
 
         self.create_subscription(Image, str(self._params['perception.image_topic']),
-                                 self._on_image, _reliable_keep_last(1))
+                                 self._on_image, reliable_qos(1))
         self._pub = self.create_publisher(
             MarkerCorners, str(self._params['perception.marker_corners_topic']),
-            _reliable_keep_last(10))
+            reliable_qos(10))
 
         period = 1.0 / max(float(self._params['perception.detect_rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
@@ -117,11 +109,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                           float(self._params['perception.detect_rate_hz'])))
 
     # -- 参数 -----------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        self.declare_parameter(key, default)
-        return self.get_parameter(key).value
-
     def _make_dict(self, name: str) -> Any:
         """4.5 与 4.10 都支持 getPredefinedDictionary；配置错误直接报错。"""
         return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, name))
@@ -155,12 +142,15 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                     and not self._loss_announced:
                 self._publish(None, self.get_clock().now().to_msg())
                 self._loss_announced = True
-            _throttled(self._log, 'warn', '还没有收到 /image_raw',
+            throttled(self._log, 'warn', '还没有收到 /image_raw',
                        'aruco.no_image', 2.0)
             return
         self._latest = None                 # 只处理最新帧，旧的直接丢
-        gray = self._to_gray(msg)
-        if gray is None:
+        try:
+            gray = self._bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
+        except (CvBridgeError, TypeError, ValueError, cv2.error) as exc:
+            throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
+                       'aruco.conv_err', 1.0)
             self._publish(None, msg.header.stamp)
             return
         self._n_frame += 1
@@ -178,35 +168,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._publish(chosen, msg.header.stamp)
 
     # -- 检测 -----------------------------------------------------------------
-    def _to_gray(self, msg: Any) -> Optional[np.ndarray]:
-        """直接按 ROS Image 编码与 step 解码，保留真实行填充。"""
-        try:
-            h = int(msg.height)
-            w = int(msg.width)
-            enc = str(msg.encoding).lower()
-            channels = 3 if enc in ('rgb8', 'bgr8') else 1
-            row_size = w * channels
-            step = int(msg.step)
-            if h <= 0 or w <= 0 or step < row_size:
-                return None
-            buf = np.frombuffer(msg.data, dtype=np.uint8)
-            if buf.size < h * step:
-                return None
-            rows = buf[:h * step].reshape(h, step)[:, :row_size]
-            if enc in ('rgb8', 'bgr8'):
-                img = rows.reshape((h, w, 3))
-                if enc == 'rgb8':
-                    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            if enc in ('mono8', '8uc1'):
-                return rows.reshape((h, w))
-        except (TypeError, ValueError, cv2.error):
-            # 外部图像缓冲可能短缺或格式非法：丢弃该帧，下游收到无效观测。
-            return None
-        _throttled(self._log, 'error', '不支持的图像编码 %r' % msg.encoding,
-                   'aruco.enc', 2.0)
-        return None
-
     def _detect(self, gray: np.ndarray):
         """返回 (corners, ids)；无检测时 ids is None。"""
         try:
@@ -218,7 +179,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             return corners, ids
         except cv2.error as exc:
             # 坏图像可能令 OpenCV 拒绝检测；按无观测处理，而非沿用旧目标。
-            _throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
+            throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
                        'aruco.detect_err', 1.0)
             return [], None
 

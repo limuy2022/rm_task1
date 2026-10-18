@@ -10,20 +10,20 @@ def test_run_meta_content(tmp_path):
     """run_meta.json 含 run_id / 参数快照 / 产物清单 / 版本。"""
     out = str(tmp_path / 'outputs')
     meta = RunMeta(run_id='latest', out_dir=out)
-    meta.set_params({'csv.rate_hz': 20.0, 'csv.csv_extra_cols': False})
+    meta.set_params({'judge.team_id': '47'})
     meta.add_artifact('result.csv', os.path.join(out, 'latest', 'result.csv'))
 
     csv_path = os.path.join(out, 'latest', 'result.csv')
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     with open(csv_path, 'w', encoding='utf-8') as f:
-        f.write('1,2,3,4,5,6,7,8\n')
+        f.write('1,2,3,4,5,6,7,8,9.000000\n')
 
     path = meta.write()
     assert os.path.isfile(path)
     data = RunMeta.read(path)
     assert data is not None
     assert data['run_id'] == 'latest'
-    assert data['params']['csv.rate_hz'] == 20.0
+    assert data['params']['judge.team_id'] == '47'
     assert data['artifacts'][0]['name'] == 'result.csv'
     assert data['versions']['python']
     assert data['duration_s'] >= 0.0

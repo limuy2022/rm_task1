@@ -108,15 +108,20 @@ def _setup(context):
         'control.bearing.geometry_verified':
             ParameterValue(LaunchConfiguration('geometry_verified'), value_type=bool),
     }
+    # 相机内参注入感知节点（与 bearing_hardware 同款）：覆盖 tracker_params
+    # 里 config.virtual_yaml 的默认值。
+    vision_overrides = {'config.virtual_yaml': camera}
 
     nodes = [
         hardware,
         Node(package='gimbal_localization', executable='base_pose_provider_node',
              name='base_pose_provider_node', output='screen', parameters=common),
         Node(package='gimbal_perception', executable='aruco_detector_node',
-             name='aruco_detector_node', output='screen', parameters=common),
+             name='aruco_detector_node', output='screen',
+             parameters=common + [vision_overrides]),
         Node(package='gimbal_perception', executable='marker_pnp_node',
-             name='marker_pnp_node', output='screen', parameters=common),
+             name='marker_pnp_node', output='screen',
+             parameters=common + [vision_overrides]),
         Node(package='gimbal_localization', executable='gimbal_kinematics_node',
              name='gimbal_kinematics_node', output='screen', parameters=common),
         Node(package='gimbal_control', executable='gimbal_bearing_node',

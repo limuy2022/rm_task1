@@ -45,9 +45,10 @@ def create_node(name: str, **kwargs: Any) -> Node:
 
 
 def declare_params(node: Node, defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """批量声明并返回参数。
+    """批量声明并返回参数当前值（含 YAML/launch 注入的 override）。
 
     已声明过的参数不会重复声明（重复声明会抛 ``ParameterAlreadyDeclaredException``）。
+    声明或读取失败时直接抛错，避免节点使用与实际配置不一致的默认值。
 
     Args:
         node: 节点。

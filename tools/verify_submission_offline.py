@@ -1,4 +1,5 @@
-"""离线核验真实写出器与地图序列化；需要numpy，不需要ROS。"""
+"""离线核验真实写出器与地图序列化；需要numpy。在 ROS 2 Humble 容器内运行，
+但不启动 ROS 节点、不做 DDS 实机通信。"""
 import ast
 import csv
 import importlib.util
@@ -52,4 +53,4 @@ with tempfile.TemporaryDirectory() as directory:
 for path in root.glob('src/**/*.py'):
     ast.parse(path.read_bytes(), filename=str(path))
 print('PASS Python syntax')
-print('NOT VERIFIED: ROS communication, Humble launch, NUC timing, physical accuracy')
+print('NOT VERIFIED: live DDS communication, Humble launch, NUC timing, physical accuracy (runs inside the ROS 2 Humble container)')

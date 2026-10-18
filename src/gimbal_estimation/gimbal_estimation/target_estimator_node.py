@@ -13,13 +13,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from tf2_ros import Buffer, TransformListener, TransformException
 from std_msgs.msg import UInt64
 from gimbal_interfaces.msg import MarkerObservation, TargetState
 from gimbal_common import frames
 from gimbal_common.time_buffer import stamp_seconds
 from gimbal_common.log_utils import get_logger
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from .ca_kalman import CAKalman
 from .observation_builder import ObservationBuilder
 from .stamped_tracker import StampedTracker
@@ -58,12 +58,11 @@ class TargetEstimatorNode(Node):
         self._tf_listener=TransformListener(self._tf_buffer,self)
         self._pending=[];self._epoch=None;self._last_now=None
         self._n_observed=0;self._n_rejected=0
-        sensor=QoSProfile(depth=20,reliability=ReliabilityPolicy.BEST_EFFORT)
+        sensor=sensor_qos(20)
         self._pub=self.create_publisher(TargetState,'/estimation/target_state',sensor)
         self.create_subscription(MarkerObservation,'/perception/marker_cam',self.on_marker,sensor)
         self.create_subscription(UInt64,'/task1/gimbal_reset_epoch',self.on_epoch,
-            QoSProfile(depth=1,reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+            latched_qos(1))
         self.create_timer(1/max(1.,float(p('estimation.rate_hz'))),self.tick)
         self._log.info('按图像stamp查询完整TF；geometry_confirmed=false时不使用目标观测')
 

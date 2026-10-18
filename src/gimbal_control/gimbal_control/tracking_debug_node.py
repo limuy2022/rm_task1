@@ -13,11 +13,11 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from gimbal_interfaces.msg import MarkerCorners
 from gimbal_common.config_loader import load_yaml
+from gimbal_common.qos_utils import sensor_qos
 
 
 def stamp_seconds(header):
@@ -178,7 +178,7 @@ class TrackingDebugNode(Node):
         self.last_source = None
         self.last_warning = None
         self.csv = StatusCSV(str(self.get_parameter('csv_path').value), self.get_logger().warning)
-        sensor = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        sensor = sensor_qos(1)
         self.pub = self.create_publisher(Image, 'debug_image', sensor)
         self.create_subscription(Image, '/image_raw', self.on_image, sensor)
         self.create_subscription(MarkerCorners, 'marker_corners', self.on_corners, sensor)

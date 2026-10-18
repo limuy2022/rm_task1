@@ -19,7 +19,7 @@
   M. `static_tf` 的光学系 rpy 与 `gimbal_common.frames` 单一真源一致
 
 ⚠ 只能做**静态**校验；`colcon build`、msg 编译、实际话题连通性仍需在
-Ubuntu 24.04 + ROS 2 Jazzy 上验证。
+Ubuntu 22.04 + ROS 2 Humble 容器中验证（流程见根 README）。
 """
 
 from __future__ import annotations
@@ -521,13 +521,19 @@ def test_l3_virtual_extrinsics_single_source():
 # ---------------------------------------------------------------------------
 # M. 光学系旋转单一真源
 # ---------------------------------------------------------------------------
-def test_m_optical_rotation_matches_frames(stub_ros):
+def test_m_optical_rotation_matches_frames():
     """`static_tf` 的光学系 rpy 与 `gimbal_common.frames.R_opt_from_link()` 必须一致。"""
+    pytest.importorskip('launch')
+    pytest.importorskip('launch_ros')
+    import importlib.util
     import numpy as np
     from gimbal_common import frames as FR
 
-    mod = stub_ros.load_launch_module('include/static_tf.launch.py',
-                                      'lf_consistency_m')
+    launch_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             'launch', 'include', 'static_tf.launch.py')
+    spec = importlib.util.spec_from_file_location('static_tf_launch_under_test', launch_py)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
     rpy = list(mod._OPTICAL_RPY)
     assert len(rpy) == 3
     R_launch = FR.rpy_to_mat(rpy)

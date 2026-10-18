@@ -13,9 +13,6 @@
 
 ⚠ `static_transform_publisher` 的数值来自 YAML 文件内容，本文件不出现任何相机内参 / 外参字面量
 （DESIGN §8.6）；光学系旋转会与 `gimbal_common.frames.R_opt_from_link()` 做**运行时一致性断言**。
-
-⚠ 本文件无法在 Windows（无 ROS 2）上验证，待 Ubuntu 24.04 + ROS 2 Jazzy 上
-``ros2 launch ... --show-args`` 与 ``ros2 run tf2_ros tf2_echo`` 验证。
 """
 
 from __future__ import annotations
@@ -119,7 +116,7 @@ def _assert_optical_rpy_matches_frames() -> None:
 
 def _make_tf(name: str, parent: str, child: str, xyz: Sequence[float],
              rpy: Sequence[float], use_sim_time: bool) -> Node:
-    """构造一个 `static_transform_publisher` 节点（Jazzy 的 `--flag` 参数风格）。"""
+    """构造一个 `static_transform_publisher` 节点（`--flag` 参数风格）。"""
     args = [
         '--x', _num(xyz[0]), '--y', _num(xyz[1]), '--z', _num(xyz[2]),
         '--roll', _num(rpy[0]), '--pitch', _num(rpy[1]), '--yaw', _num(rpy[2]),

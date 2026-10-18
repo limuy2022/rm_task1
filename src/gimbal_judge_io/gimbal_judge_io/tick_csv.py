@@ -19,7 +19,10 @@ t_tick 为评分拍时间戳，固定六位小数；列数固定为九列。
 - 非有限值用**上一次有效值**兜底（比写 NaN 记 1 更好：截断到 1 之前仍有得分机会）。
 - ``vx``/``vy`` 由调用方保证有限；``t_tick`` 非有限时**整行不写**（写了也匹配不上）。
 
-纯 Python（不依赖 rclpy），可直接单测。
+日志分发复用 ``gimbal_common.log_utils.emit``：rclpy(Humble) 的 rcutils
+按调用点缓存严重级，单一分发帧混用等级会被吞掉并降级成 info（humble
+容器实测），log_utils 的每级独立函数已修复该问题。单测需工作区
+PYTHONPATH（容器流程即满足）。
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Sequence
+
+from gimbal_common import log_utils
 
 __all__ = [
     'COLS9',
@@ -284,6 +289,6 @@ class TickCsvWriter:
             return float('nan')
 
     def _emit(self, level: str, msg: str) -> None:
-        """An explicitly absent logger is valid for pure-Python use."""
+        """无日志器时可独立写 CSV；有日志器时按真实 ROS 日志级别分发。"""
         if self._log is not None:
-            getattr(self._log, 'warning' if level == 'warn' else level)(msg)
+            log_utils.emit(self._log, level, msg)

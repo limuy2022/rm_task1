@@ -2,40 +2,53 @@
 """Offline checks for 3D sensor/base odometry and rotated OccupancyGrid IO.
 
 Run from any directory: .venv/bin/python tools/verify_navigation_offline.py
-No ROS, sensor, hardware command, or protected directory is accessed.
+Executes real node classes and real ROS message classes; node constructors are
+bypassed via ``__new__`` with injected fields. No sensor, hardware command,
+DDS traffic or protected directory is accessed.
 """
 from __future__ import annotations
-import ast
 import math
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace as NS, MethodType
+from types import SimpleNamespace as NS
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 for package in ('gimbal_common', 'gimbal_localization', 'grid_mapper'):
     sys.path.insert(0, str(ROOT/'src'/package))
+from builtin_interfaces.msg import Time as Stamp
+from nav_msgs.msg import Odometry, OccupancyGrid
+
+from gimbal_localization import base_pose_provider_node as provider_module
+from gimbal_localization.base_pose_source import OdomTopicSource
 from gimbal_localization.odometry_geometry import (  # noqa:E402
     rigid_transform, quaternion_matrix, matrix_quaternion, convert_odometry,
 )
-from gimbal_localization.base_pose_source import OdomTopicSource  # noqa:E402
 from grid_mapper.grid_builder import GridMap  # noqa:E402
 from grid_mapper.grid_geometry import compose_grid_origin, planar_quaternion_yaw  # noqa:E402
+from grid_mapper import grid_mapper_node as adapter  # noqa:E402
 from grid_mapper.pgm_io import write_map, read_grid  # noqa:E402
 from grid_mapper.png_draw import world_to_pixel  # noqa:E402
 
 
 def odom(xyz=(0.,0.,0.), xyzw=(0.,0.,0.,1.), stamp=(12,123456789),
          linear=(0.,0.,0.), angular=(0.,0.,0.), parent='odom', child='base_link'):
-    vec = lambda xyz: NS(x=xyz[0], y=xyz[1], z=xyz[2])
-    return NS(header=NS(frame_id=parent, stamp=NS(sec=stamp[0], nanosec=stamp[1])),
-              child_frame_id=child,
-              pose=NS(pose=NS(position=vec(xyz), orientation=NS(
-                  x=xyzw[0], y=xyzw[1], z=xyzw[2], w=xyzw[3]))),
-              twist=NS(twist=NS(linear=vec(linear), angular=vec(angular))))
+    message = Odometry()
+    message.header.frame_id = parent
+    message.header.stamp.sec, message.header.stamp.nanosec = int(stamp[0]), int(stamp[1])
+    message.child_frame_id = child
+    message.pose.pose.position.x, message.pose.pose.position.y, message.pose.pose.position.z = \
+        map(float, xyz)
+    message.pose.pose.orientation.x, message.pose.pose.orientation.y, \
+        message.pose.pose.orientation.z, message.pose.pose.orientation.w = map(float, xyzw)
+    message.twist.twist.linear.x, message.twist.twist.linear.y, message.twist.twist.linear.z = \
+        map(float, linear)
+    message.twist.twist.angular.x, message.twist.twist.angular.y, message.twist.twist.angular.z = \
+        map(float, angular)
+    return message
 
 
 def independent_rotation(rpy):
@@ -168,46 +181,26 @@ class NavigationOfflineTests(unittest.TestCase):
         self.assertEqual(gm.to_occupancy_data(),[-1,0,-1,-1,100])
 
 
-class RosAdapterStandinTests(unittest.TestCase):
-    """Execute real ROS adapter methods with in-memory message/node substitutes.
+class RosAdapterTests(unittest.TestCase):
+    """Execute real ROS adapter methods on real message types.
 
-    These checks cover conversion logic only; they do not assert DDS/QoS or
-    rclpy lifecycle correctness on a host where ROS is not installed.
+    Constructors are bypassed (``__new__``) and the source/publishers injected;
+    the conversion logic under test is the production code. These checks do not
+    assert DDS/QoS or rclpy lifecycle behaviour.
     """
-    @staticmethod
-    def message():
-        vector=lambda:NS(x=0.,y=0.,z=0.)
-        quaternion=lambda:NS(x=0.,y=0.,z=0.,w=0.)
-        return NS(header=NS(stamp=NS(sec=0,nanosec=0),frame_id=''),child_frame_id='',
-            pose=NS(pose=NS(position=vector(),orientation=quaternion())),
-            twist=NS(twist=NS(linear=vector(),angular=vector()),covariance=[0.]*36))
-
-    @staticmethod
-    def load_provider_method(name):
-        path=ROOT/'src/gimbal_localization/gimbal_localization/base_pose_provider_node.py'
-        tree=ast.parse(path.read_text())
-        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='BasePoseProviderNode')
-        fn=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name==name)
-        env={'Odometry':RosAdapterStandinTests.message,'np':np,'math':math,
-             'matrix_quaternion':matrix_quaternion,'TransformStamped':lambda:NS(
-                 header=NS(stamp=None,frame_id=''),child_frame_id='',
-                 transform=NS(translation=NS(x=0.,y=0.,z=0.),rotation=NS(x=0.,y=0.,z=0.,w=0.)))}
-        exec(compile(ast.Module(body=[fn],type_ignores=[]),str(path),'exec'),env)
-        return env[name]
-
     def test_provider_preserves_all_3d_pose_stamp_and_child_twist(self):
         src=OdomTopicSource()
         q=matrix_quaternion(independent_rotation((.2,.3,.4)))
         src.on_odom(odom((1,2,.7),q,linear=(.4,.5,.6),angular=(.1,.2,.3)),100.)
         out=[];tfs=[]
-        app=NS(_source=src,_pub=NS(publish=out.append),_tf=NS(sendTransform=tfs.append))
-        app._full_pose=MethodType(self.load_provider_method('_full_pose'),app)
-        stamp=NS(sec=12,nanosec=123456789)
-        self.load_provider_method('_publish_odom')(app,src.poll(100.1),stamp)
-        self.load_provider_method('_publish_tf_msg')(app,src.poll(100.1),stamp)
+        app=provider_module.BasePoseProviderNode.__new__(provider_module.BasePoseProviderNode)
+        app._source=src;app._pub=NS(publish=out.append);app._tf=NS(sendTransform=tfs.append)
+        stamp=Stamp(sec=12,nanosec=123456789)
+        provider_module.BasePoseProviderNode._publish_odom(app,src.poll(100.1),stamp)
+        provider_module.BasePoseProviderNode._publish_tf_msg(app,src.poll(100.1),stamp)
         m=out[0]
-        self.assertIs(m.header.stamp,stamp)
-        self.assertIs(tfs[0].header.stamp,stamp)
+        self.assertEqual(m.header.stamp,stamp)
+        self.assertEqual(tfs[0].header.stamp,stamp)
         self.assertEqual((m.header.frame_id,m.child_frame_id),('odom','base_link'))
         self.assertAlmostEqual(m.pose.pose.position.z,.7)
         np.testing.assert_allclose([m.pose.pose.orientation.x,m.pose.pose.orientation.y,
@@ -216,54 +209,39 @@ class RosAdapterStandinTests(unittest.TestCase):
         self.assertAlmostEqual(tfs[0].transform.translation.z,.7)
 
     def test_map_callback_waits_for_tf_then_publishes_and_preserves_metadata(self):
-        # Execute the production callbacks without importing ROS transport.
-        path = ROOT/'src/grid_mapper/grid_mapper/grid_mapper_node.py'
-        source = ast.parse(path.read_text())
-        original = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == 'GridMapperNode')
-        selected = {'_on_external_map', '_retry_pending_external', '_publish_all', '_to_msg'}
-        cls = ast.ClassDef(name='MapAdapterHarness', bases=[], keywords=[],
-                           body=[n for n in original.body if isinstance(n, ast.FunctionDef) and n.name in selected],
-                           decorator_list=[])
-        class TransformUnavailable(Exception):
-            pass
-        env = {'np':np, 'math':math, 'GridMap':GridMap,
-               'planar_quaternion_yaw':planar_quaternion_yaw, 'compose_grid_origin':compose_grid_origin,
-               'TransformException':TransformUnavailable, 'throttled':lambda *args:None,
-               'Time':NS(from_msg=lambda stamp:stamp), 'Duration':lambda **kwargs:None,
-               'OccupancyGrid':lambda:NS(header=NS(frame_id='',stamp=None),
-                    info=NS(map_load_time=None,resolution=0.,width=0,height=0,
-                            origin=NS(position=NS(x=0.,y=0.,z=0.),orientation=NS(x=0.,y=0.,z=0.,w=0.))),data=[])}
-        code = ast.Module(body=[ast.ImportFrom(module='__future__',names=[ast.alias(name='annotations')],level=0),cls],type_ignores=[])
-        exec(compile(ast.fix_missing_locations(code),str(path),'exec'),env)
         saved=[];outputs=[]
         available=[False]
         def lookup(*args,**kwargs):
-            if not available[0]:raise TransformUnavailable('origin TF not yet available')
+            if not available[0]:raise RuntimeError('origin TF not yet available')
             return NS(transform=NS(translation=NS(x=3.,y=4.,z=0.),
                                   rotation=NS(x=0.,y=0.,z=math.sqrt(.5),w=math.sqrt(.5))))
-        app=env['MapAdapterHarness']()
+        app=adapter.GridMapperNode.__new__(adapter.GridMapperNode)
         app._params={'grid.source_frame':'lio_map','grid.inflation_radius_m':0.}
         app._output_frame='map';app._pending_external=None;app._grid_map=None
         app._tf_buffer=NS(lookup_transform=lookup)
-        app._log=NS(warning=lambda text:None)
+        app._log=NS(warning=lambda text:None,warn=lambda *a:None,
+                    error=lambda *a:None,info=lambda *a:None)
         app._save_outputs=lambda:saved.append(True)
         app._pub_grid=NS(publish=outputs.append);app._pub_ray=NS(publish=outputs.append)
         app._source_stamp=None;app._source_load_time=None
-        app.get_clock=lambda:NS(now=lambda:NS(to_msg=lambda:NS(sec=99,nanosec=0)))
-        stamp=NS(sec=12,nanosec=234567890)
-        message=NS(header=NS(frame_id='lio_map',stamp=stamp),data=[-1,0,100,100,-1,0],
-            info=NS(width=3,height=2,resolution=.2,map_load_time=stamp,
-                    origin=NS(position=NS(x=2.,y=-1.,z=0.),
-                              orientation=NS(x=0.,y=0.,z=0.,w=1.))))
+        app.get_clock=lambda:NS(now=lambda:NS(to_msg=lambda:Stamp(sec=99,nanosec=0)))
+        stamp=Stamp(sec=12,nanosec=234567890)
+        message=OccupancyGrid()
+        message.header.frame_id='lio_map';message.header.stamp=stamp
+        message.data=[-1,0,100,100,-1,0]
+        message.info.width=3;message.info.height=2;message.info.resolution=.2
+        message.info.map_load_time=stamp
+        message.info.origin.position.x=2.;message.info.origin.position.y=-1.
+        message.info.origin.orientation.w=1.
         app._on_external_map(message)
         self.assertEqual(saved,[]);self.assertEqual(outputs,[])
-        self.assertIs(app._pending_external,message)
+        self.assertEqual(app._pending_external,message)
         available[0]=True;app._retry_pending_external()
         self.assertEqual(len(saved),1);self.assertEqual(len(outputs),2)
         out=outputs[0]
-        self.assertIs(out.header.stamp,stamp)
+        self.assertEqual(out.header.stamp,stamp)
         self.assertEqual(out.header.frame_id,'map')
-        self.assertEqual(out.data,message.data)
+        self.assertEqual(list(out.data),list(message.data))
         self.assertAlmostEqual(out.info.origin.position.x,4.)
         self.assertAlmostEqual(out.info.origin.position.y,6.)
         self.assertAlmostEqual(out.info.origin.orientation.z,math.sqrt(.5))

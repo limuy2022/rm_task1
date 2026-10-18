@@ -33,10 +33,6 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
-from rclpy.qos import QoSReliabilityPolicy
 from geometry_msgs.msg import PointStamped, TransformStamped, PoseStamped
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Path
@@ -47,6 +43,7 @@ from gimbal_common import config_loader as CL
 from gimbal_common import frames as FR
 from gimbal_common import node_utils as NU
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from gimbal_common.time_utils import now
 
 from gimbal_debug import metrics as M
@@ -62,8 +59,6 @@ GT_TOPIC_DEFAULT = '/virtual_gimbal/target_gt'
 TOPIC_GIMBAL_STATE = '/gimbal/state'
 TOPIC_TARGET_STATE = '/estimation/target_state'
 TOPIC_T_MAP_WORLD = '/gimbal/t_map_world'          # map -> world，TRANSIENT_LOCAL
-
-_SENSOR_DEPTH = 10
 
 PARAM_DEFAULTS: Dict[str, Any] = {
     'debug.gt_topic': GT_TOPIC_DEFAULT,
@@ -185,18 +180,20 @@ class GtErrorMonitorNode:
         self._period = 1.0 / rate
 
         # ---- QoS / 话题
-        sensor_qos = self._sensor_qos()
+        # 订阅端 sensor_qos（BEST_EFFORT）才能匹配 vgimbal/estimator 的 BEST_EFFORT 发布端；
+        # error/path 发布端保持 RELIABLE，兼容 RViz 默认 Reliable 显示。
         node.create_subscription(PointStamped, str(p['debug.gt_topic']),
-                                 self._on_gt, sensor_qos)
+                                 self._on_gt, sensor_qos())
         node.create_subscription(GimbalState, TOPIC_GIMBAL_STATE,
-                                 self._on_gimbal_state, sensor_qos)
+                                 self._on_gimbal_state, sensor_qos())
         node.create_subscription(TargetState, TOPIC_TARGET_STATE,
-                                 self._on_target_state, sensor_qos)
+                                 self._on_target_state, sensor_qos())
         node.create_subscription(TransformStamped, TOPIC_T_MAP_WORLD,
-                                 self._on_t_map_world, self._latched_qos())
-        # 调试输出保留默认 RELIABLE，与现有 RViz 的 Path 订阅一致。
-        self._pub_err = node.create_publisher(Float64, str(p['debug.error_topic']), 10)
-        self._pub_path = node.create_publisher(Path, str(p['debug.path_topic']), 10)
+                                 self._on_t_map_world, latched_qos())
+        self._pub_err = node.create_publisher(Float64, str(p['debug.error_topic']),
+                                              reliable_qos())
+        self._pub_path = node.create_publisher(Path, str(p['debug.path_topic']),
+                                               reliable_qos())
         self._path = Path()
         self._path.header.frame_id = 'world'
         node.create_timer(self._period, self._on_timer)
@@ -207,21 +204,6 @@ class GtErrorMonitorNode:
             % (str(p['debug.gt_topic']), rate, math.degrees(self._half_fov),
                float(p['debug.rms_max_deg']), float(p['debug.max_deg']),
                float(p['debug.convergence_window_s'])))
-
-    # -- QoS ----------------------------------------------------------------
-    @staticmethod
-    def _sensor_qos() -> Any:
-        """虚拟云台和目标状态由 BEST_EFFORT 发布，订阅不能要求 RELIABLE。"""
-        return QoSProfile(depth=_SENSOR_DEPTH,
-                          reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                          history=QoSHistoryPolicy.KEEP_LAST)
-
-    @staticmethod
-    def _latched_qos() -> Any:
-        """TRANSIENT_LOCAL + depth=1（一次性的 map→world 变换）。"""
-        return QoSProfile(depth=1,
-                          history=QoSHistoryPolicy.KEEP_LAST,
-                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
     # -- 回调 ----------------------------------------------------------------
     def _on_gt(self, msg: Any) -> None:

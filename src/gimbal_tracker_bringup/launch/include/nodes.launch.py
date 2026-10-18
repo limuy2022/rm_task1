@@ -17,8 +17,6 @@ grid_mapper → base_pose_provider → map_frame_broadcaster → vgimbal_bridge
   （DESIGN §6.14）。各节点在自己的 `finally` 里 flush / close / 落盘。
 * `vgimbal_bridge_node` 异常退出（例如串口被占用 → FATAL）时立即触发收尾，避免干等 30s。
 * **禁止**启动 `robo_bridge_edu` 或任何串口桥；`world → gimbal_link` 只由 `vgimbal_bridge_node` 发布。
-
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证，待 Ubuntu 24.04 + ROS 2 Jazzy 上实跑验证。
 """
 
 from __future__ import annotations

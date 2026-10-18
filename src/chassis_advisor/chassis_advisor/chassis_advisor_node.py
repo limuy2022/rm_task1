@@ -41,15 +41,13 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
-from rclpy.qos import QoSReliabilityPolicy
 from nav_msgs.msg import OccupancyGrid, Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from gimbal_common.frames import rotz2
 
@@ -93,8 +91,6 @@ DEFAULTS: Dict[str, Any] = {
     'chassis.map_timeout_s': 0.0,
 }
 
-_SENSOR_QOS_DEPTH: int = 10
-
 
 class ChassisAdvisorNode(Node):  # type: ignore[misc]
     """底盘建议速度节点。"""
@@ -102,9 +98,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = 'chassis_advisor_node') -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, DEFAULTS)
 
         # --- 算法内核（纯 Python） -------------------------------------------
         self._ray = CostRaycast(
@@ -172,18 +166,18 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         self._blocked: bool = False
 
         # --- 话题 -------------------------------------------------------------
-        sensor_qos = self._sensor_qos()
+        qos = sensor_qos()
         self.create_subscription(TargetState, '/estimation/target_state',
-                                 self._on_target, sensor_qos)
+                                 self._on_target, qos)
         self.create_subscription(Odometry, '/gimbal/base_pose',
-                                 self._on_base_pose, sensor_qos)
+                                 self._on_base_pose, qos)
         self.create_subscription(OccupancyGrid, '/map/ray_grid',
-                                 self._on_ray_grid, self._latched_qos())
+                                 self._on_ray_grid, latched_qos())
         # 未膨胀三态栅格：方向项解析求解用（不可跨越地形 = 占用格 100）
         self.create_subscription(OccupancyGrid, '/map/grid',
-                                 self._on_clean_grid, self._latched_qos())
+                                 self._on_clean_grid, latched_qos())
         self._pub = self.create_publisher(ChassisAdvice, '/chassis/advice',
-                                          sensor_qos)
+                                          qos)
 
         period = 1.0 / max(float(self._params['chassis.rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
@@ -193,27 +187,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
                           str(self._params['chassis.cmd_frame']),
                           float(self._params['chassis.v_max']),
                           float(self._params['chassis.lookahead_m'])))
-
-    # -- 参数 / QoS -----------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明并读取参数；类型和声明错误不能悄悄变回默认值。"""
-        self.declare_parameter(key, default)
-        return self.get_parameter(key).value
-
-    @staticmethod
-    def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS：KEEP_LAST depth=10。"""
-        return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                          reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                          history=QoSHistoryPolicy.KEEP_LAST)
-
-    @staticmethod
-    def _latched_qos() -> Any:
-        """TRANSIENT_LOCAL + depth=1（锁存，等 grid_mapper 的地图）。"""
-        return QoSProfile(depth=1,
-                          reliability=QoSReliabilityPolicy.RELIABLE,
-                          history=QoSHistoryPolicy.KEEP_LAST,
-                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
     # -- 回调 -----------------------------------------------------------------
     def _clock_seconds(self) -> float:
