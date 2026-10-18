@@ -43,6 +43,7 @@ from gimbal_interfaces.msg import MarkerCorners
 from cv_bridge import CvBridge
 
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
 
 NODE_NAME = 'aruco_detector_node'
 
@@ -109,9 +110,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in PARAM_DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, PARAM_DEFAULTS)
 
         self._bridge = CvBridge()
         self._dict = self._make_dict(str(self._params['perception.aruco_dict']))
@@ -158,14 +157,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                           float(self._params['perception.detect_rate_hz'])))
 
     # -- 参数 -----------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
-
     def _make_dict(self, name: str) -> Any:
         """构造 ArUco 字典（兼容新旧 API）。"""
         try:

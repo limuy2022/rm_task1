@@ -41,6 +41,7 @@ from nav_msgs.msg import OccupancyGrid
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
 from gimbal_common.qos_utils import latched_qos, reliable_qos
 
 from .field_config import FieldConfig
@@ -99,9 +100,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         super().__init__(name)
         self._log = get_logger(self, name)
         self._t_start = now()
-        self._params: Dict[str, Any] = {}
-        for key, val in DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, DEFAULTS)
 
         self._grid_map: Optional[GridMap] = None
         self._field: Optional[FieldConfig] = None
@@ -145,15 +144,6 @@ class GridMapperNode(Node):  # type: ignore[misc]
         period = float(self._params['grid.republish_period_s'])
         if period > 0.0:
             self.create_timer(period, self._on_republish)
-
-    # -- 参数 -----------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数（已由 launch 注入时直接取用）。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover - 参数已声明
-            return default
 
     # -- 建图 -----------------------------------------------------------------
     def _build_from_config(self) -> None:

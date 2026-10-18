@@ -54,6 +54,7 @@ from rclpy.node import Node
 from std_msgs.msg import Header
 from nav_msgs.msg import Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
+from gimbal_common.node_utils import declare_params
 from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
 
@@ -80,7 +81,7 @@ class JudgeSimNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
         self._log = self.get_logger()
-        self._params = {k: self._declare(k, v) for k, v in PARAM_DEFAULTS.items()}
+        self._params = declare_params(self, PARAM_DEFAULTS)
 
         self._rate = max(float(self._params['sim.rate_hz']), 0.1)
         self._duration = max(float(self._params['sim.duration_s']), 0.0)
@@ -114,15 +115,6 @@ class JudgeSimNode(Node):  # type: ignore[misc]
         self._log.info('judge_sim 启动：%.1f Hz，duration=%.1fs，n_ticks=%d，'
                        'extra_signals=%s（⚠ 正式赛不要开这个节点）'
                        % (self._rate, self._duration, self._n_max, self._extra))
-
-    # -- 参数 -----------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
 
     # -- 属性 -----------------------------------------------------------------
     @property

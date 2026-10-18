@@ -119,6 +119,51 @@ def test_write_failure_not_counted_as_success():
         assert writer.rows == 0
 
 
+class _SeverityContextLogger:
+    """模拟 rclpy rcutils：按调用点记录等级，同一调用点换等级即抛错。"""
+
+    def __init__(self):
+        self._contexts = {}
+        self.calls = []
+
+    def _log(self, severity, msg):
+        frame = inspect.currentframe().f_back.f_back   # 跳过 _log 与严重级方法
+        key = (frame.f_code.co_filename, frame.f_code.co_name, frame.f_lineno)
+        prev = self._contexts.get(key)
+        if prev is not None and prev != severity:
+            raise ValueError('Logger severity cannot be changed between calls.')
+        self._contexts[key] = severity
+        self.calls.append((severity, msg))
+
+    def debug(self, msg):
+        self._log(10, msg)
+
+    def info(self, msg):
+        self._log(20, msg)
+
+    def warning(self, msg):
+        self._log(30, msg)
+
+    def error(self, msg):
+        self._log(40, msg)
+
+
+def test_emit_mixed_severities_keep_levels():
+    """回归：单帧分发混用等级曾被吞掉并降级成 info（humble 容器实测），
+    走 log_utils 每级独立分发后 warn/error 等级必须保留。"""
+    raw = _SeverityContextLogger()
+    w = TickCsvWriter('unused.csv', logger=raw)
+    w._emit('info', 'a')
+    w._emit('warn', 'b')
+    w._emit('error', 'c')
+    assert [c[0] for c in raw.calls] == [20, 30, 40]
+
+
+def test_emit_without_logger_is_silent():
+    w = TickCsvWriter('unused.csv')
+    w._emit('error', 'no logger, no crash')
+
+
 def test_restart_recovers_last_tick_and_guard_values(tmp_path):
     path = tmp_path / 'restart.csv'
     first = TickCsvWriter(str(path))

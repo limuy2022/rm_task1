@@ -53,6 +53,7 @@ from gimbal_interfaces.msg import ChassisAdvice, TargetState
 from .tick_csv import V_STOP, TickCsvWriter
 from .tick_sampler import TickSampler
 from gimbal_common import frames
+from gimbal_common.node_utils import declare_params
 from gimbal_common.time_buffer import stamp_seconds
 from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
@@ -96,9 +97,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
         self._log = self.get_logger()
-        self._params: Dict[str, Any] = {}
-        for key, val in PARAM_DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, PARAM_DEFAULTS)
 
         # --- 输出路径 -------------------------------------------------------
         out_dir = os.path.expanduser(str(self._params['judge.output_dir']))
@@ -169,15 +168,6 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._log.info('judge_io_node 启动: team=%s 列数=%d csv=%s map=%s'
                        % (team, self._writer.n_cols, self._csv_path,
                           self._map_pgm))
-
-    # -- 参数 -----------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
 
     # -- judge 回调 -----------------------------------------------------------
     def _on_replay_start(self, msg: Any) -> None:

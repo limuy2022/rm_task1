@@ -34,6 +34,7 @@ from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
 from gimbal_common.qos_utils import sensor_qos
 
 from .csv_writer import CsvWriter
@@ -56,9 +57,7 @@ class CsvWriterNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = 'csv_writer_node') -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, DEFAULTS)
 
         self._t_start = now()
         self._t0: Optional[float] = None            # 首个有效估计的单调时刻
@@ -104,15 +103,6 @@ class CsvWriterNode(Node):  # type: ignore[misc]
         self.create_timer(period, self._on_timer)
         self._log.info('csv_writer_node 启动: %.1fHz → %s'
                        % (float(self._params['csv.rate_hz']), run_dir))
-
-    # -- ROS 胶水 -------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
 
     # -- 回调 -----------------------------------------------------------------
     def _on_target(self, msg: Any) -> None:

@@ -44,6 +44,7 @@ from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
 from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from gimbal_common.frames import rotz2
@@ -95,9 +96,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = 'chassis_advisor_node') -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, DEFAULTS)
 
         # --- 算法内核（纯 Python） -------------------------------------------
         self._ray = CostRaycast(
@@ -186,15 +185,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
                           str(self._params['chassis.cmd_frame']),
                           float(self._params['chassis.v_max']),
                           float(self._params['chassis.lookahead_m'])))
-
-    # -- 参数 / QoS -----------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数（已由 launch 注入时直接取用）。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
 
     # -- 回调 -----------------------------------------------------------------
     def _clock_seconds(self) -> float:

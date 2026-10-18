@@ -15,7 +15,7 @@ import rclpy.logging
 
 from . import time_utils
 
-__all__ = ['get_logger', 'throttled', 'reset_throttle', 'LEVELS']
+__all__ = ['emit', 'get_logger', 'throttled', 'reset_throttle', 'LEVELS']
 
 LEVELS = ('debug', 'info', 'warn', 'error', 'fatal')
 
@@ -62,8 +62,12 @@ _EMIT_BY_LEVEL = {
 }
 
 
-def _emit(logger: Any, level: Union[str, int], msg: str) -> None:
-    """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。"""
+def emit(logger: Any, level: Union[str, int], msg: str) -> None:
+    """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。
+
+    供持有任意 logger 的模块复用；等级分发必须走上面每级一个的模块级
+    函数，不要在调用方重新写单一分发帧（rclpy 按调用点缓存严重级）。
+    """
     lv = str(level).lower() if isinstance(level, str) else level
     _EMIT_BY_LEVEL.get(lv, _log_info)(logger, msg)
 
@@ -116,7 +120,7 @@ def throttled(logger: Any, level: Union[str, int], msg: str, key: str,
     if last is not None and (t - last) < float(period_s):
         return False
     _LAST_EMIT[key] = t
-    _emit(logger, level, msg)
+    emit(logger, level, msg)
     return True
 
 

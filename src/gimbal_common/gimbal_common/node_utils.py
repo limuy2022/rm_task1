@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import rclpy
+from rclpy.exceptions import ParameterException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 
@@ -46,9 +47,11 @@ def create_node(name: str, **kwargs: Any) -> Node:
 
 
 def declare_params(node: Node, defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """批量声明并返回参数。
+    """批量声明并返回参数当前值（含 YAML/launch 注入的 override）。
 
     已声明过的参数不会重复声明（重复声明会抛 ``ParameterAlreadyDeclaredException``）。
+    声明失败（如 override 与默认值类型不匹配）时告警并回退默认值：
+    节点仍可启动，但配置错误不静默吞掉。
 
     Args:
         node: 节点。
@@ -60,7 +63,13 @@ def declare_params(node: Node, defaults: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for key, value in defaults.items():
         if not node.has_parameter(key):
-            node.declare_parameter(key, value)
+            try:
+                node.declare_parameter(key, value)
+            except ParameterException as exc:
+                node.get_logger().warning(
+                    f'参数 {key} 声明失败: {exc!r}，回退默认值 {value!r}')
+                out[key] = value
+                continue
         try:
             out[key] = node.get_parameter(key).value
         except Exception:
@@ -73,7 +82,12 @@ def get_param(node: Node, name: str, default: Any = None) -> Any:
     if not node.has_parameter(name):
         if default is None:
             return None
-        node.declare_parameter(name, default)
+        try:
+            node.declare_parameter(name, default)
+        except ParameterException as exc:
+            node.get_logger().warning(
+                f'参数 {name} 声明失败: {exc!r}，回退默认值 {default!r}')
+            return default
     try:
         value = node.get_parameter(name).value
     except Exception:

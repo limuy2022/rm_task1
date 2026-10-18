@@ -33,6 +33,7 @@ from gimbal_interfaces.msg import TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.node_utils import declare_params
 from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from grid_mapper.grid_builder import GridMap
@@ -53,9 +54,7 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
     def __init__(self, name: str = 'trajectory_annotator_node') -> None:
         super().__init__(name)
         self._log = get_logger(self, name)
-        self._params: Dict[str, Any] = {}
-        for key, val in DEFAULTS.items():
-            self._params[key] = self._declare(key, val)
+        self._params: Dict[str, Any] = declare_params(self, DEFAULTS)
 
         self._t_start = now()
         self._grid: Optional[GridMap] = None
@@ -74,15 +73,6 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
         self.create_subscription(OccupancyGrid, '/map/grid',
                                  self._on_grid, latched_qos())
         self._log.info('trajectory_annotator_node 启动')
-
-    # -- ROS 胶水 -------------------------------------------------------------
-    def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
 
     # -- 回调 -----------------------------------------------------------------
     def _on_grid(self, msg: Any) -> None:
