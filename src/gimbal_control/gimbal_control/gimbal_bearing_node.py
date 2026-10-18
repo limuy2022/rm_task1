@@ -11,6 +11,28 @@
 与旧 ``gimbal_controller_node``（world 系链）发布同一 ``/gimbal/cmd_omega``：
 两者互斥，由 launch 保证同时只启动一个。每拍无论有效与否都发布一条消息，
 使下游 CommandGate 的指令超时不触发；停止靠 ``valid=false`` + 固件看门狗。
+
+实机入口与分步启用检查单见 ``gimbal_tracker_bringup/launch/bearing_hardware.launch.py``
+文件头（上机前置、三步启动、四道安全开关）。运行时动态参数速查
+（``ros2 param set /gimbal_bearing_node <参数> <值>``，无需重启）：
+
+======================  =====================================================
+control.bearing.enabled         总开关；关→开上升沿清 epoch fault（MCU复位后
+                                的重新上膛动作就是关一下再开）
+control.kp_yaw / kp_pitch       增益。★仿真实测 kp=6 在 0.5s 检测延迟下过冲3倍
+                                丢码死锁；首动 0.5 起步，按实测延迟整定
+control.bearing.max_age_s       观测最大龄（默认0.15s）；按实测检测端到端延迟
+                                的 2 倍设置
+control.omega_max_yaw/pitch     角速度上限（协议上限2 rad/s；首动压 0.5）
+control.omega_slew              斜坡 rad/s²（默认15，与固件一致）
+gimbal.yaw_limits/pitch_limits  软限位（机械关节角域，来自 joint_states；
+                                绝不可用 IMU world 姿态替代）
+perception.target_digit         目标 ID 运行时切换
+======================  =====================================================
+
+停止语义：观测丢失/超龄、关节角缺失或超龄、epoch 复位、相机旋转外参非零、
+任一开关为 false → 每拍发布 ``valid=false`` 零指令（下游清斜坡，固件看门狗
+在 0.5s 内停转、3.5s 松弛）。
 """
 
 from __future__ import annotations

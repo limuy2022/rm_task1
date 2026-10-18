@@ -62,6 +62,9 @@
     control.camera_fx: 0.0
     control.camera_width: 0.0
     # --- control.bearing（相机方位闭环 gimbal_bearing_node；审计 P0 控制ROS接入）---
+    # 实机完整操作手册见 launch/bearing_hardware.launch.py 文件头（上机前置、
+    # 三步启动、四道安全开关、运行时调参速查）；仿真验证证据见
+    # docs/当前任务/轴承闭环仿真验证.md。
     # 与 control.enabled（旧 world 控制器）互斥：两个节点同发 /gimbal/cmd_omega，
     # launch 层保证同时只启动一个。
     control.bearing.enabled: false            # ⚠ 操作员开关；上机按 D5 检查单分步打开

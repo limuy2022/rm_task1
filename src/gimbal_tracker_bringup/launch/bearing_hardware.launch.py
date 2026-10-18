@@ -5,19 +5,85 @@
 发布同一 ``/gimbal/cmd_omega``：**不得同时启动**，也不要与 competition/sim 主链
 中的 vgimbal 桥并存。
 
-四道开关全部默认关闭，按实验室手册 D5 检查单**分步**打开：
+════════════════════════════════════════════════════════════════════════
+一、上机前置（缺一不开环；详见实验室手册 B5 检查单）
+════════════════════════════════════════════════════════════════════════
+* NUC：Ubuntu 22.04 + ROS 2 Humble，本仓库已 colcon build 并 source。
+* 0x01 反馈确认：串口唯一、IMU 话题持续新鲜（本队实测有效串口 /dev/ttyUSB0，
+  ``robo_bridge`` 发布 ``/red_standard_robot1/gimbal``，Publisher count 应为 1）。
+* 轴向核对：按协议§13 手转验证并写定 ``yaw_sign``/``pitch_sign``
+  （桥启动参数；方向反了停机改这里，不得改误差符号绕过）。
+* 整车参数实测：四个 kinematics 标定开关置 true、几何按实测填写；
+  ``calibrated_epoch`` 每次上电会话重新对齐后更新。
+* 相机-云台**旋转**外参 ≈ 0（有旋转本入口直接拒动）；
+  ``perception.marker_size_m`` 用尺复核 0.10 m。
 
-1. ``ros2 launch gimbal_tracker_bringup bearing_hardware.launch.py \\
-      vehicle_config:=<实测整车参数> target_id:=<官方ID>``（全部只读）
-2. 确认 0x01 反馈与关节角新鲜（B3 入口 / ``/gimbal/joint_states``）
-3. 轴向核对（协议§13 手转 + ``yaw_sign``/``pitch_sign``）后：
-   ``allow_command_subscription:=true``
-4. 低速闭环： ``control_enabled:=true bearing_enabled:=true geometry_verified:=true``
+════════════════════════════════════════════════════════════════════════
+二、分步启动（每步观察通过后再进下一步，现场观察人手握急停）
+════════════════════════════════════════════════════════════════════════
+::
 
-``vehicle_config`` 必须是**实测确认**的整车参数（四个 kinematics 标定开关 +
-``calibrated_epoch`` 已按当前上电会话填写）；未测模板会被 ``load_vehicle_config``
-直接拒绝。首次 kp 建议 0.5~1.0 量级低速试起，按实测检测延迟整定
-（仿真证据见 docs/当前任务/轴承闭环仿真验证.md：kp=6 在 0.5s 检测延迟下发散）。
+    # 第1步：完全只读——四道开关全关，云台不会动
+    ros2 launch gimbal_tracker_bringup bearing_hardware.launch.py \\
+      vehicle_config:=<实测整车参数.yaml> target_id:=<官方ID> port:=/dev/ttyUSB0
+
+    # 通过判据：/gimbal/joint_states 持续新鲜（kinematics 无 fault）；
+    #           对准实体码时 /perception/marker_cam valid=true
+
+    # 第2步：桥开始订阅指令（后面两道开关仍关，云台仍不动）
+    #   重启并追加：allow_command_subscription:=true
+
+    # 第3步：低速闭环
+    #   重启并追加：control_enabled:=true bearing_enabled:=true geometry_verified:=true
+    #   通过判据：对准码后云台朝码转动并收敛；方向反→立即停，查 yaw_sign/pitch_sign
+    #   30秒验收：角误差 RMS<2°、无持续振荡/越界、码稳定留在图像中心区
+    #   停止行为：遮挡码≥max_age → valid=false 减速停止；MCU复位 → epoch-reset，
+    #             需关→开 control.bearing.enabled 重新上膛
+
+════════════════════════════════════════════════════════════════════════
+三、launch 参数（启动时指定）
+════════════════════════════════════════════════════════════════════════
+=========================  =============================================
+vehicle_config              必填。实测整车参数；未测模板会被 load_vehicle_config 拒绝
+target_id                   -1=等待（默认）；官方 ID 0..49
+port                        默认 /dev/gimbal；本队机器用 /dev/ttyUSB0
+camera_config               相机标定 yaml（默认 camera_team47.yaml）
+allow_command_subscription  false→true：42桥开始订阅指令（轴向核对后才可开）
+control_enabled             false→true：适配器开始转发指令（低速首动前保持 false）
+bearing_enabled             control.bearing.enabled；亦可运行时 ros2 param 改
+geometry_verified           相机-云台旋转外参实测确认后置 true
+=========================  =============================================
+
+════════════════════════════════════════════════════════════════════════
+四、运行时动态参数（ros2 param set，无需重启）
+════════════════════════════════════════════════════════════════════════
+全部挂在 /gimbal_bearing_node 下（适配器开关在 /hardware_adapter_node）::
+
+    ros2 param set /gimbal_bearing_node control.bearing.enabled true
+
+* ``control.bearing.enabled``      总开关；关→开上升沿清 epoch fault（重新上膛）
+* ``control.kp_yaw / kp_pitch``    ★最重要：仿真实测 kp=6 在 0.5s 检测延迟下
+                                    过冲3倍丢码死锁——首次上机 0.5 起步，稳了再升
+* ``control.bearing.max_age_s``    观测最大龄；按实测"图像stamp→marker_cam到达"
+                                    延迟的 2 倍设置（默认 0.15s）
+* ``control.omega_max_yaw/pitch``  首动压到 0.5 rad/s（协议上限 2 不是首动建议值）
+* ``control.omega_slew``           斜坡（rad/s²，默认 15，与固件一致）
+* ``gimbal.yaw_limits / pitch_limits / limit_margin``   软限位（关节角域）
+* ``perception.target_digit``      目标 ID 运行时切换
+* ``/hardware_adapter_node control_enabled``            适配器每拍读参数，可热切换
+
+需重启才生效：``yaw_sign``/``pitch_sign``（桥启动参数）、相机标定 yaml
+（含 marker_size_m）、整车参数里的 kinematics 几何与 calibrated_epoch。
+
+════════════════════════════════════════════════════════════════════════
+五、调参顺序与更多细节
+════════════════════════════════════════════════════════════════════════
+只读跑通数据链 → kp=0.5/omega_max=0.5 验证转向正确 → 按 30s 闭环表现逐步升
+kp 与 omega_max → 遮挡测试停止行为。每步通过判据见手册 B5 表格；
+仿真证据与坑（残留进程、延迟-增益稳定性、日志修复）见
+docs/当前任务/轴承闭环仿真验证.md。正式默认值集中在
+config/tracker_params.yaml 的 control.bearing.* 段；仿真专用参数隔离在
+config/vehicle_sim.yaml，不照抄到实机。
 """
 
 from __future__ import annotations
