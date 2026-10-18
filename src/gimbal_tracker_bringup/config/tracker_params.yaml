@@ -57,10 +57,18 @@
     control.aim_mode: cur               # cur | pred
     control.height_cutoff_hz: 8.0       # 目标高度 z 的低通截止（P0 辅助通道，见 T03 说明）
     # 水平半视场：搜索幅值上限的来源。**不在此处写死内参**（DESIGN §8.6 单一数据源）。
-    # 0 = 自动从 config.virtual.yaml 的 camera.width/camera.fx 计算 atan(width/2/fx)；
+    # 0 = 自动从 config.virtual_yaml 的 camera.width/camera.fx 计算 atan(width/2/fx)；
     # 两个都 >0 时才作为显式覆盖（调试用）。
     control.camera_fx: 0.0
     control.camera_width: 0.0
+    # --- control.bearing（相机方位闭环 gimbal_bearing_node；审计 P0 控制ROS接入）---
+    # 与 control.enabled（旧 world 控制器）互斥：两个节点同发 /gimbal/cmd_omega，
+    # launch 层保证同时只启动一个。
+    control.bearing.enabled: false            # ⚠ 操作员开关；上机按 D5 检查单分步打开
+    control.bearing.geometry_verified: false  # ⚠ 相机-云台旋转外参已实测确认的操作员断言
+    control.bearing.max_age_s: 0.15           # 观测最大龄（源 stamp 折算）
+    control.bearing.joint_timeout_s: 0.2      # 关节角最大龄（kinematics.max_age_s 同量级）
+    control.bearing.rate_hz: 50.0             # 指令频率（>20Hz 协议要求；50Hz 与适配器一致）
 
     # ---------------- perception（视觉感知）----------------
     # 官方规定码边长 0.1 m（DICT_4X4_50）。⚠ 上场前必须用尺子复核，

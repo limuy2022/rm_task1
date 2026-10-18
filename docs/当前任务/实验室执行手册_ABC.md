@@ -517,6 +517,33 @@ CSV无表头、九列，前八列每行数值应为`1,2,1,2,0.5,-0.25,0.3,0.4`�
 
 **B交付：**版本/改动、构建日志、视觉/反馈证据、20及1800拍原始产物。每项标通过/失败/未执行；报错带命令和第一条实际错误上下文，不只说“启动不了”。
 
+### B5. 云台低速闭环（D5）：轴承链分步启用检查单
+
+前提（缺一不开环）：B3 已确认 0x01 首帧与静止读数正常；协议§13 轴向手转核对完成并写入 `yaw_sign`/`pitch_sign`；整车参数四个 kinematics 标定开关已实测确认、`calibrated_epoch` 已按本会上电填写；A 已确认相机-云台**旋转**外参≈0（有旋转则本入口拒动）。
+
+虚拟云台全链证据见[轴承闭环仿真验证](轴承闭环仿真验证.md)：收敛1.8s、稳态RMS 0.10°、丢失/epoch复位即停。仿真同时证明：**kp=6 在 0.5s 检测延迟下向正确方向过冲3倍后丢码死锁**——实机 kp 必须按实测检测延迟整定，从低速小增益起步。
+
+唯一入口（四道开关默认全关，`vehicle_config` 未实测会被拒绝）：
+
+```bash
+ros2 launch gimbal_tracker_bringup bearing_hardware.launch.py \
+  vehicle_config:=<实测整车参数.yaml> target_id:=<官方ID> port:=/dev/gimbal
+```
+
+分步（每步观察后再进下一步，全程现场观察人手握急停）：
+
+| 步 | 动作 | 通过判据 |
+|---|---|---|
+| 1 | 默认只读启动 | `/gimbal/joint_states` 持续新鲜（kinematics 无 fault 日志）；`/perception/marker_cam` 对准实体码时 valid=true |
+| 2 | `allow_command_subscription:=true` | 桥日志出现指令订阅；**云台仍不动**（三道开关余下全关） |
+| 3 | 低速点动验证方向：临时 `ros2 param set /gimbal_bearing_node control.kp_yaw 0.5`（同 pitch），`control_enabled:=true bearing_enabled:=true geometry_verified:=true` 重启 | 对准码后云台**朝码转动**；方向反→停，查 `yaw_sign`/`pitch_sign`，不得用改误差符号绕过 |
+| 4 | 30秒低速闭环 | 角误差RMS<2°、无持续振荡/越界；码稳定留在图像中心区 |
+| 5 | 停止行为 | 遮挡码≥0.5s → `/gimbal/cmd_omega` valid=false、云台减速停止；MCU复位(epoch变化) → bearing 进 `epoch-reset`，需关→开 `control.bearing.enabled` 重新上膛 |
+
+首次参数：`control.kp_yaw/kp_pitch` 从 0.5 起步；`control.bearing.max_age_s` 按实测"图像stamp→marker_cam到达"延迟的2倍设置；`omega_max` 先压到 0.5rad/s（协议上限2不是首动建议值）。每步记录：参数、时长、角误差（人工读码在图像中的偏移或录像）、停止行为。失败即回退上一步开关，不带故障叠加试验。
+
+与旧 world 控制器同发 `/gimbal/cmd_omega`：本入口运行期间**禁止**启动 `gimbal_controller_node`/competition 主链。
+
 ## 五、C：把设备、真实输入和定位状态查清楚
 
 ### C0. 阅读和用途
@@ -672,10 +699,10 @@ A给变换和不确定项，B接实际安装与观测时刻，C提供独立测�
 | 图像方向/安装 | A/C的变换表及B2位置/符号结果 |
 | IMU与LIO对齐 | A6和另一姿态核验；MCU复位后重新确认 |
 | 关节零位、限位、停止 | C的可复现说明，不用world yaw冒充机械关节角 |
-| 控制器适配 | 离线已修惯性姿态/关节限位混用；仍需据实测装配选择适用控制入口，默认关闭控制/搜索/前馈 |
+| 控制器适配 | 离线已修惯性姿态/关节限位混用；轴承闭环入口为B5（`bearing_hardware.launch.py`，四道开关默认全关），虚拟云台全链已验证（见[轴承闭环仿真验证](轴承闭环仿真验证.md)） |
 | 超时/复位门控 | B对应逻辑结果，再按许可现场验证，离线通过不冒充下位机实测 |
 
-齐全后，B再提供一份写明允许角速度、持续时间、停止条件和现场观察人的控制试验步骤。当前不丢一条enable命令让大家试转：机械信息和控制修正确实尚缺。这是有负责人和前置条件的后续工作。
+齐全后按B5检查单分步执行（允许角速度、持续时间、停止条件和现场观察人都已写入）。仍然不丢一条enable命令让大家试转：B5每步都有通过判据和回退动作，前置缺失时入口本身拒绝启动。
 
 ## 七、记录如何变成统计与验收结果
 

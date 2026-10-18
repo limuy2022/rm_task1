@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'gimbal_controller_node = gimbal_control.gimbal_controller_node:main',
+            'gimbal_bearing_node = gimbal_control.gimbal_bearing_node:main',
         ],
     },
 )

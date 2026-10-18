@@ -22,20 +22,50 @@ LEVELS = ('debug', 'info', 'warn', 'error', 'fatal')
 _LAST_EMIT: Dict[str, float] = {}
 
 
+# --------------------------------------------------------------------------
+# 每个严重级一个独立入口函数。
+#
+# rclpy(Humble) 的 rcutils_logger 按「调用点帧」缓存日志上下文，同一帧先 INFO
+# 再 WARN 会抛 ValueError('Logger severity cannot be changed between calls.')。
+# 若所有等级共用一个分发帧（旧版 _emit/_FormatLogger.emit），任何混用等级的
+# logger 都会崩溃——ROS 实跑下 gimbal_controller/bearing 节点均会踩中。
+# 每级一个模块级函数即可让上下文按严重级自然分离。
+# --------------------------------------------------------------------------
+def _log_debug(logger: Any, message: str) -> None:
+    logger.debug(message)
+
+
+def _log_info(logger: Any, message: str) -> None:
+    logger.info(message)
+
+
+def _log_warning(logger: Any, message: str) -> None:
+    fn = getattr(logger, 'warning', None) or getattr(logger, 'warn')
+    fn(message)
+
+
+def _log_error(logger: Any, message: str) -> None:
+    logger.error(message)
+
+
+def _log_fatal(logger: Any, message: str) -> None:
+    fn = getattr(logger, 'fatal', None) or getattr(logger, 'critical')
+    fn(message)
+
+
+_EMIT_BY_LEVEL = {
+    'debug': _log_debug, 10: _log_debug,
+    'info': _log_info, 20: _log_info,
+    'warn': _log_warning, 'warning': _log_warning, 30: _log_warning,
+    'error': _log_error, 40: _log_error,
+    'fatal': _log_fatal, 'critical': _log_fatal, 50: _log_fatal,
+}
+
+
 def _emit(logger: Any, level: Union[str, int], msg: str) -> None:
     """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。"""
     lv = str(level).lower() if isinstance(level, str) else level
-    if lv in ('warn', 'warning', 30):
-        fn = getattr(logger, 'warning', None) or getattr(logger, 'warn')
-        fn(msg)
-    elif lv in ('error', 40):
-        logger.error(msg)
-    elif lv in ('fatal', 'critical', 50):
-        logger.fatal(msg)
-    elif lv in ('debug', 10):
-        logger.debug(msg)
-    else:
-        logger.info(msg)
+    _EMIT_BY_LEVEL.get(lv, _log_info)(logger, msg)
 
 
 class _FormatLogger:
@@ -44,11 +74,12 @@ class _FormatLogger:
         self._logger = logger
 
     def __getattr__(self, name):
-        fn = getattr(self._logger, name)
-        if name not in ('debug', 'info', 'warning', 'warn', 'error', 'fatal', 'critical'):
-            return fn
-        def emit(message, *args, **kwargs):
-            return fn(message % args if args else message, **kwargs)
+        if name not in _EMIT_BY_LEVEL:
+            return getattr(self._logger, name)
+        emit_fn = _EMIT_BY_LEVEL[name]
+        logger = self._logger
+        def emit(message, *args):
+            return emit_fn(logger, message % args if args else message)
         return emit
 
 
