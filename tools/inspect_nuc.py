@@ -18,9 +18,9 @@ def inspect_serial_alias(path: Path) -> dict:
     result = {'path': str(path), 'opens_serial_device': False}
     try:
         info = path.lstat()
-    except FileNotFoundError:
+    except FileNotFoundError:  # 本工具就是检查失效串口链接；不存在是需要显示的诊断结果。
         return dict(result, status='missing', detail='路径本身不存在')
-    except OSError as exc:
+    except OSError as exc:  # 权限/设备文件系统错误保留在诊断输出中，不尝试打开设备。
         return dict(result, status='metadata_error', detail=str(exc))
     result['is_symlink'] = stat.S_ISLNK(info.st_mode)
     if result['is_symlink']:
@@ -28,9 +28,9 @@ def inspect_serial_alias(path: Path) -> dict:
     try:
         resolved = path.resolve(strict=True)
         target_info = resolved.stat()
-    except FileNotFoundError:
+    except FileNotFoundError:  # 区分链接本身存在而最终TTY已消失。
         return dict(result, status='dangling', detail='链接存在，最终目标不存在；这是当前状态')
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError) as exc:  # 链接权限或循环链接阻止解析，输出真实原因。
         return dict(result, status='resolve_error', detail=str(exc))
     result.update(resolved_target=str(resolved), mode=oct(stat.S_IMODE(target_info.st_mode)))
     if not stat.S_ISCHR(target_info.st_mode):
@@ -66,7 +66,8 @@ def inspect_ros(expected_install: Path | None = None) -> dict:
             support.check_for_type_support(cls)
             result[name] = {'python_module': cls.__module__, 'type_support_imported': True}
         result['status'] = 'type_support_ok'
-    except Exception as exc:
+    except (ImportError, AttributeError, LookupError, RuntimeError) as exc:
+        # 这是专门诊断生成消息/type-support失败的工具；保留原异常与traceback供现场排查。
         result.update(status='import_failed', error=f'{type(exc).__name__}: {exc}',
                       traceback=traceback.format_exc())
     return result

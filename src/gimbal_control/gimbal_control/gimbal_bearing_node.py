@@ -130,14 +130,14 @@ class GimbalBearingNode(Node):
         d('gimbal.limit_margin', DEFAULT_LIMIT_MARGIN)
 
         # pitch 符号的唯一入口在 gimbal_common.frames；与旧控制器同款透传。
-        _set_pitch_sign = getattr(frames, 'set_pitch_sign', None)
-        if callable(_set_pitch_sign):
-            d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
-            _set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
+        d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
+        frames.set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
 
         p = self.get_parameter
         rate_hz = float(p('control.bearing.rate_hz').value)
-        self._rate_hz = rate_hz if rate_hz > 0.0 else 50.0
+        if not math.isfinite(rate_hz) or rate_hz <= 0:
+            raise ValueError('control.bearing.rate_hz must be positive and finite')
+        self._rate_hz = rate_hz
 
         yaw_lim = [float(v) for v in p('gimbal.yaw_limits').value]
         pitch_lim = [float(v) for v in p('gimbal.pitch_limits').value]
@@ -187,16 +187,13 @@ class GimbalBearingNode(Node):
     # ------------------------------------------------------------------ 时间
     def _source_time(self, msg, timeout: float) -> Optional[float]:
         """拒绝旧/未来/零 ROS stamp：到达本身不等于新鲜（与旧控制器同款）。"""
-        try:
-            stamp = msg.header.stamp
-            source = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
-            ros_now = float(self.get_clock().now().nanoseconds) * 1e-9
-            age = ros_now - source
-            if source <= 0.0 or not math.isfinite(source) or not -0.03 <= age <= timeout:
-                return None
-            return source
-        except (AttributeError, TypeError, ValueError):
+        stamp = msg.header.stamp
+        source = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+        ros_now = float(self.get_clock().now().nanoseconds) * 1e-9
+        age = ros_now - source
+        if source <= 0.0 or not math.isfinite(source) or not -0.03 <= age <= timeout:
             return None
+        return source
 
     def _mono_of(self, source_t: float) -> float:
         """把 ROS 源时刻折算到单调时钟域：``now() - source_age``。"""
@@ -216,7 +213,8 @@ class GimbalBearingNode(Node):
                 self._log.info('目标 ID 切换: %s → %d', self._sup.last_marker_id, marker_id)
             self._sup.on_marker(msg.x, msg.y, msg.z, bool(msg.valid),
                                 t_msg, marker_id=marker_id)
-        except Exception as exc:  # pragma: no cover - 回调异常不得中断回路
+        except (TypeError, ValueError, OverflowError) as exc:
+            # 外部目标观测非法时清除有效观测，下一拍输出停止。
             throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc', 1.0)
             self._sup.on_marker(0.0, 0.0, 0.0, False, None)
 
@@ -234,17 +232,15 @@ class GimbalBearingNode(Node):
             yaw = float(msg.position[names.index(yaw_name)])
             pitch = float(msg.position[names.index(pitch_name)])
             self._sup.on_joints(yaw, pitch, t_msg)
-        except (AttributeError, IndexError, TypeError, ValueError):
+        except (IndexError, TypeError, ValueError):
+            # JointState.position 长度/数值来自外部；畸形反馈必须清空并停止。
             self._sup.on_joints(0.0, 0.0, None)
 
     def on_epoch(self, msg: UInt64) -> None:
-        try:
-            if self._sup.on_epoch(int(msg.data)):
-                self._log.error('云台 MCU 复位（epoch 变化）：输出已停止。'
-                                '需将 control.bearing.enabled 关→开后重新上膛，'
-                                '并按手册重新确认外参/零位。')
-        except (TypeError, ValueError):
-            return
+        if self._sup.on_epoch(msg.data):
+            self._log.error('云台 MCU 复位（epoch 变化）：输出已停止。'
+                            '需将 control.bearing.enabled 关→开后重新上膛，'
+                            '并按手册重新确认外参/零位。')
 
     # ------------------------------------------------------------------ 定时
     def tick(self) -> None:
@@ -272,31 +268,22 @@ class GimbalBearingNode(Node):
                           '闭环停止: %s（marker_age=%.3fs）'
                           % (decision.reason, decision.marker_age_s),
                           'bearing_stop_' + decision.reason, 1.0)
-        except Exception as exc:  # pragma: no cover - 定时器异常不得中断回路
+        except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError) as exc:
+            # 外部数值/运行参数失败必须清斜坡并停止，不能复用上一拍角速度。
             self._sup.law.reset()
             throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc', 1.0)
-            try:
-                msg = GimbalOmegaCmd()
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.yaw_omega = 0.0
-                msg.pitch_omega = 0.0
-                msg.valid = False
-                self._pub.publish(msg)
-            except Exception:
-                pass
+            self.publish_stop()
 
     # ------------------------------------------------------------------ 收尾
     def publish_stop(self) -> None:
         """退出前发一帧零指令（下游 CommandGate 清斜坡，固件看门狗停转）。"""
-        try:
-            msg = GimbalOmegaCmd()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.yaw_omega = 0.0
-            msg.pitch_omega = 0.0
-            msg.valid = False
-            self._pub.publish(msg)
-        except Exception:
-            pass
+        msg = GimbalOmegaCmd()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'gimbal_link'
+        msg.yaw_omega = 0.0
+        msg.pitch_omega = 0.0
+        msg.valid = False
+        self._pub.publish(msg)
 
     def shutdown_summary(self) -> None:
         self._log.info('gimbal_bearing_node 退出 | 运行 %.1fs, %s',
@@ -307,32 +294,16 @@ def main(args=None) -> int:
     """节点入口。"""
     rclpy.init(args=args)
     node = GimbalBearingNode()
-    code = 0
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        code = 0
-    except Exception as exc:  # pragma: no cover
-        node._log.error('gimbal_bearing_node 异常退出: %s' % exc)
-        code = 1
+    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
+        pass
     finally:
-        try:
-            node.publish_stop()
-        except Exception:
-            pass
-        try:
-            node.shutdown_summary()
-        except Exception:
-            pass
-        try:
-            node.destroy_node()
-        except Exception:
-            pass
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
-    return code
+        node.publish_stop()
+        node.shutdown_summary()
+        node.destroy_node()
+        rclpy.shutdown()
+    return 0
 
 
 if __name__ == '__main__':

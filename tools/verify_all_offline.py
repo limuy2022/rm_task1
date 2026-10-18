@@ -33,7 +33,9 @@ def main():
             proc = subprocess.run(command,cwd=ROOT,env=env,text=True,stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT,timeout=60)
             code,text = proc.returncode,proc.stdout
-        except (OSError,subprocess.TimeoutExpired) as exc: code,text = 1,repr(exc)
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            # 单项无法启动/超时是失败；保存原因后继续执行其它独立检查。
+            code,text = 1,repr(exc)
         (output/(name+'.log')).write_text(text)
         row = dict(name=name,returncode=code,seconds=round(time.perf_counter()-begin,3))
         result.append(row); print(('PASS' if code==0 else 'FAIL'),name,flush=True)

@@ -52,10 +52,7 @@ class AxisPID:
     def __init__(self, kp=2.0, ki=0.0, kd=0.0, output_limit=.25,
                  integral_limit=.1, derivative_tau=.05):
         settings = (kp, ki, kd, output_limit, integral_limit, derivative_tau)
-        try:
-            settings = tuple(float(value) for value in settings)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError('PID parameters must be finite numbers') from exc
+        settings = tuple(float(value) for value in settings)
         if not all(math.isfinite(value) for value in settings):
             raise ValueError('PID parameters must be finite numbers')
         if any(value < 0 for value in settings) or settings[3] <= 0:
@@ -73,6 +70,7 @@ class AxisPID:
         try:
             error, dt = float(error), float(dt)
         except (TypeError, ValueError, OverflowError):
+            # 外部观测/时差非法时复位积分和导数，不沿用旧控制输出。
             self.reset()
             return 0.0
         if not math.isfinite(error) or not math.isfinite(dt) or dt <= 0:

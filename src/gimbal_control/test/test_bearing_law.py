@@ -11,7 +11,7 @@
 4. 限幅链与闭环收敛：slew 从零起步、软限位衰减、invalid 后斜坡历史清零；
    一阶云台模型下闭环收敛到静态目标。
 
-**不依赖 rclpy**：全部在 numpy 上跑（conftest 安装 _stub）。
+**不依赖 rclpy**：全部在 numpy 上跑，使用本仓库真实 common。
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from gimbal_control.control_law import (  # noqa: E402
     r_gimbal_from_opt,
 )
 
-#: 标准 ``R_gimbal←opt``（optical z 向前 → gimbal x；与 r_gimbal_from_opt 兜底一致）
+#: 标准 ``R_gimbal←opt``（optical z 向前 → gimbal x；与真实 common 定义一致）
 R_GO = np.array([[0.0, 0.0, 1.0],
                  [-1.0, 0.0, 0.0],
                  [0.0, -1.0, 0.0]])
@@ -240,7 +240,7 @@ def test_feedforward_base_turning_left_compensates_right():
 
 
 def test_r_gimbal_from_opt_convention():
-    """r_gimbal_from_opt 的兜底矩阵与本测试使用的 R_GO 同约定（optical z→gimbal x）。"""
+    """r_gimbal_from_opt 与 R_GO 同约定（optical z→gimbal x）。"""
     R = r_gimbal_from_opt()
     assert np.allclose(R, R_GO) or np.allclose(R @ R.T, np.eye(3), atol=1e-6)
     assert np.allclose(R[:, 2], (1.0, 0.0, 0.0), atol=1e-6)

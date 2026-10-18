@@ -213,7 +213,7 @@ class ControlRegressions(unittest.TestCase):
 
     def test_sight_line_rate_matches_finite_difference_off_horizon(self):
         r = np.array([1.5, .5, 1.2]); velocity = np.array([-.2, .4, .3]); eps = 1e-6
-        ff = feedforward(r, velocity, [0, 1, 0])
+        ff = feedforward(r, velocity)
         def angles(point):
             return np.array([math.atan2(point[1], point[0]),
                              -math.atan2(point[2], math.hypot(point[0], point[1]))])

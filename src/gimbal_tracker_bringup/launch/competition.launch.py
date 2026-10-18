@@ -8,7 +8,7 @@
 读取 config/tracker_params.yaml    → 各节点
 节点：grid_mapper → base_pose_provider → map_frame_broadcaster → vgimbal_bridge
       → marker_pnp → target_estimator → gimbal_controller → chassis_advisor
-      → csv_writer → trajectory_annotator [→ gt_error_monitor(可选)]
+      → judge_io → trajectory_annotator [→ gt_error_monitor(可选)]
 TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mission complete')
 ```
 
@@ -32,8 +32,7 @@ TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mis
 即沿用 `config/tracker_params.yaml` 的值；只有场地文件路径与任务时长会被显式注入，
 以保证 launch 与节点看到同一份配置。
 
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证；待 Ubuntu 24.04 + ROS 2 Jazzy 上
-``ros2 launch gimbal_tracker_bringup competition.launch.py --show-args`` 与实跑验证。
+运行环境：Ubuntu 22.04 / ROS2 Humble。
 """
 
 from __future__ import annotations
@@ -81,23 +80,21 @@ def _as_bool(text: Any, default: bool = False) -> bool:
     s = str(text).strip().lower() if text is not None else ''
     if s == '':
         return default
-    return s in ('1', 'true', 'yes', 'on', 'y', 't')
+    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
+        return True
+    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
+        return False
+    raise ValueError(f'非法布尔参数: {text!r}')
 
 
 def _flat_params(path: str) -> Dict[str, Any]:
-    """读取 `tracker_params.yaml` 的 `/**/ros__parameters` 扁平字典（失败返回空）。"""
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-    except Exception:  # pragma: no cover - 缺失时由节点侧 FATAL，此处退回默认
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    wildcard = data.get('/**')
-    if not isinstance(wildcard, dict):
-        return {}
-    params = wildcard.get('ros__parameters')
-    return params if isinstance(params, dict) else {}
+    """读取实际参数；缺文件、坏 YAML 和错误结构直接终止启动。"""
+    with open(path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    params = data['/**']['ros__parameters']
+    if not isinstance(params, dict):
+        raise ValueError('需要 /**: ros__parameters: 参数映射')
+    return params
 
 
 def _put_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
@@ -112,10 +109,7 @@ def _put_num_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
     s = str(text).strip() if text is not None else ''
     if s == '':
         return
-    try:
-        over[key] = float(s)
-    except ValueError:
-        over[key] = s
+    over[key] = float(s)
 
 
 def _put_int_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
@@ -123,10 +117,7 @@ def _put_int_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
     s = str(text).strip() if text is not None else ''
     if s == '':
         return
-    try:
-        over[key] = int(float(s))
-    except ValueError:
-        over[key] = s
+    over[key] = int(s)
 
 
 def _parse_extra_params(text: Any) -> Dict[str, Any]:
@@ -188,7 +179,10 @@ def _parse_extra_params(text: Any) -> Dict[str, Any]:
         raw = raw.strip()
         try:
             over[key] = json.loads(raw)
-        except ValueError:
+        except json.JSONDecodeError:
+            # 未加引号的串口路径/普通文本合法；损坏的 JSON 容器不能当文本放行。
+            if raw.startswith(('[', '{', '"')):
+                raise
             over[key] = raw
     return over
 
@@ -262,9 +256,6 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
                 LaunchConfiguration('grid_map_topic').perform(context))
     _put_num_if_set(over, 'grid.republish_period_s',
                     LaunchConfiguration('grid_republish_period_s').perform(context))
-    extra = str(LaunchConfiguration('csv_extra_cols').perform(context)).strip()
-    if extra != '':
-        over['csv.csv_extra_cols'] = _as_bool(extra, False)
     preview = str(LaunchConfiguration('grid_write_preview_png').perform(context)).strip()
     if preview != '':
         over['grid.write_preview_png'] = _as_bool(preview, True)
@@ -272,10 +263,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     # ---- 任意参数覆盖（最后应用 → 优先级最高）：`extra_params:="键=值;键=值"`
     extra_text = str(LaunchConfiguration('extra_params').perform(context)).strip()
     if extra_text:
-        try:
-            extra_over = _parse_extra_params(extra_text)
-        except ValueError as exc:
-            raise RuntimeError('[competition] extra_params 解析失败：%s' % exc)
+        extra_over = _parse_extra_params(extra_text)
         over.update(extra_over)
         bad = [k for k in extra_over if '.' not in k]
         if bad:
@@ -334,8 +322,6 @@ def generate_launch_description() -> LaunchDescription:
                               description='底盘建议速度上限 m/s（空 = 用参数值）'),
         DeclareLaunchArgument('cmd_frame', default_value='',
                               description='cmd_v 参考系 map|base_link（空 = 用参数值）'),
-        DeclareLaunchArgument('csv_extra_cols', default_value='',
-                              description='是否写第 9/10 列（空 = 用参数值；默认严格 8 列）'),
         DeclareLaunchArgument('csv_out_dir', default_value='',
                               description='产物根目录（空 = 用参数文件 config.outputs_dir / csv.out_dir）'),
         DeclareLaunchArgument('csv_run_id', default_value='',

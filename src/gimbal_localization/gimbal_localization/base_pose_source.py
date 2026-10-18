@@ -71,6 +71,7 @@ class BasePoseSource(ABC):
     def __init__(self, frame_id: str = 'odom', child_frame_id: str = 'base_link') -> None:
         self.frame_id: str = str(frame_id)
         self.child_frame_id: str = str(child_frame_id)
+        self.latest: Optional[ConvertedOdometry] = None
 
     @abstractmethod
     def poll(self, t_mono: float) -> Pose2D:
@@ -126,7 +127,6 @@ class OdomTopicSource(BasePoseSource):
         self.twist_source = str(twist_source)
         if self.twist_source not in ('message', 'pose_difference'):
             raise ValueError('odom_twist_source must be message or pose_difference')
-        self.latest: Optional[ConvertedOdometry] = None
         self._last: Optional[Pose2D] = None
         self._last_t_mono = -math.inf
         self._n_msgs = 0
@@ -158,10 +158,8 @@ class OdomTopicSource(BasePoseSource):
                 return
             if previous_stamp is not None and stamp < previous_stamp:
                 raise ValueError('odometry stamp moved backwards; reset source before a new replay')
-        except AttributeError as exc:
-            self._invalid = True
-            raise TypeError('odometry must contain header and child_frame_id') from exc
-        except Exception:
+        except (TypeError, ValueError):
+            # A rejected external sample invalidates cached output until recovery.
             self._invalid = True
             raise
         self.latest = converted

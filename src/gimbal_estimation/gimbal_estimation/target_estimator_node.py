@@ -19,7 +19,7 @@ from std_msgs.msg import UInt64
 from gimbal_interfaces.msg import MarkerObservation, TargetState
 from gimbal_common import frames
 from gimbal_common.time_buffer import stamp_seconds
-from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.log_utils import get_logger
 from .ca_kalman import CAKalman
 from .observation_builder import ObservationBuilder
 from .stamped_tracker import StampedTracker
@@ -90,7 +90,9 @@ class TargetEstimatorNode(Node):
             self._pending.sort(key=lambda m:stamp_seconds(m.header.stamp))
             self._pending=self._pending[-32:]
             self._drain()
-        except (AttributeError,TypeError,ValueError):self._n_rejected+=1
+        except (TypeError,ValueError):
+            # Invalid observation stamp/data cannot be sent into the estimator.
+            self._n_rejected+=1
 
     def _drain(self):
         current=self.get_clock().now().nanoseconds*1e-9
@@ -106,6 +108,7 @@ class TargetEstimatorNode(Node):
                 tf=self._tf_buffer.lookup_transform(self._frame,self._camera_frame,
                     Time.from_msg(msg.header.stamp),timeout=Duration(seconds=0.))
             except TransformException:
+                # TF may arrive after the image; queue only until the observation deadline.
                 remaining.append(msg);continue
             tr=tf.transform
             q=np.array([tr.rotation.w,tr.rotation.x,tr.rotation.y,tr.rotation.z])
@@ -121,23 +124,20 @@ class TargetEstimatorNode(Node):
         self._pending=remaining
 
     def tick(self):
-        try:
-            confirmed=bool(self.get_parameter('estimation.geometry_confirmed').value)
-            if confirmed:self._drain()
-            else:self._tracker.reset();self._pending.clear()
-            stamp=self.get_clock().now().to_msg()
-            sample=self._tracker.sample(stamp_seconds(stamp),self._horizon)
-            msg=TargetState();msg.header.stamp=stamp;msg.header.frame_id=self._frame
-            msg.cur_x,msg.cur_y=map(float,sample.position)
-            msg.pred_x,msg.pred_y=map(float,sample.prediction)
-            msg.vel_x,msg.vel_y=map(float,sample.velocity)
-            msg.acc_x,msg.acc_y=map(float,sample.acceleration)
-            msg.cov_xy=list(map(float,sample.covariance.reshape(4)))
-            msg.valid=bool(sample.valid);msg.track_status=int(sample.status)
-            msg.last_obs_age=float(sample.age) if math.isfinite(sample.age) else -1.
-            self._pub.publish(msg)
-        except Exception as exc:
-            throttled(self._log,'error',f'目标处理异常: {exc!r}','tracker',1.)
+        confirmed=bool(self.get_parameter('estimation.geometry_confirmed').value)
+        if confirmed:self._drain()
+        else:self._tracker.reset();self._pending.clear()
+        stamp=self.get_clock().now().to_msg()
+        sample=self._tracker.sample(stamp_seconds(stamp),self._horizon)
+        msg=TargetState();msg.header.stamp=stamp;msg.header.frame_id=self._frame
+        msg.cur_x,msg.cur_y=map(float,sample.position)
+        msg.pred_x,msg.pred_y=map(float,sample.prediction)
+        msg.vel_x,msg.vel_y=map(float,sample.velocity)
+        msg.acc_x,msg.acc_y=map(float,sample.acceleration)
+        msg.cov_xy=list(map(float,sample.covariance.reshape(4)))
+        msg.valid=bool(sample.valid);msg.track_status=int(sample.status)
+        msg.last_obs_age=float(sample.age) if math.isfinite(sample.age) else -1.
+        self._pub.publish(msg)
 
     def shutdown_summary(self):
         self._log.info(f'图像时刻目标估计：接受{self._n_observed}，拒绝{self._n_rejected}；未代替实机验证')
@@ -146,6 +146,7 @@ class TargetEstimatorNode(Node):
 def main(args=None):
     rclpy.init(args=args);node=TargetEstimatorNode()
     try:rclpy.spin(node)
+    # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
     except KeyboardInterrupt:pass
     finally:
         node.shutdown_summary();node.destroy_node()

@@ -173,7 +173,7 @@ class VgimbalBridgeNode:
         """打开串口；失败返回 False（调用方应 FATAL 退出）。"""
         try:
             self._port.open()
-        except SerialPortError as exc:
+        except SerialPortError as exc:  # 真实串口故障需进入静默停止状态，避免继续下发旧速度。
             self._log.fatal(str(exc))
             return False
         self._log.info(f'串口已独占打开: {self._port.port}')
@@ -187,7 +187,8 @@ class VgimbalBridgeNode:
                 self._write_frame(P.encode_omega(0.0, 0.0,
                                                  omega_max=float(self._params['serial.omega_max'])))
             self._port.flush()
-        except Exception as exc:
+        except SerialPortError as exc:
+            # An unplugged/failing serial link must not prevent port cleanup.
             self._log.error(f'退出零指令发送失败: {exc!r}')
         finally:
             self._port.close()
@@ -220,8 +221,9 @@ class VgimbalBridgeNode:
                 self._absorb_bad_frames()
                 for frame in frames:
                     self._handle_frame(frame)
-        except Exception as exc:
-            LU.throttled(self._log, 'error', f'rx_tick 异常: {exc!r}', 'rx_tick', 1.0)
+        except SerialPortError as exc:
+            # Physical read failures leave the watchdog active; programming errors surface.
+            LU.throttled(self._log, 'error', f'串口读取失败: {exc!r}', 'rx_tick', 1.0)
         finally:
             self._lsm.tick()
             self._log_state_change()
@@ -325,37 +327,31 @@ class VgimbalBridgeNode:
         tf.transform.rotation.x = float(quat_wxyz[1])
         tf.transform.rotation.y = float(quat_wxyz[2])
         tf.transform.rotation.z = float(quat_wxyz[3])
-        try:
-            self._tf_broadcaster.sendTransform(tf)
-        except Exception as exc:
-            LU.throttled(self._log, 'warn', f'TF 发布失败: {exc!r}', 'tf_fail', 1.0)
+        self._tf_broadcaster.sendTransform(tf)
 
     # ------------------------------------------------------------------ 下发
     def _tx_tick(self) -> None:
         """100Hz 下发 ``0x30``；ACTIVE 且到期才发（首帧前一律不发）。"""
-        try:
-            if self._lsm.state == SHUTDOWN:
-                if self._lsm.take_zero_frame():
-                    self._write_frame(P.encode_omega(0.0, 0.0))
-                return
-            if not self._lsm.cmd_due():
-                return
-            fresh = (TU.now() - self._cmd_t_mono) <= float(self._params['serial.cmd_fresh_s'])
-            if self._cmd_valid and fresh:
-                frame = P.encode_omega(self._cmd_yaw, self._cmd_pitch,
-                                       omega_max=float(self._params['serial.omega_max']))
-            else:
-                frame = P.encode_omega(0.0, 0.0,
-                                       omega_max=float(self._params['serial.omega_max']))
-            self._write_frame(frame)
-        except Exception as exc:
-            LU.throttled(self._log, 'error', f'tx_tick 异常: {exc!r}', 'tx_tick', 1.0)
+        if self._lsm.state == SHUTDOWN:
+            if self._lsm.take_zero_frame():
+                self._write_frame(P.encode_omega(0.0, 0.0))
+            return
+        if not self._lsm.cmd_due():
+            return
+        fresh = (TU.now() - self._cmd_t_mono) <= float(self._params['serial.cmd_fresh_s'])
+        if self._cmd_valid and fresh:
+            frame = P.encode_omega(self._cmd_yaw, self._cmd_pitch,
+                                   omega_max=float(self._params['serial.omega_max']))
+        else:
+            frame = P.encode_omega(0.0, 0.0,
+                                   omega_max=float(self._params['serial.omega_max']))
+        self._write_frame(frame)
 
     def _write_frame(self, frame: bytes) -> None:
         """写串口；失败进故障静默。"""
         try:
             self._port.write(frame)
-        except SerialPortError as exc:
+        except SerialPortError as exc:  # 真实串口故障需进入静默停止状态，避免继续下发旧速度。
             LU.throttled(self._log, 'error', str(exc), 'write_fail', 1.0)
             self._lsm.on_write_failure()
 
@@ -383,8 +379,12 @@ class VgimbalBridgeNode:
             return
         try:
             data = json.loads(msg.data)
-        except Exception:
+        except json.JSONDecodeError:
+            # The simulator publishes external JSON; malformed status is discarded.
             LU.throttled(self._log, 'warn', f'status 非 JSON: {msg.data[:64]!r}', 'status_json', 1.0)
+            return
+        if not isinstance(data, dict):
+            LU.throttled(self._log, 'warn', 'status 必须是JSON对象', 'status_type', 1.0)
             return
         state = str(data.get('state', ''))
         if 'fault' in state.lower() or 'relax' in state.lower():
@@ -392,7 +392,9 @@ class VgimbalBridgeNode:
         try:
             skips = int(data.get('sim_skips', 0))
         except (TypeError, ValueError):
-            skips = 0
+            # An invalid external counter is unknown, not proof of zero skipped frames.
+            LU.throttled(self._log, 'warn', 'status的sim_skips不是有效整数', 'status_skips', 1.0)
+            return
         if skips != 0:
             self._log.error(f'sim_skips={skips} ≠ 0 —— 本次评估不可信（仿真跳帧）')
             LU.throttled(self._log, 'error', f'sim_skips={skips} ≠ 0，本次评估不可信',

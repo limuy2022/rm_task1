@@ -74,7 +74,6 @@
     chassis.map_timeout_s: 5.0 # 本配置接实时地图；静态已确认地图可显式设0
     chassis.stop_radius_m: 0.45
     judge.team_id: '47'
-    judge.emit_t_tick: true
     judge.enforce_v_floor: false # 保留advisor的近目标减速，不统一抬成0.30m/s
     judge.fresh_run: false
     judge.output_dir: ~/ws_championship/output

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CA-KF 单测（DESIGN.md §6.7 + T03 验收点 + observation_builder §6.6）。
 
-**不依赖 rclpy**：全部用例在纯 numpy 上跑，Windows / Ubuntu 均可直接 ``pytest``。
+**不依赖 rclpy**：全部用例在纯 numpy 上跑，使用真实纯Python模块，可直接 ``pytest``。
 
 覆盖：
 * 自检 5：匀速目标 100ms 外推误差 < 1cm；匀加速目标能收敛
@@ -523,3 +523,20 @@ def test_end_to_end_estimator_loop():
     assert float(np.sqrt((err ** 2).mean())) < 0.03, '稳态位置 RMS 误差应 < 3cm'
     assert float(err.max()) < 0.12, '稳态位置最大误差 %.3f m 应 < 12cm' % float(err.max())
     assert kf.nis() < DEFAULT_NIS_GATE
+
+
+def test_missing_transform_and_invalid_rotation_are_not_identity():
+    """Absent/broken calibration must not produce plausible map coordinates."""
+    from gimbal_estimation.observation_builder import as_T, map_from_world
+    for invalid in (None, np.zeros((4, 4)), np.full((4, 4), np.nan)):
+        with pytest.raises(ValueError):
+            as_T(invalid)
+        with pytest.raises(ValueError):
+            map_from_world([1, 2, 3], invalid)
+
+
+def test_invalid_quaternion_is_not_identity_orientation():
+    builder = ObservationBuilder()
+    for invalid in ((0., 0., 0., 0.), (float('nan'), 0., 0., 1.)):
+        with pytest.raises(ValueError):
+            builder.rot_opt_to_world(invalid)

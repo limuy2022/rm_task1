@@ -75,7 +75,7 @@ class HardwareAdapter(Node):
                 self.gate.command(0.,0.,False,time.monotonic());return
             self.last_cmd_stamp=source
             self.gate.command(float(msg.yaw_omega),float(msg.pitch_omega),bool(msg.valid),time.monotonic())
-        except (AttributeError,TypeError,ValueError):
+        except (TypeError,ValueError):  # 无效角速度必须送入停止门控，不能把坏指令发给电机。
             self.gate.command(0.,0.,False,time.monotonic())
 
     def tick(self):

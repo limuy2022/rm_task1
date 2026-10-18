@@ -109,8 +109,9 @@ class BasePoseProviderNode:
         """外部 ``/odom`` 回调（odom 模式）。本地时刻做新鲜度判定。"""
         try:
             self._source.on_odom(msg, t_mono=TU.now())
-        except Exception as exc:
-            LU.throttled(self._log, 'error', f'odom 回调异常: {exc!r}', 'odom_cb', 1.0)
+        except (TypeError, ValueError) as exc:
+            # Reject invalid source pose/stamps; do not publish a fabricated pose.
+            LU.throttled(self._log, 'error', f'odom 数据无效: {exc!r}', 'odom_cb', 1.0)
 
     def _on_replay_start(self, msg) -> None:
         key = (int(msg.stamp.sec), int(msg.stamp.nanosec))
@@ -121,35 +122,32 @@ class BasePoseProviderNode:
 
     def _tick(self) -> None:
         """Publish each source sample once, at the source measurement time."""
-        try:
-            pose = self._source.poll(TU.now())
-            if not pose.valid:
-                LU.throttled(self._log, 'warn',
-                             f'底盘位姿无效（源={self._source_name}）', 'base_invalid', 1.0)
+        pose = self._source.poll(TU.now())
+        if not pose.valid:
+            LU.throttled(self._log, 'warn',
+                         f'底盘位姿无效（源={self._source_name}）', 'base_invalid', 1.0)
+            return
+        sample = self._source.latest
+        stamp = self._node.get_clock().now().to_msg()
+        if sample is not None:
+            stamp.sec, stamp.nanosec = sample.stamp_sec, sample.stamp_nanosec
+            key = (sample.stamp_sec, sample.stamp_nanosec)
+            if key == self._last_published_stamp:
                 return
-            sample = getattr(self._source, 'latest', None)
-            stamp = self._node.get_clock().now().to_msg()
-            if sample is not None:
-                stamp.sec, stamp.nanosec = sample.stamp_sec, sample.stamp_nanosec
-                key = (sample.stamp_sec, sample.stamp_nanosec)
-                if key == self._last_published_stamp:
-                    return
-                age = self._node.get_clock().now().nanoseconds * 1e-9 - sample.stamp_seconds
-                if age > float(self._params['localization.odom_timeout_s']) or age < -float(self._params['localization.odom_future_tolerance_s']):
-                    LU.throttled(self._log, 'warn', f'底盘源时间戳不新鲜或时钟域不同: age={age:.3f}s',
-                                 'base_stamp', 1.0)
-                    return
-            else:
-                key = None
-            self._publish_odom(pose, stamp)
-            if self._tf is not None:
-                self._publish_tf_msg(pose, stamp)
-            self._last_published_stamp = key
-        except Exception as exc:
-            LU.throttled(self._log, 'error', f'base_pose tick 异常: {exc!r}', 'base_tick', 1.0)
+            age = self._node.get_clock().now().nanoseconds * 1e-9 - sample.stamp_seconds
+            if age > float(self._params['localization.odom_timeout_s']) or age < -float(self._params['localization.odom_future_tolerance_s']):
+                LU.throttled(self._log, 'warn', f'底盘源时间戳不新鲜或时钟域不同: age={age:.3f}s',
+                             'base_stamp', 1.0)
+                return
+        else:
+            key = None
+        self._publish_odom(pose, stamp)
+        if self._tf is not None:
+            self._publish_tf_msg(pose, stamp)
+        self._last_published_stamp = key
 
     def _full_pose(self, pose):
-        sample = getattr(self._source, 'latest', None)
+        sample = self._source.latest
         if sample is not None:
             return sample.T_output_base[:3, 3], matrix_quaternion(sample.T_output_base[:3, :3])
         return np.array([pose.x, pose.y, 0.0]), np.array([0., 0., math.sin(pose.yaw/2), math.cos(pose.yaw/2)])
@@ -163,7 +161,7 @@ class BasePoseProviderNode:
         position, quaternion = self._full_pose(pose)
         msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z = map(float, position)
         msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = map(float, quaternion)
-        sample = getattr(self._source, 'latest', None)
+        sample = self._source.latest
         if sample is not None:
             linear, angular = sample.linear_base, sample.angular_base
             if not sample.velocity_valid:

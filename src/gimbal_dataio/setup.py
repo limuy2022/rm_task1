@@ -18,12 +18,11 @@ setup(
     zip_safe=True,
     maintainer='gimbal_team',
     maintainer_email='gimbal@example.com',
-    description='20Hz CSV 落盘（严格 8 列）、run_meta.json、轨迹标注图',
+    description='运行元数据与轨迹标注图',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'csv_writer_node = gimbal_dataio.csv_writer_node:main',
             'trajectory_annotator_node = gimbal_dataio.trajectory_annotator_node:main',
         ],
     },

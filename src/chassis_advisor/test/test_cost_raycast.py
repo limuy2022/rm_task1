@@ -309,46 +309,6 @@ def test_step_zero_distance_direction():
     assert np.allclose(res['u'], 0.0)
 
 
-def test_accel_limit_signature_dispatch():
-    """⚠ 回归：三种 `accel_limit` 签名（3 参增量式 / 2 参旧 stub / 4 参目标式）都正确限幅。"""
-    import chassis_advisor.velocity_law as VL
-
-    prev = np.zeros(2)
-    target = np.array([1.0, 0.0])
-    out = VL._accel_limit_apply(target, prev, 0.01, 1.0)
-    assert float(np.linalg.norm(out - prev)) <= 1.0 * 0.01 + 1e-9
-    assert out[0] > 0.0
-    # dt<=0 → 不限幅，直接到 target
-    assert np.allclose(VL._accel_limit_apply(target, prev, 0.0, 1.0), target)
-    # a_max<=0 → 不限幅
-    assert np.allclose(VL._accel_limit_apply(target, prev, 0.01, 0.0), target)
-    # 大 dt → 不裁剪
-    assert np.allclose(VL._accel_limit_apply(target, prev, 10.0, 1.0), target)
-
-    # 逐个强制切换签名，验证分派逻辑本身
-    def _stub2(delta, max_delta):
-        d = np.asarray(delta, dtype=float)
-        n = float(np.linalg.norm(d))
-        return d * (max_delta / n) if n > max_delta else d
-
-    def _stub4(tgt, prv, dt, a_max):
-        d = np.asarray(tgt, dtype=float) - np.asarray(prv, dtype=float)
-        n = float(np.linalg.norm(d))
-        lim = a_max * dt
-        return np.asarray(prv) + (d * (lim / n) if n > lim else d)
-
-    real = VL.accel_limit
-    try:
-        VL.accel_limit = _stub2
-        o2 = VL._accel_limit_apply(target, prev, 0.01, 1.0)
-        assert float(np.linalg.norm(o2 - prev)) <= 1.0 * 0.01 + 1e-9
-        VL.accel_limit = _stub4
-        o4 = VL._accel_limit_apply(target, prev, 0.01, 1.0)
-        assert float(np.linalg.norm(o4 - prev)) <= 1.0 * 0.01 + 1e-9
-    finally:
-        VL.accel_limit = real
-
-
 def test_rotz2_and_u_safe():
     """u_safe = Rot(θ*)·u，模长保持 1。"""
     u = np.array([1.0, 0.0])

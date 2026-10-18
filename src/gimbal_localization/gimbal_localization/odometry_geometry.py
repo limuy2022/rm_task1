@@ -105,28 +105,22 @@ def convert_odometry(msg, T_base_sensor: np.ndarray, T_output_parent: np.ndarray
     Odometry publisher leaves twist zero. Its first sample has unknown velocity
     (covariance must reflect that), not a measured stationary velocity.
     """
-    try:
-        stamp = msg.header.stamp
-        sec, nsec = int(stamp.sec), int(stamp.nanosec)
-        if sec < 0 or not 0 <= nsec < 1_000_000_000:
-            raise ValueError('invalid source stamp')
-        position = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        T_parent_sensor = np.eye(4)
-        T_parent_sensor[:3, 3] = [float(position.x), float(position.y), float(position.z)]
-        T_parent_sensor[:3, :3] = quaternion_matrix([q.x, q.y, q.z, q.w])
-    except AttributeError as exc:
-        raise TypeError('odometry must contain a source header stamp and a 3D pose') from exc
+    stamp = msg.header.stamp
+    sec, nsec = int(stamp.sec), int(stamp.nanosec)
+    if sec < 0 or not 0 <= nsec < 1_000_000_000:
+        raise ValueError('invalid source stamp')
+    position = msg.pose.pose.position
+    q = msg.pose.pose.orientation
+    T_parent_sensor = np.eye(4)
+    T_parent_sensor[:3, 3] = [float(position.x), float(position.y), float(position.z)]
+    T_parent_sensor[:3, :3] = quaternion_matrix([q.x, q.y, q.z, q.w])
     if not np.all(np.isfinite(T_parent_sensor)):
         raise ValueError('nonfinite source pose')
     T = T_output_parent @ T_parent_sensor @ inverse_rigid(T_base_sensor)
     if twist_source == 'message':
-        try:
-            twist = msg.twist.twist
-            linear_sensor = np.array([twist.linear.x, twist.linear.y, twist.linear.z], dtype=float)
-            angular_sensor = np.array([twist.angular.x, twist.angular.y, twist.angular.z], dtype=float)
-        except AttributeError as exc:
-            raise TypeError('message twist source requires linear and angular vectors') from exc
+        twist = msg.twist.twist
+        linear_sensor = np.array([twist.linear.x, twist.linear.y, twist.linear.z], dtype=float)
+        angular_sensor = np.array([twist.angular.x, twist.angular.y, twist.angular.z], dtype=float)
         if not np.all(np.isfinite(linear_sensor)) or not np.all(np.isfinite(angular_sensor)):
             raise ValueError('nonfinite source twist')
         Rbs = T_base_sensor[:3, :3]

@@ -103,70 +103,28 @@ QOS_LATCHED = QoSProfile(
 
 
 def _rpy_to_mat(rpy) -> np.ndarray:
-    """固定轴 XYZ（roll-pitch-yaw）→ 3x3 旋转矩阵。
-
-    优先复用 ``gimbal_common.frames.rpy_to_mat``（若提供），否则本地实现。
-    """
-    fn = getattr(frames, 'rpy_to_mat', None)
-    if callable(fn):
-        M = np.asarray(fn(rpy), dtype=np.float64)
-        if M.shape == (3, 3):
-            return M
-    r, p, y = (float(v) for v in np.asarray(rpy, dtype=np.float64).reshape(3))
-    cr, sr = math.cos(r), math.sin(r)
-    cp, sp = math.cos(p), math.sin(p)
-    cy, sy = math.cos(y), math.sin(y)
-    Rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
-    Ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
-    Rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]])
-    return Rz @ Ry @ Rx
+    """复用 common 的固定轴 XYZ 旋转定义。"""
+    return frames.rpy_to_mat(rpy)
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包名相对 → 绝对；缺失时返回原样由调用方兜底）。
-
-    与 ``gimbal_perception.marker_pnp_node`` 完全同一套约定（DESIGN §8.6：
-    内参/外参唯一数据源是 ``config/virtual.yaml``）。
-    """
+    """绝对路径直接读取；文件名从安装的 bringup/config 读取。"""
     if not name_or_path:
-        name_or_path = 'virtual.yaml'
-    if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
+        raise ValueError('config.virtual_yaml cannot be empty')
+    if os.path.isabs(name_or_path):
         return name_or_path
     from ament_index_python.packages import get_package_share_directory
-    try:
-        share = get_package_share_directory('gimbal_tracker_bringup')
-        cand = os.path.join(share, 'config', os.path.basename(name_or_path))
-        if os.path.isfile(cand):
-            return cand
-    except Exception:
-        pass
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config',
-                        os.path.basename(name_or_path))
-    return cand if os.path.isfile(cand) else name_or_path
+    return os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
+                        'config', name_or_path)
 
 
 def load_camera_intrinsics(virtual_yaml: str):
-    """从 ``virtual.yaml`` 的 ``camera`` 段读 ``(width, fx)``。
-
-    Returns:
-        ``(width, fx)``；读取失败或字段非法时返回 ``(0.0, 0.0)``
-        （调用方据此回退保守半视场）。
-    """
+    """读取有效内参；缺文件、字段或非法数值直接报错。"""
     from gimbal_common import config_loader as cl
-    try:
-        cfg = cl.load_yaml(_resolve_virtual_yaml(virtual_yaml), required=True)
-    except Exception:
-        return 0.0, 0.0
-    cam = cfg.get('camera', {}) if isinstance(cfg, dict) else {}
-    if not isinstance(cam, dict):
-        return 0.0, 0.0
-    try:
-        width = float(cam.get('width', 0.0))
-        fx = float(cam.get('fx', 0.0))
-    except (TypeError, ValueError):
-        return 0.0, 0.0
+    cam = cl.load_yaml(_resolve_virtual_yaml(virtual_yaml), required=True)['camera']
+    width, fx = float(cam['width']), float(cam['fx'])
     if not (math.isfinite(width) and math.isfinite(fx)) or width <= 0.0 or fx <= 0.0:
-        return 0.0, 0.0
+        raise ValueError('camera.width/fx must be positive and finite')
     return width, fx
 
 
@@ -274,14 +232,14 @@ class GimbalControllerNode(Node):
 
         # pitch 符号的唯一入口在 gimbal_common.frames；此处只透传 ROS 参数，
         # 默认值直接取 frames.PITCH_SIGN，避免本文件出现任何符号字面量。
-        _set_pitch_sign = getattr(frames, 'set_pitch_sign', None)
-        if callable(_set_pitch_sign):
-            d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
-            _set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
+        d('gimbal.pitch_sign', float(frames.PITCH_SIGN))
+        frames.set_pitch_sign(float(self.get_parameter('gimbal.pitch_sign').value))
 
         p = self.get_parameter
         rate_hz = float(p('control.rate_hz').value)
-        self._rate_hz = rate_hz if rate_hz > 0.0 else 100.0
+        if not math.isfinite(rate_hz) or rate_hz <= 0:
+            raise ValueError('control.rate_hz must be positive and finite')
+        self._rate_hz = rate_hz
         self._lost_timeout_s = float(p('control.lost_timeout_s').value)
         self._search_after_s = float(p('control.search_after_s').value)
         self._wide_after_s = float(p('control.wide_search_after_s').value)
@@ -386,7 +344,6 @@ class GimbalControllerNode(Node):
 
         1. ``control.camera_fx`` + ``control.camera_width`` 均 > 0（显式覆盖，便于调试）
         2. ``config.virtual.yaml`` 的 ``camera.width`` / ``camera.fx``（默认路径）
-        3. 两者都拿不到 → :data:`DEFAULT_HALF_FOV_RAD` 保守兜底 + WARN
 
         Returns:
             水平半视场（rad，正数）。
@@ -394,6 +351,8 @@ class GimbalControllerNode(Node):
         p = self.get_parameter
         fx = float(p('control.camera_fx').value)
         width = float(p('control.camera_width').value)
+        if not math.isfinite(fx) or not math.isfinite(width) or fx < 0 or width < 0:
+            raise ValueError('control.camera_fx/width must be nonnegative and finite')
         if fx > 0.0 and width > 0.0:
             hf = half_fov_rad_from_intrinsics(width, fx)
             self._log.info('水平半视场 = %.4f rad（来源：control.camera_fx/width 显式覆盖）', hf)
@@ -401,30 +360,22 @@ class GimbalControllerNode(Node):
 
         vpath = str(p('config.virtual_yaml').value)
         w, f = load_camera_intrinsics(vpath)
-        if w > 0.0 and f > 0.0:
-            hf = half_fov_rad_from_intrinsics(w, f)
-            self._log.info('水平半视场 = %.4f rad（来源：%s 的 camera.width/fx）',
-                           hf, _resolve_virtual_yaml(vpath))
-            return hf
-
-        self._log.warn('未能从 %s 读到相机内参，水平半视场回退保守兜底值 %.4f rad',
-                       vpath, DEFAULT_HALF_FOV_RAD)
-        return DEFAULT_HALF_FOV_RAD
+        hf = half_fov_rad_from_intrinsics(w, f)
+        self._log.info('水平半视场 = %.4f rad（来源：%s 的 camera.width/fx）',
+                       hf, _resolve_virtual_yaml(vpath))
+        return hf
 
     # ------------------------------------------------------------------ 回调
     def _source_time(self, msg, timeout=None):
         """Reject old/future/zero ROS stamps; reception alone is not freshness."""
-        try:
-            stamp = msg.header.stamp
-            source = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
-            ros_now = float(self.get_clock().now().nanoseconds) * 1e-9
-            age = ros_now - source
-            allowed = self._input_timeout_s if timeout is None else timeout
-            if source <= 0.0 or not math.isfinite(source) or not -0.03 <= age <= allowed:
-                return None
-            return source
-        except (AttributeError, TypeError, ValueError):
+        stamp = msg.header.stamp
+        source = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+        ros_now = float(self.get_clock().now().nanoseconds) * 1e-9
+        age = ros_now - source
+        allowed = self._input_timeout_s if timeout is None else timeout
+        if source <= 0.0 or not math.isfinite(source) or not -0.03 <= age <= allowed:
             return None
+        return source
 
     def _source_age(self, source_t):
         return max(0.0, self.get_clock().now().nanoseconds * 1e-9 - source_t)
@@ -448,7 +399,8 @@ class GimbalControllerNode(Node):
                 return
             self._joint_angles = angles
             self._t_last_joint = now() - self._source_age(source_t)
-        except (AttributeError, IndexError, TypeError, ValueError):
+        except (IndexError, TypeError, ValueError):
+            # JointState.position 长度/数值来自外部；畸形反馈必须清空并停止。
             return
 
     def on_gimbal_state(self, msg: GimbalState) -> None:
@@ -466,7 +418,8 @@ class GimbalControllerNode(Node):
             self._gimbal_state = msg
             self._t_last_gimbal = now() - self._source_age(stamp)
             self._gimbal_source_time = stamp
-        except (AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError):
+            # 外部消息数值不可用时保持无效状态，时效门禁停止输出。
             return
 
     def on_base_pose(self, msg: Odometry) -> None:
@@ -508,7 +461,8 @@ class GimbalControllerNode(Node):
             self._base_source_time = source_t
             self._t_last_base = now() - self._source_age(source_t)
             self._have_base = True
-        except (AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError):
+            # 外部消息数值不可用时保持无效状态，时效门禁停止输出。
             self._t_last_base = None
             self._base_velocity_world = self._base_omega_world = None
 
@@ -540,7 +494,8 @@ class GimbalControllerNode(Node):
             T[0:3, 3] = t
             self._T_map_world = T
             self._log.info('收到 T_map←world：theta=%.4f rad', math.atan2(R[1, 0], R[0, 0]))
-        except Exception as exc:  # pragma: no cover
+        except (TypeError, ValueError, OverflowError) as exc:
+            # 外部 TF 数值非法时不能建立 world/map 对齐；保持未对齐、停止输出。
             throttled(self._log, 'error', 'on_t_map_world 异常: %s' % exc, 'tmw_exc', 1.0)
 
     def on_target_state(self, msg: TargetState) -> None:
@@ -561,7 +516,8 @@ class GimbalControllerNode(Node):
             self._t_last_target = now() - age
             if age <= self._lost_timeout_s:
                 self._have_ever_tracked = True
-        except (AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError):
+            # 外部消息数值不可用时保持无效状态，时效门禁停止输出。
             return
 
     def on_marker(self, msg: MarkerObservation) -> None:
@@ -597,7 +553,8 @@ class GimbalControllerNode(Node):
                 return
             self._height.update(float(p_world[2]), now())
             self._t_last_marker = now() - self._source_age(marker_time)
-        except Exception as exc:  # pragma: no cover
+        except (TypeError, ValueError, OverflowError) as exc:
+            # 外部观测或姿态数组非法时不更新高度，时效门禁会停止控制。
             throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc', 1.0)
 
     # ------------------------------------------------------------------ 计算
@@ -783,31 +740,22 @@ class GimbalControllerNode(Node):
             msg.pitch_omega = float(w_pitch)
             msg.valid = True
             self._pub.publish(msg)
-        except Exception as exc:  # pragma: no cover - 定时器异常不得中断回路
+        except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError) as exc:
+            # 动态参数/外部观测导致数值失败时，先清斜坡并发停止，不沿用上一拍输出。
             self._law.reset()
             throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc', 1.0)
-            try:
-                safe = GimbalOmegaCmd()
-                safe.header.stamp = self.get_clock().now().to_msg()
-                safe.yaw_omega = 0.0
-                safe.pitch_omega = 0.0
-                safe.valid = False
-                self._pub.publish(safe)
-            except Exception:
-                pass
+            self.publish_stop()
 
     # ------------------------------------------------------------------ 收尾
     def publish_stop(self) -> None:
         """退出前发一帧零指令（DESIGN §6.14：控制器先停止指令）。"""
-        try:
-            msg = GimbalOmegaCmd()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.yaw_omega = 0.0
-            msg.pitch_omega = 0.0
-            msg.valid = False
-            self._pub.publish(msg)
-        except Exception:
-            pass
+        msg = GimbalOmegaCmd()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'gimbal_link'
+        msg.yaw_omega = 0.0
+        msg.pitch_omega = 0.0
+        msg.valid = False
+        self._pub.publish(msg)
 
     def shutdown_summary(self) -> None:
         """退出时打印 INFO 摘要。"""
@@ -819,32 +767,16 @@ def main(args=None) -> int:
     """节点入口。"""
     rclpy.init(args=args)
     node = GimbalControllerNode()
-    code = 0
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        code = 0
-    except Exception as exc:  # pragma: no cover
-        node._log.error('gimbal_controller_node 异常退出: %s' % exc)
-        code = 1
+    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
+        pass
     finally:
-        try:
-            node.publish_stop()
-        except Exception:
-            pass
-        try:
-            node.shutdown_summary()
-        except Exception:
-            pass
-        try:
-            node.destroy_node()
-        except Exception:
-            pass
-        try:
-            rclpy.shutdown()
-        except Exception:
-            pass
-    return code
+        node.publish_stop()
+        node.shutdown_summary()
+        node.destroy_node()
+        rclpy.shutdown()
+    return 0
 
 
 if __name__ == '__main__':

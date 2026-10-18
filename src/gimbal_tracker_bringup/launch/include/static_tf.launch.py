@@ -63,7 +63,11 @@ def _as_bool(text: Any, default: bool = False) -> bool:
     s = str(text).strip().lower()
     if s == '':
         return default
-    return s in ('1', 'true', 'yes', 'on', 'y', 't')
+    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
+        return True
+    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
+        return False
+    raise ValueError(f'非法布尔参数: {text!r}')
 
 
 def _num(v: Any) -> str:
@@ -75,11 +79,8 @@ def _load_yaml_required(path: str) -> dict:
     """加载 YAML；缺失/非法直接抛错（DESIGN §8.4：配置文件缺失 = FATAL）。"""
     if not path or not os.path.isfile(path):
         raise RuntimeError(f'配置文件缺失: {path!r}（DESIGN §8.4 规定为 FATAL）')
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-    except Exception as exc:
-        raise RuntimeError(f'配置文件解析失败: {path!r}: {exc!r}') from exc
+    with open(path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise RuntimeError(f'配置文件内容不是映射: {path!r}')
     return data
@@ -87,27 +88,18 @@ def _load_yaml_required(path: str) -> dict:
 
 def _vec3(value: Any, label: str) -> List[float]:
     """取出并校验长度为 3 的数值向量。"""
-    try:
-        seq = list(value)
-    except TypeError as exc:
-        raise RuntimeError(f'{label} 必须是长度为 3 的列表，收到 {value!r}') from exc
-    if len(seq) < 3:
-        raise RuntimeError(f'{label} 长度必须 ≥ 3，收到 {value!r}')
-    try:
-        return [float(seq[0]), float(seq[1]), float(seq[2])]
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError(f'{label} 含非数值元素: {value!r}') from exc
+    seq = [float(x) for x in value]
+    if len(seq) != 3 or not all(math.isfinite(x) for x in seq):
+        raise ValueError(f'{label} 必须是三个有限数值，收到 {value!r}')
+    return seq
 
 
 def _vec6(value: Any, label: str) -> List[float]:
     """取出并校验长度为 6 的 ``[x,y,z,roll,pitch,yaw]``。"""
-    try:
-        seq = list(value)
-    except TypeError as exc:
-        raise RuntimeError(f'{label} 必须是长度为 6 的列表，收到 {value!r}') from exc
-    if len(seq) < 6:
-        raise RuntimeError(f'{label} 长度必须 ≥ 6，收到 {value!r}')
-    return [float(x) for x in seq[:6]]
+    seq = [float(x) for x in value]
+    if len(seq) != 6 or not all(math.isfinite(x) for x in seq):
+        raise ValueError(f'{label} 必须是六个有限数值，收到 {value!r}')
+    return seq
 
 
 def _assert_optical_rpy_matches_frames() -> None:

@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-for package in ('gimbal_judge_io', 'grid_mapper'):
+for package in ('gimbal_common', 'gimbal_judge_io', 'grid_mapper'):
     sys.path.insert(0, str(root / 'src' / package))
 from gimbal_judge_io.tick_csv import TickCsvWriter
 from grid_mapper.pgm_io import write_pgm, read_grid, read_pgm

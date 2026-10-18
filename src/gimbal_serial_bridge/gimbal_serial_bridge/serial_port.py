@@ -7,12 +7,14 @@
 * ``read_bytes()`` 非阻塞（timeout=read_timeout_s）读一块，供上层定时器轮询。
 * ``write()`` 失败抛 :class:`SerialPortError`，由链路状态机转成故障。
 
-pyserial 惰性导入：本模块可被 import 而不需要串口硬件。
+依赖 pyserial；缺少依赖直接报 ImportError。构造对象不会打开串口。
 """
 
 from __future__ import annotations
 
 from typing import Optional
+
+import serial
 
 __all__ = ['SerialPortError', 'SerialPort']
 
@@ -62,16 +64,14 @@ class SerialPort:
     @property
     def is_open(self) -> bool:
         """串口是否已打开。"""
-        return self._ser is not None and bool(getattr(self._ser, 'is_open', False))
+        return self._ser is not None and self._ser.is_open
 
     def open(self) -> None:
         """独占打开串口。
 
         Raises:
-            SerialPortError: pyserial 缺失、打开失败或被其它进程占用。
+            SerialPortError: 打开失败或被其它进程占用。
         """
-        import serial  # 惰性导入
-
         if self.is_open:
             return
         try:
@@ -88,7 +88,7 @@ class SerialPort:
                 dsrdtr=False,
                 xonxoff=False,
             )
-        except Exception as exc:
+        except OSError as exc:  # 设备可能断连或被占用；向上抛链路故障，不掩盖程序异常。
             raise SerialPortError(
                 f'打开串口失败 port={self._port} baud={self._baud} '
                 f'exclusive={self._exclusive}：{exc!r}。'
@@ -98,23 +98,26 @@ class SerialPort:
         try:
             self._ser.reset_input_buffer()
             self._ser.reset_output_buffer()
-        except Exception:
-            pass
+        except OSError as exc:
+            # Opening is incomplete if the device disconnects while buffers reset.
+            self.close()
+            raise SerialPortError(f'串口初始化失败 port={self._port}: {exc!r}') from exc
 
     def read_bytes(self) -> bytes:
         """读一块字节（非阻塞，最多 ``read_chunk`` 字节）。
 
         Returns:
-            bytes: 读到的字节；无数据返回 ``b''``；异常返回 ``b''`` 并计数。
+            bytes: 读到的字节；无数据返回 ``b''``；串口异常抛出 SerialPortError 并计数。
         """
         if not self.is_open:
             return b''
         try:
             n = self._ser.in_waiting or self._read_chunk
             data = self._ser.read(min(int(n), self._read_chunk) or self._read_chunk)
-        except Exception:
+        except OSError as exc:
+            # A disconnected TTY is a transport fault, not an empty normal read.
             self.read_errors += 1
-            return b''
+            raise SerialPortError(f'串口读取失败 port={self._port}: {exc!r}') from exc
         if data:
             self.bytes_rx += len(data)
         return bytes(data)
@@ -138,7 +141,7 @@ class SerialPort:
             self.bytes_tx += int(n)
             self.frames_tx += 1
             return int(n)
-        except Exception as exc:
+        except OSError as exc:  # 设备可能断连或被占用；向上抛链路故障，不掩盖程序异常。
             self.write_errors += 1
             raise SerialPortError(f'串口写入失败 port={self._port}：{exc!r}') from exc
 
@@ -148,19 +151,19 @@ class SerialPort:
             return
         try:
             self._ser.flush()
-        except Exception:
+        except OSError as exc:  # 设备可能断连或被占用；向上抛链路故障，不掩盖程序异常。
             self.write_errors += 1
+            raise SerialPortError(f'串口flush失败 port={self._port}: {exc!r}') from exc
 
     def close(self) -> None:
         """关闭串口（幂等）。"""
         if self._ser is None:
             return
         try:
-            if getattr(self._ser, 'is_open', False):
+            if self._ser.is_open:
                 self._ser.close()
-        except Exception:
-            pass
-        self._ser = None
+        finally:
+            self._ser = None
 
     def stats(self) -> dict:
         """返回收发统计。"""

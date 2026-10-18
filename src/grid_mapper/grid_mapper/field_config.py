@@ -58,7 +58,7 @@ __all__ = [
     'masks_from_field',
 ]
 
-# 缺省场地（DESIGN §10 原样），field.yaml 缺失/字段缺失时的兜底值
+# 显式测试/仿真场地；不能用来替代缺失或损坏的 field.yaml。
 DEFAULT_FIELD: Dict[str, Any] = {
     'grid': {
         'resolution': 0.05,
@@ -195,26 +195,34 @@ class Obstacle:
             return _circle_mask(xy, self.center_xy, self.radius)
         if k == 'segment':
             return _segment_mask(xy, self.p0_xy, self.p1_xy, self.width)
-        return np.zeros(xy.shape[:2], dtype=bool)
+        raise ValueError(f'unknown obstacle type: {self.kind!r}')
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> 'Obstacle':
-        """从 field.yaml 的一个 obstacle 条目构造；未知类型返回 'none'（不占格）。"""
-        kind = str(d.get('type', 'rect')).lower()
+        """从明确的障碍几何构造；拼错类型或缺少尺寸时直接报错。"""
+        if not isinstance(d, dict):
+            raise ValueError('obstacle must be a mapping')
+        kind = str(d['type']).lower()
         obs = Obstacle(kind=kind)
         if kind == 'rect':
-            obs.center_xy = _as_vec2(d.get('center_xy', [0.0, 0.0]))
-            obs.size_xy = _as_vec2(d.get('size_xy', [0.0, 0.0]))
+            obs.center_xy = _as_vec2(d['center_xy'])
+            obs.size_xy = _as_vec2(d['size_xy'])
             obs.yaw = float(d.get('yaw', 0.0))
+            if not math.isfinite(obs.yaw) or any(v <= 0 for v in obs.size_xy):
+                raise ValueError('rectangle size must be positive and yaw finite')
         elif kind == 'circle':
-            obs.center_xy = _as_vec2(d.get('center_xy', [0.0, 0.0]))
-            obs.radius = float(d.get('radius', 0.0))
+            obs.center_xy = _as_vec2(d['center_xy'])
+            obs.radius = float(d['radius'])
+            if not math.isfinite(obs.radius) or obs.radius <= 0:
+                raise ValueError('circle radius must be positive and finite')
         elif kind == 'segment':
-            obs.p0_xy = _as_vec2(d.get('p0_xy', [0.0, 0.0]))
-            obs.p1_xy = _as_vec2(d.get('p1_xy', [0.0, 0.0]))
-            obs.width = float(d.get('width', 0.0))
+            obs.p0_xy = _as_vec2(d['p0_xy'])
+            obs.p1_xy = _as_vec2(d['p1_xy'])
+            obs.width = float(d['width'])
+            if not math.isfinite(obs.width) or obs.width <= 0:
+                raise ValueError('segment width must be positive and finite')
         else:
-            obs.kind = 'none'
+            raise ValueError(f'unknown obstacle type: {kind!r}')
         return obs
 
 
@@ -266,63 +274,44 @@ class FieldConfig:
     # -- 构造 -----------------------------------------------------------------
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> 'FieldConfig':
-        """从 dict 构造。缺失字段用 DEFAULT_FIELD 兜底（不报 FATAL）。"""
-        d = d if isinstance(d, dict) else {}
-        g = d.get('grid', {}) if isinstance(d.get('grid', {}), dict) else {}
+        """从明确的场地配置构造；可选栅格参数沿用声明的默认值。"""
+        if not isinstance(d, dict) or not isinstance(d.get('grid'), dict):
+            raise ValueError('field config must contain a grid mapping')
+        g = d['grid']
         dg = DEFAULT_FIELD['grid']
 
         res = float(g.get('resolution', dg['resolution']))
-        if res <= 0.0:
-            res = float(dg['resolution'])
         w_m = float(g.get('width_m', dg['width_m']))
         h_m = float(g.get('height_m', dg['height_m']))
+        if any(not math.isfinite(v) or v <= 0 for v in (res, w_m, h_m)):
+            raise ValueError('grid resolution/width_m/height_m must be positive and finite')
         org = g.get('origin_xyz', dg['origin_xyz'])
-        org = _as_vec3(org, (float(dg['origin_xyz'][0]),
-                             float(dg['origin_xyz'][1]),
-                             float(dg['origin_xyz'][2])))
+        org = _as_vec3(org)
         infl = float(g.get('inflation_radius_m', dg['inflation_radius_m']))
+        if not math.isfinite(infl) or infl < 0:
+            raise ValueError('inflation_radius_m must be nonnegative and finite')
 
-        bnd_raw = d.get('boundary', DEFAULT_FIELD['boundary'])
-        boundary = _as_polygon(bnd_raw)
+        boundary = _as_polygon(d['boundary'])
 
-        obstacles: List[Obstacle] = []
-        obs_raw = d.get('obstacles', []) or []
-        if isinstance(obs_raw, list):
-            for item in obs_raw:
-                if isinstance(item, dict):
-                    obstacles.append(Obstacle.from_dict(item))
+        obs_raw = d.get('obstacles', [])
+        if not isinstance(obs_raw, list):
+            raise ValueError('obstacles must be a list')
+        obstacles = [Obstacle.from_dict(item) for item in obs_raw]
 
         return FieldConfig(
             resolution=res,
             width_m=w_m,
             height_m=h_m,
             origin_xyz=org,
-            inflation_radius_m=max(0.0, infl),
+            inflation_radius_m=infl,
             boundary=boundary,
             obstacles=obstacles,
         )
 
     @staticmethod
     def from_yaml(path: str) -> 'FieldConfig':
-        """从 field.yaml 构造；文件缺失或解析失败时返回默认场地（调用方决定是否 FATAL）。
-
-        ⚠ `gimbal_common.config_loader.load_yaml(path, required=True)` 在文件缺失时
-        **抛 ConfigError**（FATAL）。建图节点允许"没配就用默认场地"，所以这里
-        显式传 `required=False`，并额外 try/except 兜住抛异常的实现。
-        """
-        data = None
-        try:
-            data = load_yaml(path, required=False)
-        except TypeError:  # pragma: no cover - 旧签名 load_yaml(path)
-            try:
-                data = load_yaml(path)
-            except Exception:
-                data = None
-        except Exception:  # 文件缺失 / 内容非映射 / YAML 语法错
-            data = None
-        if not isinstance(data, dict):
-            return FieldConfig.from_dict(DEFAULT_FIELD)
-        return FieldConfig.from_dict(data)
+        """读取实际场地；缺文件、坏 YAML 和非法几何直接报错。"""
+        return FieldConfig.from_dict(load_yaml(path))
 
     @staticmethod
     def default() -> 'FieldConfig':
@@ -451,45 +440,28 @@ def masks_from_field(field_cfg: FieldConfig) -> Tuple[np.ndarray, np.ndarray, np
 # ---------------------------------------------------------------------------
 # 小工具
 # ---------------------------------------------------------------------------
-def _as_vec2(v: Any, default: Tuple[float, float] = (0.0, 0.0)) -> Tuple[float, float]:
-    """把任意序列转成 (float, float)。"""
-    try:
-        seq = list(v)
-    except TypeError:
-        return default
-    if len(seq) < 2:
-        return default
+def _as_vec2(v: Any) -> Tuple[float, float]:
+    """读取有限二维向量，不补齐错误尺寸。"""
+    seq = list(v)
+    if len(seq) != 2 or not all(math.isfinite(float(x)) for x in seq):
+        raise ValueError('expected a finite two-element vector')
     return (float(seq[0]), float(seq[1]))
 
 
-def _as_vec3(v: Any,
-             default: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-             ) -> Tuple[float, float, float]:
-    """把任意序列转成 (float, float, float)。"""
-    try:
-        seq = list(v)
-    except TypeError:
-        return default
-    if len(seq) < 3:
-        return (float(seq[0]), float(seq[1]), float(default[2]))
+def _as_vec3(v: Any) -> Tuple[float, float, float]:
+    """读取有限三维向量，不猜测缺少的原点分量。"""
+    seq = list(v)
+    if len(seq) != 3 or not all(math.isfinite(float(x)) for x in seq):
+        raise ValueError('expected a finite three-element vector')
     return (float(seq[0]), float(seq[1]), float(seq[2]))
 
 
 def _as_polygon(v: Any) -> np.ndarray:
-    """把 [[x,y], ...] 转成 (N,2) float 数组；非法时退回默认矩形。"""
-    if not isinstance(v, (list, tuple)) or len(v) < 3:
-        return np.array(DEFAULT_FIELD['boundary'], dtype=float)
-    pts: List[List[float]] = []
-    for p in v:
-        try:
-            seq = list(p)
-        except TypeError:
-            continue
-        if len(seq) >= 2:
-            pts.append([float(seq[0]), float(seq[1])])
-    if len(pts) < 3:
-        return np.array(DEFAULT_FIELD['boundary'], dtype=float)
-    return np.array(pts, dtype=float)
+    """读取至少三个有限二维边界点；错误不能变成空闲矩形。"""
+    points = np.asarray(v, dtype=float)
+    if points.ndim != 2 or points.shape[0] < 3 or points.shape[1] != 2 or not np.all(np.isfinite(points)):
+        raise ValueError('boundary must contain at least three finite 2D vertices')
+    return points
 
 
 def occupancy_grid_to_arrays(width: int, height: int, resolution: float,

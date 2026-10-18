@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import platform
-import sys
+import numpy as np
 from typing import Any
 from typing import Dict
 from typing import List
@@ -52,9 +52,8 @@ class RunMeta:
     # -- 内容填充 -------------------------------------------------------------
     def set_params(self, params: Dict[str, Any]) -> None:
         """记录参数快照（覆盖同名 key）。"""
-        if isinstance(params, dict):
-            for k, v in params.items():
-                self._params[str(k)] = _jsonable(v)
+        for k, v in params.items():
+            self._params[str(k)] = _jsonable(v)
 
     def add_artifact(self, name: str, path: str) -> Dict[str, Any]:
         """登记一个产物文件（自动记录存在性与字节数）。"""
@@ -68,8 +67,9 @@ class RunMeta:
             if path and os.path.isfile(path):
                 item['exists'] = True
                 item['bytes'] = int(os.path.getsize(path))
-        except OSError:  # pragma: no cover
-            pass
+        except OSError as exc:  # 文件可能在登记时被移走；记录失败原因，不伪装为已保存。
+            item['exists'] = False
+            item['error'] = str(exc)
         self._artifacts.append(item)
         return item
 
@@ -89,7 +89,7 @@ class RunMeta:
             'versions': {
                 'python': platform.python_version(),
                 'platform': platform.platform(),
-                'numpy': _numpy_version(),
+                'numpy': np.__version__,
                 'csvwriter': '1.0',
             },
             'params': dict(self._params),
@@ -98,38 +98,23 @@ class RunMeta:
         }
 
     def write(self, path: Optional[str] = None) -> str:
-        """写出 `run_meta.json`。
-
-        Args:
-            path: 目标路径；None 时为 `<out_dir>/<run_id>/run_meta.json`。
-
-        Returns:
-            str：实际写出的路径（失败时仍返回该路径）。
-        """
+        """写元数据；路径/序列化错误直接暴露，不返回一个假成功的路径。"""
         if path is None:
             path = os.path.join(self.run_dir, DEFAULT_META_NAME)
         _ensure_dir(os.path.dirname(os.path.abspath(path)))
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.to_dict(), f, ensure_ascii=False, indent=2,
-                          sort_keys=False)
-                f.write('\n')
-        except Exception as exc:  # pragma: no cover
-            try:
-                sys.stderr.write('run_meta 写出失败: %r\n' % (exc,))
-            except Exception:
-                pass
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+            f.write('\n')
         return path
 
     @staticmethod
-    def read(path: str) -> Optional[Dict[str, Any]]:
-        """读回 run_meta.json（自检用）；失败返回 None。"""
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
-            return None
-        return data if isinstance(data, dict) else None
+    def read(path: str) -> Dict[str, Any]:
+        """读回本工具写出的映射；损坏/缺失文件不再返回None。"""
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError('run_meta必须是JSON映射')
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -141,31 +126,16 @@ def _ensure_dir(d: str) -> None:
         os.makedirs(d, exist_ok=True)
 
 
-def _numpy_version() -> str:
-    """取已安装的 numpy 版本。"""
-    import numpy as np
-    return str(np.__version__)
-
-
 def _jsonable(v: Any) -> Any:
-    """把参数值转成 JSON 可序列化的类型（numpy 标量/数组特殊处理）。"""
+    """只转换本工程实际使用的JSON/numpy类型；其它类型报错。"""
     if isinstance(v, dict):
         return {str(k): _jsonable(x) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return [_jsonable(x) for x in v]
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+    if isinstance(v, np.generic):
+        return v.item()
     if isinstance(v, (str, bool, int, float)) or v is None:
         return v
-    # numpy 标量
-    item = getattr(v, 'item', None)
-    if callable(item):
-        try:
-            return _jsonable(v.item())
-        except Exception:  # pragma: no cover
-            pass
-    tolist = getattr(v, 'tolist', None)
-    if callable(tolist):
-        try:
-            return _jsonable(v.tolist())
-        except Exception:  # pragma: no cover
-            pass
-    return str(v)
+    raise TypeError(f'不支持的元数据类型: {type(v).__name__}')

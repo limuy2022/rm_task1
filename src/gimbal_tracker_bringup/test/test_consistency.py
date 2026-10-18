@@ -169,6 +169,14 @@ def test_c_launch_references_match_entry_points(entry_points):
                 continue                      # 来自 tf2_ros / rviz2，不属于本工程
             if (pkg, exe) == ('point_lio', 'pointlio_mapping'):
                 continue  # original navigation package, not copied into core src
+            if (pkg, exe) == ('gimbal_serial_42', 'robo_bridge_node'):
+                bridge = os.path.join(SRC_DIR, '..', '42-gimbal_serial')
+                with open(os.path.join(bridge, 'CMakeLists.txt'), encoding='utf-8') as f:
+                    cmake = f.read()
+                assert 'add_executable(robo_bridge_node src/robo_bridge_node_main.cpp)' in cmake
+                assert 'install(TARGETS robo_bridge_node DESTINATION lib/${PROJECT_NAME})' in cmake
+                assert os.path.isfile(os.path.join(bridge, 'src', 'robo_bridge_node_main.cpp'))
+                continue  # C++节点由CMake登记，不是Python console_script。
             if exe not in entry_points:
                 bad.append('%s: %s 不在任何 entry_points 中' % (_rel(lf), exe))
             elif entry_points[exe][0] != pkg:
@@ -272,7 +280,7 @@ def test_e2_params_yaml_has_required_namespaces(params_yaml):
     required = ['serial.port', 'serial.baud', 'gimbal.pitch_sign',
                 'control.kp_yaw', 'perception.marker_size_m', 'estimation.jerk_std',
                 'localization.base_pose_source', 'chassis.v_max', 'grid.resolution',
-                'csv.rate_hz', 'csv.csv_extra_cols', 'mission.run_duration_s',
+                'csv.out_dir', 'csv.run_id', 'mission.run_duration_s',
                 'mission.shutdown_grace_s', 'debug.enable_gt_monitor',
                 'config.virtual_yaml', 'config.field_yaml']
     missing = [k for k in required if k not in params_yaml]
@@ -284,9 +292,10 @@ def test_e3_pitch_sign_is_single_source(params_yaml):
     assert float(params_yaml['gimbal.pitch_sign']) == -1.0
 
 
-def test_e4_csv_defaults_to_strict_8_columns(params_yaml):
-    """⚠ 修正 2：`csv_extra_cols` 默认必须 false（严格 8 列）。"""
-    assert params_yaml['csv.csv_extra_cols'] is False
+def test_e4_no_legacy_csv_format_switch(params_yaml):
+    """比赛仅保留九列tick写出，不再配置旧八列模式。"""
+    assert "csv.csv_extra_cols" not in params_yaml
+    assert "judge.emit_t_tick" not in params_yaml
 
 
 def test_e5_rate_params_are_floats(params_yaml):
@@ -412,7 +421,7 @@ def test_j_all_yaml_parses():
         try:
             with open(p, 'r', encoding='utf-8') as f:
                 yaml.safe_load(f)
-        except Exception as exc:                      # noqa: BLE001 - 汇总所有解析错误
+        except (OSError, UnicodeError, yaml.YAMLError) as exc:  # 汇总实际文件/解析错误，不隐藏测试代码错误。
             bad.append('%s: %r' % (_rel(p), exc))
     assert bad == [], '\n'.join(bad)
 

@@ -191,16 +191,11 @@
     # ---------------- csv（数据落盘）----------------
     csv.out_dir: outputs
     csv.run_id: latest
-    csv.rate_hz: 20.0
-    csv.csv_extra_cols: false           # 旧调试输出；不是正式九列提交
-    csv.flush_period_s: 1.0
-    csv.write_after_first_estimate: true
 
     # ---------------- judge（赛题一输出契约）----------------
     # 路径：~/ws_championship/output/<队伍编号>.csv 与 <队伍编号>_map.pgm/.yaml
     judge.team_id: "47"
     judge.output_dir: ~/ws_championship/output
-    judge.emit_t_tick: true           # 已确认九列
     judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
     judge.enforce_v_floor: false        # advisor已保留非零速度；不把接近减速重新抬至0.30
     judge.v_floor: 0.30

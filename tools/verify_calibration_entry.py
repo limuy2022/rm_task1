@@ -67,6 +67,7 @@ class Tests(unittest.TestCase):
 
     def test_missing_installed_tool_is_failure_not_install(self):
         with patch.object(entry.importlib,'import_module',side_effect=ImportError('no camera_calibration')):
-            self.assertEqual(entry.main(['--output-dir','/unused','--cols','8','--rows','6','--square-mm','25']),1)
+            with self.assertRaisesRegex(ImportError,'no camera_calibration'):
+                entry.main(['--output-dir','/unused','--cols','8','--rows','6','--square-mm','25'])
 
 if __name__=='__main__': unittest.main(verbosity=2)

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import math
 import os
 from typing import Any
@@ -199,6 +200,45 @@ def test_static_tf_missing_yaml_is_fatal(stub_ros):
         stub_ros.opaque_setup(ld)(None)
 
 
+@pytest.mark.parametrize('launch_file', ['competition.launch.py', 'mapping.launch.py'])
+def test_launch_rejects_missing_or_broken_parameter_file(stub_ros, tmp_path, launch_file):
+    """配置读取失败必须终止；不能用空覆盖字典继续启动。"""
+    mod = stub_ros.load_launch_module(launch_file, 'lf_required_params_'+launch_file.split('.')[0])
+    with pytest.raises(FileNotFoundError):
+        mod._flat_params(str(tmp_path / 'missing.yaml'))
+    path = tmp_path / 'broken.yaml'
+    path.write_text('/**: [broken', encoding='utf-8')
+    with pytest.raises(yaml.YAMLError):
+        mod._flat_params(str(path))
+    path.write_text('/**:\n  ros__parameters: []\n', encoding='utf-8')
+    with pytest.raises(ValueError):
+        mod._flat_params(str(path))
+
+
+@pytest.mark.parametrize('launch_file', [
+    'competition.launch.py', 'mapping.launch.py', 'include/nodes.launch.py',
+    'include/static_tf.launch.py',
+])
+def test_misspelled_boolean_does_not_silently_disable_a_feature(stub_ros, launch_file):
+    mod = stub_ros.load_launch_module(launch_file, 'lf_bool_'+launch_file.replace('/', '_').replace('.', '_'))
+    with pytest.raises(ValueError):
+        mod._as_bool('ture')
+
+
+def test_broken_launch_overrides_are_not_ignored(stub_ros):
+    nodes = stub_ros.load_launch_module('include/nodes.launch.py', 'lf_bad_overrides')
+    for bad in ('{', '[]'):
+        with pytest.raises(ValueError):
+            nodes._overrides_from_json(bad)
+    with pytest.raises(ValueError):
+        nodes._as_float('not-a-duration', 30.)
+    competition = stub_ros.load_launch_module('competition.launch.py', 'lf_bad_numbers')
+    with pytest.raises(ValueError):
+        competition._put_num_if_set({}, 'chassis.v_max', 'fast')
+    with pytest.raises(ValueError):
+        competition._put_int_if_set({}, 'perception.target_digit', '1.5')
+
+
 def test_static_tf_mount_tf_can_be_disabled(stub_ros):
     """`publish_mount_tf=false` 时只发 2 个 TF。"""
     mod = stub_ros.load_launch_module('include/static_tf.launch.py', 'lf_static_tf_5')
@@ -320,7 +360,7 @@ def _competition_args(**over: str) -> Dict[str, str]:
     args = {'params_file': TRACKER_PARAMS, 'virtual_yaml': VIRTUAL_YAML,
             'field_yaml': FIELD_YAML, 'maps_dir': '', 'serial_port': '',
             'base_pose_source': '', 'target_digit': '', 'id_filter_mode': '',
-            'v_max': '', 'cmd_frame': '', 'csv_extra_cols': '', 'csv_out_dir': '',
+            'v_max': '', 'cmd_frame': '', 'csv_out_dir': '',
             'csv_run_id': '', 'grid_map_source': '', 'grid_map_topic': '',
             'grid_republish_period_s': '', 'grid_write_preview_png': '',
             'run_duration_s': '', 'shutdown_grace_s': '',
@@ -336,7 +376,7 @@ def test_competition_declares_args(stub_ros):
     declared = stub_ros.declared_args(mod.generate_launch_description())
     for key in ('params_file', 'virtual_yaml', 'field_yaml', 'maps_dir',
                 'serial_port', 'base_pose_source', 'target_digit', 'id_filter_mode',
-                'v_max', 'cmd_frame', 'csv_extra_cols', 'csv_out_dir', 'csv_run_id',
+                'v_max', 'cmd_frame', 'csv_out_dir', 'csv_run_id',
                 'grid_map_source', 'grid_map_topic', 'grid_republish_period_s',
                 'grid_write_preview_png', 'run_duration_s', 'shutdown_grace_s',
                 'startup_step_s', 'enable_gt_monitor', 'rviz', 'publish_mount_tf'):
@@ -391,7 +431,7 @@ def test_competition_honours_explicit_overrides(stub_ros):
     stub_ros.args.update(_competition_args(
         serial_port='/dev/gimbal', base_pose_source='odom', target_digit='7',
         id_filter_mode='on', v_max='0.8', cmd_frame='base_link',
-        csv_extra_cols='true', csv_run_id='run01', grid_map_source='topic',
+        csv_run_id='run01', grid_map_source='topic',
         grid_map_topic='/ext/map', grid_republish_period_s='1.0',
         grid_write_preview_png='false', maps_dir='maps2', csv_out_dir='out2',
         run_duration_s='12.5', shutdown_grace_s='2.0'))
@@ -408,7 +448,6 @@ def test_competition_honours_explicit_overrides(stub_ros):
     assert over['perception.id_filter_mode'] == 'on'
     assert over['chassis.v_max'] == pytest.approx(0.8)
     assert over['chassis.cmd_frame'] == 'base_link'
-    assert over['csv.csv_extra_cols'] is True
     assert over['csv.run_id'] == 'run01'
     assert over['grid.map_source'] == 'topic'
     assert over['grid.map_topic'] == '/ext/map'
@@ -519,12 +558,8 @@ def test_rviz_config_does_not_reference_ground_truth_topic():
 # ---------------------------------------------------------------------------
 def _has_real_ros2() -> bool:
     """本机是否装了真实 ROS 2（而不是测试用的桩）。"""
-    try:
-        import rclpy                                    # noqa: F401
-        from launch import LaunchDescription            # noqa: F401
-        return True
-    except Exception:
-        return False
+    return (importlib.util.find_spec('rclpy') is not None
+            and importlib.util.find_spec('launch') is not None)
 
 
 @pytest.mark.skipif(not _has_real_ros2(),

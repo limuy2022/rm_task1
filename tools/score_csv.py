@@ -52,7 +52,7 @@ def _read_reference(path):
                 if rows and row['_tick_us'] <= rows[-1]['_tick_us']:
                     raise ValueError('参考tick必须严格递增')
                 rows.append(row)
-            except (TypeError, ValueError, OverflowError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
                 raise ValueError(f'参考CSV第{line_number}行：{exc}') from exc
     if not rows:
         raise ValueError('参考CSV没有数据行，不能评分')
@@ -144,7 +144,7 @@ def main(argv=None):
     try:
         result = evaluate(args.submission, args.reference, tol=args.tol,
                           field_long_side_m=args.field_long_side_m)
-    except (OSError, ValueError, csv.Error) as exc:
+    except (OSError, ValueError, csv.Error) as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
         print(f'无法评分：{exc}', file=sys.stderr)
         return 1
     print(S.format_report(result, meta=result['meta']))

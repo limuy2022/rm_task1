@@ -131,6 +131,7 @@ class StatusCSV:
             self.writer.writerow(self.columns)
             self.file.flush()
         except (OSError, ValueError, csv.Error) as exc:
+            # 调试CSV不是控制输入；磁盘/文件失败只关闭日志并报告，不中断跟踪。
             self._failed(exc)
 
     def _failed(self, exc):
@@ -149,14 +150,16 @@ class StatusCSV:
             self.writer.writerow(row)
             self.file.flush()
         except (OSError, ValueError, csv.Error) as exc:
+            # 每次flush都可能遇到磁盘错误；停止调试记录，不伪报写入成功。
             self._failed(exc)
 
     def close(self):
         if self.file is not None:
             try:
                 self.file.close()
-            except OSError:
-                pass
+            except OSError as exc:
+                # 文件关闭也可能报告延迟写盘失败；保留明确告警，不假称保存成功。
+                self.warn('Debug CSV close failed: '+str(exc))
             self.file = None
 
 
@@ -195,8 +198,9 @@ class TrackingDebugNode(Node):
                 return
             self.status = status
             self.csv.write(status)
-        except (TypeError, ValueError):
-            pass
+        except json.JSONDecodeError as exc:
+            # 状态是外部JSON文本；坏消息不应污染上一次合法的调试画面。
+            self.get_logger().warning('Debug status ignored: '+str(exc))
 
     def render(self):
         if self.image is None:
@@ -219,7 +223,8 @@ class TrackingDebugNode(Node):
             result.data = canvas.tobytes()
             self.pub.publish(result)
             self.last_warning = None
-        except (AttributeError, TypeError, ValueError, cv2.error) as exc:
+        except (TypeError, ValueError, cv2.error) as exc:
+            # 观测/图像是外部数据，拒绝不匹配或无法绘制的一帧；不涉及控制输出。
             text = str(exc)
             if text != self.last_warning:
                 self.get_logger().warning('Debug image skipped: '+text)
@@ -235,7 +240,7 @@ def main(args=None):
     node = TrackingDebugNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
         pass
     finally:
         node.destroy_node()

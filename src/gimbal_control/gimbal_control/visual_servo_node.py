@@ -119,7 +119,9 @@ class VisualServoNode(Node):
                     or not np.all(np.isfinite(q)) or np.linalg.norm(q) < .5):
                 self.imu = None; return
             self.imu = (source, q / np.linalg.norm(q))
-        except (AttributeError, TypeError, ValueError): self.imu = None
+        except (TypeError, ValueError):
+            # 外部IMU数值非法时清姿态；新鲜IMU门禁停止输出。
+            self.imu = None
 
     def refresh_pid(self):
         settings = tuple(float(self.p(name)) for name in (
@@ -196,7 +198,8 @@ class VisualServoNode(Node):
                     if e == 0.: pid.reset()  # no integral/derivative twitch inside dead zone
                     outputs.append(pid.update(e, dt))
                 self.desired = tuple(outputs)
-        except (AttributeError, TypeError, ValueError, cv2.error):
+        except (TypeError, ValueError, cv2.error):
+            # 畸形角点/投影错误属于无观测，必须清滤波和积分历史。
             self.invalidate_image()
 
     def send(self, yaw, pitch):
@@ -282,6 +285,7 @@ class VisualServoNode(Node):
                 message = String(); message.data = json.dumps(status, ensure_ascii=False)
                 self.status_pub.publish(message); self.last_status = now
         except (TypeError, ValueError, OverflowError) as exc:
+            # 运行时参数来自ROS服务；非法值锁故障并停止，不沿用旧输出。
             self.fault = str(exc); self.stop()
             self.get_logger().error('图像PID已停止：'+str(exc))
 
@@ -293,6 +297,7 @@ class VisualServoNode(Node):
 def main(args=None):
     rclpy.init(args=args); node = VisualServoNode()
     try: rclpy.spin(node)
+    # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
     except KeyboardInterrupt: pass
     finally:
         node.shutdown_stop(); node.destroy_node()

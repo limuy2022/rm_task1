@@ -63,19 +63,9 @@ def main(argv=None):
     if not (math.isfinite(args.square_mm) and 0 < args.square_mm <= 1000):
         parser.error('单格边长须为0到1000之间的毫米数；例如25毫米填25。')
     args.output_dir = args.output_dir.expanduser().resolve()
-    try:
-        calibration = importlib.import_module('camera_calibration.calibrator')
-        gui = importlib.import_module('camera_calibration.camera_calibrator')
-        cli = importlib.import_module('camera_calibration.nodes.cameracalibrator')
-        # Check the installed interface before starting any ROS node.
-        if not (hasattr(calibration.Calibrator, 'do_save') and
-                hasattr(calibration.MonoCalibrator, 'do_tarfile_save') and
-                hasattr(gui.CalibrationNode, 'do_upload')):
-            raise RuntimeError('安装的camera_calibration接口与已核对版本不同')
-    except (ImportError, AttributeError, RuntimeError) as exc:
-        print(f'无法启动现有标定器：{type(exc).__name__}: {exc}', file=sys.stderr)
-        print('保留错误和ros2 pkg prefix camera_calibration结果；本脚本不会安装依赖。', file=sys.stderr)
-        return 1
+    calibration = importlib.import_module('camera_calibration.calibrator')
+    gui = importlib.import_module('camera_calibration.camera_calibrator')
+    cli = importlib.import_module('camera_calibration.nodes.cameracalibrator')
     ros_args = ['cameracalibrator', '--no-service-check', '--size',
                 f'{args.cols}x{args.rows}', '--square', format(args.square_mm / 1000, '.12g'),
                 '--camera_name', 'team47_hik', '--ros-args',
@@ -95,7 +85,7 @@ def main(argv=None):
         sys.argv = ros_args
         with local_gui_actions(calibration, gui, args.output_dir):
             cli.main()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # 用户关闭标定；上下文管理器仍恢复本进程的GUI方法。
         pass
     finally:
         sys.argv = previous

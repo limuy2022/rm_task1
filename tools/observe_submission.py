@@ -56,7 +56,7 @@ def main():
                         if delay < -.001:
                             raise ValueError('时间戳在未来，检查时钟')
                         delays.append(delay)
-                    except (ValueError, UnicodeError) as exc:
+                    except (ValueError, UnicodeError) as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
                         errors.append(str(exc))
             time.sleep(.002)
     finally:

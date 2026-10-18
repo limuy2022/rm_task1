@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """云台控制律单测（DESIGN.md §6.8 + T03 验收点 + §9.3 T-C2）。
 
-**不依赖 rclpy**：全部用例在纯 numpy 上跑，Windows / Ubuntu 均可直接 ``pytest``。
+**不依赖 rclpy**：直接测试本仓库的纯 numpy control/common 模块。
 
 必过的自检（主理人指定 5 条中的 1~4 条）：
 1. pitch 符号：``to_protocol_pitch(+0.1) == -0.1``
@@ -23,7 +23,7 @@ import pytest
 
 # --- pytest 引导（同时支持 `pytest test/test_control_law.py` 与直接运行本文件） ---
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # noqa: E402  conftest 同目录
-import conftest  # noqa: F401,E402  触发 sys.path / stub 安装
+import conftest  # noqa: F401,E402  注入本仓库纯模块路径
 
 from gimbal_common import frames  # noqa: E402
 from gimbal_common.math_utils import wrap_pi  # noqa: E402
@@ -73,13 +73,10 @@ def _half_fov_from_virtual_yaml() -> float:
     repo_src = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                             '..', '..'))
     vpath = os.path.join(repo_src, 'gimbal_tracker_bringup', 'config', 'virtual.yaml')
-    try:
-        from gimbal_common import config_loader as cl
-        cfg = cl.load_yaml(vpath, required=True)
-        cam = cfg['camera']
-        return half_fov_rad_from_intrinsics(float(cam['width']), float(cam['fx']))
-    except Exception:
-        return DEFAULT_HALF_FOV_RAD
+    from gimbal_common import config_loader as cl
+    cfg = cl.load_yaml(vpath, required=True)
+    cam = cfg['camera']
+    return half_fov_rad_from_intrinsics(float(cam['width']), float(cam['fx']))
 
 
 #: 水平半视场（rad），来源：config/virtual.yaml 的 camera.width / camera.fx
@@ -138,11 +135,7 @@ def test_feedforward_pitch_sign_target_rising():
     """
     d = 2.0
     vz = 0.5
-    ff_yaw, ff_pitch = feedforward(
-        r=np.array([d, 0.0, 0.0]),
-        vel_world=np.array([0.0, 0.0, vz]),
-        y_body=np.array([0.0, 1.0, 0.0]),
-    )
+    ff_yaw, ff_pitch = feedforward(r=np.array([d, 0.0, 0.0]), vel_world=np.array([0.0, 0.0, vz]))
     assert ff_pitch == pytest.approx(-vz / d)
     assert ff_pitch < 0.0
     assert ff_yaw == pytest.approx(0.0)
@@ -152,11 +145,7 @@ def test_feedforward_yaw_sign_target_moving_left():
     """目标向 +y（左）横移 → 视线绕 +z 逆时针 → ``ω_ff_yaw > 0``。"""
     d = 2.0
     vy = 0.4
-    ff_yaw, ff_pitch = feedforward(
-        r=np.array([d, 0.0, 0.0]),
-        vel_world=np.array([0.0, vy, 0.0]),
-        y_body=np.array([0.0, 1.0, 0.0]),
-    )
+    ff_yaw, ff_pitch = feedforward(r=np.array([d, 0.0, 0.0]), vel_world=np.array([0.0, vy, 0.0]))
     # cross(r, v) = (d,0,0)×(0,vy,0) = (0, 0, d·vy) → ω_vec_z = d·vy/d² = vy/d > 0
     assert ff_yaw == pytest.approx(vy / d)
     assert ff_yaw > 0.0
@@ -165,9 +154,7 @@ def test_feedforward_yaw_sign_target_moving_left():
 
 def test_feedforward_guards_non_finite():
     """非有限输入 → 0。"""
-    ff_yaw, ff_pitch = feedforward(np.array([2.0, 0.0, 0.0]),
-                                   np.array([float('nan'), 0.0, 0.0]),
-                                   np.array([0.0, 1.0, 0.0]))
+    ff_yaw, ff_pitch = feedforward(np.array([2.0, 0.0, 0.0]), np.array([float('nan'), 0.0, 0.0]))
     assert ff_yaw == 0.0 and ff_pitch == 0.0
 
 
@@ -315,7 +302,7 @@ def test_combined_formula_matches_design():
     yaw_c, pitch_c = current_angles(f)
     e_yaw = wrap_pi(yaw_t - yaw_c)
     e_pitch = pitch_t - pitch_c
-    ff_yaw, ff_pitch = feedforward(r, v, y_body)
+    ff_yaw, ff_pitch = feedforward(r, v)
     w_imu_yaw, w_imu_pitch = imu_feedback((0.0, 0.1, 0.2), pitch_c)
 
     out = law.compute(r, v, QUAT_IDENTITY, (0.0, 0.1, 0.2), dt=1.0, gimbal_origin_world=ORIGIN, joint_angles=(0.0, 0.0))
@@ -545,12 +532,9 @@ def test_gimbal_origin_with_world_odom():
 
 def test_gimbal_origin_matches_frames_single_source():
     """与 ``gimbal_common.frames.gimbal_origin_world`` 结果一致（单一真源）。"""
-    fn = getattr(frames, 'gimbal_origin_world', None)
-    if not callable(fn):  # pragma: no cover - 桩环境跳过
-        pytest.skip('gimbal_common.frames.gimbal_origin_world 不可用')
     T_wo = _T_world_odom_from_rpy_t(np.eye(3), (0.3, -0.2, 0.1))
     a = gimbal_origin_world(np.array([1.0, 2.0, 0.0]), 0.6, (0.1, 0.05, 0.2), T_wo)
-    b = np.asarray(fn(np.array([1.0, 2.0, 0.0]), 0.6, (0.1, 0.05, 0.2), T_wo), dtype=np.float64)
+    b = np.asarray(frames.gimbal_origin_world(np.array([1.0, 2.0, 0.0]), 0.6, (0.1, 0.05, 0.2), T_wo), dtype=np.float64)
     np.testing.assert_allclose(a, b.reshape(3), atol=1e-12)
 
 

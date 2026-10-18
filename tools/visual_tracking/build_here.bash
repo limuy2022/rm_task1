@@ -13,5 +13,5 @@ command -v colcon >/dev/null || { echo 'NUC 未找到 colcon，请保留报错�
 colcon --log-base "$TRACK_WS/log" build --base-paths "$TRACK_WS/src" \
   --packages-select gimbal_common gimbal_interfaces gimbal_perception gimbal_control gimbal_tracker_bringup gimbal_serial_42 gimbal_judge_io grid_mapper gimbal_localization gimbal_estimation chassis_advisor \
   --build-base "$TRACK_WS/build" --install-base "$TRACK_WS/install" \
-  --cmake-args -DBUILD_TESTING=OFF -DWITH_HIK_CAMERA=OFF
+  --cmake-args -DBUILD_TESTING=OFF
 echo "编译完成。下一步：bash \"$TRACK_WS/run_here.bash\" target_id:=0"

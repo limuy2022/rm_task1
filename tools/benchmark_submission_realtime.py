@@ -43,7 +43,8 @@ def reader(path, count, timeout, done, pipe):
                 else:
                     time.sleep(.002)
         pipe.send({'rows':rows,'errors':errors,'partial_tail_bytes':len(tail)})
-    except Exception as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
+        # 独立读者的文件/CSV错误须传回父进程，避免父进程只得到一个无内容的超时。
         pipe.send({'rows':rows,'errors':errors+[repr(exc)],'partial_tail_bytes':len(tail)})
     finally:
         pipe.close()

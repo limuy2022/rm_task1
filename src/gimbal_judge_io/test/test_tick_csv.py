@@ -56,23 +56,6 @@ def test_writer_append_and_flush(tmp_path):
     assert lines[0].split(',')[8] == '100.500000'
 
 
-def test_eight_col_mode(tmp_path):
-    """judge.emit_t_tick=false → 只写 8 列数据（口述形态）。"""
-    from gimbal_judge_io.tick_csv import COLS8, format_row, header_line
-    assert len(COLS8) == 8 and COLS8[-1] == 'vy'
-    line8 = format_row((1, 2), (3, 4), (5, 6), (0.1, 0.2), 100.5,
-                       with_tick=False)
-    assert len(line8.split(',')) == 8
-    assert header_line(False) == ','.join(COLS8)
-    p = str(tmp_path / 'T8col.csv')
-    w = TickCsvWriter(p, with_tick=False)
-    assert w.n_cols == 8
-    w.open()
-    assert w.write_tick((1, 2), (3, 4), (5, 6), (0.1, 0.2), 100.5)
-    w.close()
-    with open(p, 'r', encoding='utf-8') as f:
-        assert len(f.read().strip().split(',')) == 8
-
 
 def test_bad_tick_dropped(tmp_path):
     p = str(tmp_path / 'T8.csv')
@@ -270,10 +253,8 @@ def test_only_one_append_writer_can_hold_file(tmp_path):
 
 def test_nonempty_legacy_eight_columns_cannot_resume_without_timestamp(tmp_path):
     path = tmp_path / 'legacy.csv'
-    writer = TickCsvWriter(str(path), with_tick=False)
-    assert writer.write_tick((1, 2), (3, 4), (5, 6), (.1, .2), 100.)
-    writer.close()
+    path.write_text('1,2,3,4,5,6,.1,.2\n')
     before = path.read_bytes()
-    recovered = TickCsvWriter(str(path), with_tick=False)
+    recovered = TickCsvWriter(str(path))
     assert not recovered.open()
     assert path.read_bytes() == before

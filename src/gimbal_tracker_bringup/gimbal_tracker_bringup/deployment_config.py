@@ -8,8 +8,7 @@ from gimbal_localization.odometry_geometry import rigid_transform
 def load_vehicle_config(path):
     path = Path(path).expanduser().resolve()
     with path.open(encoding='utf-8') as stream: data = yaml.safe_load(stream)
-    try: params = data['/**']['ros__parameters']
-    except (TypeError, KeyError) as exc: raise ValueError('需要/**: ros__parameters:参数文件') from exc
+    params = data['/**']['ros__parameters']
     if not isinstance(params, dict): raise ValueError('参数必须为字典')
     for key in ('kinematics.calibration_confirmed', 'kinematics.joint_zero_known',
                 'kinematics.mounted_on_base_confirmed', 'localization.sensor_extrinsics_confirmed',

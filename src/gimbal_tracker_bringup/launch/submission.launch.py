@@ -14,7 +14,7 @@ def generate_launch_description():
         Node(package='gimbal_judge_io', executable='judge_io_node', output='screen',
              parameters=[{'judge.team_id': ParameterValue(LaunchConfiguration('team_id'), value_type=str),
                           'judge.output_dir': LaunchConfiguration('output_dir'),
-                          'judge.emit_t_tick': True, 'judge.fresh_run': False,
+                          'judge.fresh_run': False,
                           'judge.enforce_v_floor': False}],
              remappings=[('/judge/tick', LaunchConfiguration('tick_topic')),
                          ('/judge/replay_start', LaunchConfiguration('replay_topic'))]),

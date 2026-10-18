@@ -21,12 +21,12 @@
 - `~/ws_championship/output/<队伍编号>.csv`（无表头，只追加）
 - `~/ws_championship/output/<队伍编号>_map.pgm` / `_map.yaml`（map_saver_cli 格式）
 
-CSV默认追加，进程重启不得归档/覆盖已提交行。fresh_run=true只能在明确的新轮
-开始前使用；正式部署保持false，旧半行或损坏文件由写出器报错，不修改历史记录。
+CSV只追加，进程重启不得归档/覆盖已提交行；新轮由主办方清理。
+旧半行或损坏文件由写出器报错，不修改历史记录。
 目标和底盘按源stamp缓存，tick到来时外推到该tick及tick+0.1秒；过期或无效输入不继续
 冒充有效状态。建议只有来源有效时才使用，不在缺少绕障解时强造朝目标的速度。
 
-给定点（map 系原点）冻结：`/judge/replay_start` 到达（或兜底：第 0 拍）时向
+给定点（map 系原点）冻结：`/judge/replay_start` 到达时向
 `/gimbal/origin_freeze` 发一条锁存 `Header`，由 `map_frame_broadcaster_node`
 （`origin_mode=judge_replay_start`）执行冻结。
 """
@@ -64,7 +64,6 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'judge.team_id': '47',
     'judge.output_dir': '~/ws_championship/output',
     # 已确认当前赛题一输出九列。
-    'judge.emit_t_tick': True,
     'judge.state_timeout_s': 0.2,
     'judge.observation_timeout_s': 0.5,
     # 正式提交只能追加；新轮清理由主办方负责。自行测试使用新目录。
@@ -111,7 +110,7 @@ def _stamp_to_sec(stamp: Any) -> float:
     """ROS stamp → 秒（float）。失败返回 NaN。"""
     try:
         return float(stamp.sec) + float(stamp.nanosec) * 1e-9
-    except Exception:
+    except (TypeError, ValueError, OverflowError):  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
         return float('nan')
 
 
@@ -138,9 +137,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         if bool(self._params['judge.fresh_run']):
             raise ValueError('禁止启动时改名既有提交；测试请选择新的output_dir，正式轮由主办方清理')
 
-        self._writer = TickCsvWriter(self._csv_path, logger=self._log,
-                                     with_tick=bool(
-                                         self._params['judge.emit_t_tick']))
+        self._writer = TickCsvWriter(self._csv_path, logger=self._log)
         if not self._writer.open():
             raise RuntimeError("CSV打不开，拒绝启动；不修改原有提交")
 
@@ -191,23 +188,20 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                           self._on_watchdog)
 
         self._log.info('judge_io_node 启动: team=%s 列数=%d csv=%s map=%s'
-                       % (team, self._writer.n_cols, self._csv_path,
+                       % (team, 9, self._csv_path,
                           self._map_pgm))
 
     # -- 参数 -----------------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
         """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
+        self.declare_parameter(key, default)
+        return self.get_parameter(key).value
 
     # -- judge 回调 -----------------------------------------------------------
     def _on_replay_start(self, msg: Any) -> None:
         """回放起点信号 → 冻结给定点（map 系原点）。"""
         self._log.info('收到 /judge/replay_start（frame_id=%s）→ 冻结给定点'
-                       % str(getattr(msg, 'frame_id', '')))
+                       % msg.frame_id)
         self._freeze_origin(msg)
 
     def _freeze_origin(self, src_msg: Any) -> None:
@@ -215,20 +209,18 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         if self._origin_frozen:
             return
         self._origin_frozen = True
-        try:
-            out = Header()
-            out.stamp = src_msg.stamp
-            out.frame_id = src_msg.frame_id
-            self._pub_origin_freeze.publish(out)
-        except Exception as exc:  # pragma: no cover
-            self._log.error('origin_freeze 发布失败: %r' % (exc,))
+        out = Header()
+        out.stamp = src_msg.stamp
+        out.frame_id = src_msg.frame_id
+        self._pub_origin_freeze.publish(out)
 
     def _on_tick(self, msg: Any) -> None:
         """每拍写一行（9 列），立即 flush。"""
         t0 = time.monotonic()
         try:
             idx = int(msg.frame_id)
-        except Exception:
+        except ValueError:
+            # Some replay sources leave frame_id empty; the stamp remains authoritative.
             idx = self._tick_index + 1
         self._tick_index = idx
         self._n_tick += 1
@@ -267,7 +259,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                 [msg.cur_x,msg.cur_y],[msg.vel_x,msg.vel_y],[msg.acc_x,msg.acc_y],
                 valid=bool(msg.valid) and int(msg.track_status)!=0,
                 observation_age=float(msg.last_obs_age))
-        except (AttributeError,TypeError,ValueError) as exc:
+        except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
             self._log.error('target_state解析失败: %r' % (exc,))
 
     def _on_base_pose(self, msg: Any) -> None:
@@ -280,7 +272,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             # nav_msgs/Odometry twist is in child/base coordinates.
             velocity=frames.quat_to_mat(quat)@np.array([v.x,v.y,v.z],float)
             self._sampler.put_base(stamp_seconds(msg.header.stamp),[p.x,p.y],velocity[:2])
-        except (AttributeError,TypeError,ValueError) as exc:
+        except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
             self._log.error('base_pose解析失败: %r' % (exc,))
 
     def _on_advice(self, msg: Any) -> None:
@@ -288,7 +280,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             if msg.header.frame_id != 'map': return
             self._sampler.put_advice(stamp_seconds(msg.header.stamp),[msg.cmd_vx,msg.cmd_vy],
                                     valid=bool(msg.valid))
-        except (AttributeError,TypeError,ValueError) as exc:
+        except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
             self._log.error('advice解析失败: %r' % (exc,))
 
     def _on_grid(self, msg: Any) -> None:
@@ -320,7 +312,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             if not np.all(np.isfinite(self._grid_origin)):
                 self._grid=None
                 raise ValueError('invalid map origin translation')
-        except Exception as exc:  # pragma: no cover
+        except (TypeError, ValueError) as exc:
+            # Reject malformed external grid data instead of exporting a fake map.
             self._grid = None
             self._log.error('grid 解析失败: %r' % (exc,))
 
@@ -376,7 +369,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                                self._params['judge.map_occupied_thresh']),
                            free_thresh=float(
                                self._params['judge.map_free_thresh']))
-        except Exception as exc:
+        except OSError as exc:
+            # Disk/permission failure must leave the last valid submission untouched.
             self._log.error('地图保存失败(%s): %r' % (reason, exc))
             return False
         if reason == 'final':
@@ -406,7 +400,7 @@ def main(args: Optional[list] = None) -> int:
     node = JudgeIoNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
         pass
     finally:
         try:

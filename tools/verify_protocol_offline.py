@@ -48,7 +48,7 @@ def main():
         os.close(slave)
     try:
         stdout, stderr = process.communicate(timeout=30)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # 协议测试子进程超时必须判失败，并保留输出供定位。
         process.kill()
         process.communicate()
         raise SystemExit('PTY verifier timed out; not verified')

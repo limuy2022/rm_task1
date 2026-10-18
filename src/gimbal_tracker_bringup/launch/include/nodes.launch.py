@@ -6,7 +6,6 @@
 grid_mapper → base_pose_provider → map_frame_broadcaster → vgimbal_bridge
   → marker_pnp → target_estimator → gimbal_controller → chassis_advisor
   → judge_io(官方 CSV+地图) → trajectory_annotator [→ gt_error_monitor(可选)]
-                             [→ csv_writer_node(旧 8 列，默认关)]
 ```
 
 * `grid_mapper_node` **必须最先起**：它以 `TRANSIENT_LOCAL` 发 `/map/grid` 与 `/map/ray_grid`，
@@ -62,15 +61,10 @@ NODE_LADDER: List[Tuple[int, str, str]] = [
     (6, 'gimbal_estimation', 'target_estimator_node'),
     (7, 'gimbal_control', 'gimbal_controller_node'),
     (8, 'chassis_advisor', 'chassis_advisor_node'),
-    (9, 'gimbal_judge_io', 'judge_io_node'),              # CSV(9列/8列)+地图
+    (9, 'gimbal_judge_io', 'judge_io_node'),              # CSV(9列)+地图
     (10, 'gimbal_dataio', 'trajectory_annotator_node'),
     (11, 'gimbal_debug', 'gt_error_monitor_node'),        # 可选
 ]
-
-# 旧 20Hz 8 列写出器（赛题一官方要 9 列且按拍写，默认**不起**）
-_LEGACY_CSV_STEP = 12
-_LEGACY_CSV: Tuple[int, str, str] = (
-    _LEGACY_CSV_STEP, 'gimbal_dataio', 'csv_writer_node')
 
 # 串口桥异常退出时需要立刻收尾的节点
 _CRITICAL_EXECUTABLE = 'vgimbal_bridge_node'
@@ -102,7 +96,11 @@ def _as_bool(text: Any, default: bool = False) -> bool:
     s = str(text).strip().lower()
     if s == '':
         return default
-    return s in ('1', 'true', 'yes', 'on', 'y', 't')
+    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
+        return True
+    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
+        return False
+    raise ValueError(f'非法布尔参数: {text!r}')
 
 
 def _as_float(text: Any, default: float) -> float:
@@ -110,33 +108,18 @@ def _as_float(text: Any, default: float) -> float:
     s = str(text).strip() if text is not None else ''
     if s == '':
         return float(default)
-    try:
-        return float(s)
-    except ValueError:
-        return float(default)
-
-
-def _as_int(text: Any, default: int) -> int:
-    """字符串转 int（空串用默认）。"""
-    s = str(text).strip() if text is not None else ''
-    if s == '':
-        return int(default)
-    try:
-        return int(float(s))
-    except ValueError:
-        return int(default)
+    return float(s)
 
 
 def _overrides_from_json(text: str) -> Dict[str, Any]:
-    """把 JSON 字符串解析成参数字典（非法时返回空字典）。"""
+    """解析参数覆盖；空值表示无覆盖，损坏的 JSON 直接报错。"""
     s = str(text or '').strip()
     if not s:
         return {}
-    try:
-        data = json.loads(s)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    data = json.loads(s)
+    if not isinstance(data, dict):
+        raise ValueError('overrides_json 必须为 JSON 对象')
+    return data
 
 
 def _node_params(params_file: str, overrides: Dict[str, Any],
@@ -158,8 +141,6 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     startup_step = max(0.0, _as_float(LaunchConfiguration('startup_step_s').perform(context), 0.3))
     enable_gt = _as_bool(LaunchConfiguration('enable_gt_monitor').perform(context), False)
     rviz_enabled = _as_bool(LaunchConfiguration('rviz').perform(context), False)
-    enable_legacy_csv = _as_bool(
-        LaunchConfiguration('enable_legacy_csv').perform(context), False)
     team_id = str(LaunchConfiguration('team_id').perform(context)).strip()
     output_dir = str(LaunchConfiguration('output_dir').perform(context)).strip()
     mount_tf = _as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
@@ -180,8 +161,6 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 
     actions: List[Any] = []
     ladder: List[Tuple[int, str, str]] = list(NODE_LADDER)
-    if enable_legacy_csv:
-        ladder.append(_LEGACY_CSV)
 
     # ---- 环境变量：必须与评分程序一致，否则互相收不到话题
     actions.append(SetEnvironmentVariable(
@@ -189,10 +168,9 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 
     # ---- 轮次横幅（便于在 log 里定位）
     actions.append(LogInfo(msg='[bringup] 阶梯启动：步长 %.2fs，共 %d 个节点'
-                                '（team=%s，GT监测=%s，旧8列CSV=%s）'
+                                '（team=%s，GT监测=%s）'
                                 % (startup_step, len(ladder), team_id,
-                                   'on' if enable_gt else 'off',
-                                   'on' if enable_legacy_csv else 'off')))
+                                   'on' if enable_gt else 'off')))
 
     # ---- 静态 TF（从 virtual.yaml 读外参）
     actions.append(IncludeLaunchDescription(
@@ -276,8 +254,6 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('output_dir',
                               default_value='',
                               description='官方输出目录（留空用参数文件里的值）'),
-        DeclareLaunchArgument('enable_legacy_csv', default_value='false',
-                              description='是否同时起旧 20Hz 8 列写出器（默认关）'),
         # 赛题一 tick 持续 180 s；评分节点启动后约 3 s 才开始发 tick，
         # 最后一拍后 1 s 才复制文件 → 必须活过 180+3+1 s，留足余量。
         DeclareLaunchArgument('run_duration_s', default_value='210.0',

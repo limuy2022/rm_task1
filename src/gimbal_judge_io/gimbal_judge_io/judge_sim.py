@@ -12,7 +12,7 @@
 
 `/judge/tick` 的 `frame_id` = 拍号（十进制字符串），`stamp` = 当前时刻——
 与主办方约定一致。默认的 8 列提交形态**不写** `stamp`；只有把
-`judge.emit_t_tick` 打开（=true）做本地自检时，它才落成 CSV 第 9 列 `t_tick`。
+提交器固定将它写为 CSV 第 9 列 `t_tick`。
 
 可选 `sim.extra_signals=true` 时，还会发**假的** `/gimbal/base_pose`、
 `/estimation/target_state`、`/chassis/advice`，让 CSV 里不是一片 0，
@@ -143,11 +143,8 @@ class JudgeSimNode(Node):  # type: ignore[misc]
     # -- 参数 -----------------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
         """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
+        self.declare_parameter(key, default)
+        return self.get_parameter(key).value
 
     # -- 属性 -----------------------------------------------------------------
     @property
@@ -225,57 +222,48 @@ class JudgeSimNode(Node):  # type: ignore[misc]
 
     def _publish_base(self, t: float, stamp: Any) -> None:
         """发布假底盘位姿。"""
-        try:
-            bx, by = self._fake_base(t)
-            msg = Odometry()
-            msg.header.stamp = stamp
-            msg.header.frame_id = 'map'
-            msg.child_frame_id = 'base_link'
-            msg.pose.pose.position.x = bx
-            msg.pose.pose.position.y = by
-            msg.pose.pose.orientation.w = 1.0
-            msg.twist.twist.linear.x = FAKE_BASE_SPEED
-            self._pub_base.publish(msg)
-        except Exception:  # pragma: no cover
-            pass
+        bx, by = self._fake_base(t)
+        msg = Odometry()
+        msg.header.stamp = stamp
+        msg.header.frame_id = 'map'
+        msg.child_frame_id = 'base_link'
+        msg.pose.pose.position.x = bx
+        msg.pose.pose.position.y = by
+        msg.pose.pose.orientation.w = 1.0
+        msg.twist.twist.linear.x = FAKE_BASE_SPEED
+        self._pub_base.publish(msg)
 
     def _publish_target(self, t: float, stamp: Any) -> None:
         """发布假目标状态（cur = 真值，pred = cur + vel*0.1）。"""
-        try:
-            (x, y), (vx, vy) = self._fake_target(t)
-            msg = TargetState()
-            msg.header.stamp = stamp
-            msg.header.frame_id = 'map'
-            msg.cur_x, msg.cur_y = float(x), float(y)
-            msg.pred_x, msg.pred_y = float(x + 0.1 * vx), float(y + 0.1 * vy)
-            msg.vel_x, msg.vel_y = float(vx), float(vy)
-            msg.track_status = 1
-            msg.valid = True
-            self._pub_target.publish(msg)
-        except Exception:  # pragma: no cover
-            pass
+        (x, y), (vx, vy) = self._fake_target(t)
+        msg = TargetState()
+        msg.header.stamp = stamp
+        msg.header.frame_id = 'map'
+        msg.cur_x, msg.cur_y = float(x), float(y)
+        msg.pred_x, msg.pred_y = float(x + 0.1 * vx), float(y + 0.1 * vy)
+        msg.vel_x, msg.vel_y = float(vx), float(vy)
+        msg.track_status = 1
+        msg.valid = True
+        self._pub_target.publish(msg)
 
     def _publish_advice(self, t: float, stamp: Any) -> None:
         """发布假底盘建议：朝目标，速度大小 ≥0.05（不踩停车陷阱）。"""
-        try:
-            (tx, ty), _v = self._fake_target(t)
-            bx, by = self._fake_base(t)
-            dx, dy = tx - bx, ty - by
-            d = math.hypot(dx, dy)
-            msg = ChassisAdvice()
-            msg.header.stamp = stamp
-            msg.header.frame_id = 'map'
-            if d > 1e-6:
-                sp = 0.0 if d < 0.45 else 0.30
-                msg.cmd_vx = float(dx / d * sp)
-                msg.cmd_vy = float(dy / d * sp)
-            msg.dist_to_target = float(d)
-            msg.chosen_theta = 0.0
-            msg.blocked = False
-            msg.valid = True
-            self._pub_advice.publish(msg)
-        except Exception:  # pragma: no cover
-            pass
+        (tx, ty), _v = self._fake_target(t)
+        bx, by = self._fake_base(t)
+        dx, dy = tx - bx, ty - by
+        d = math.hypot(dx, dy)
+        msg = ChassisAdvice()
+        msg.header.stamp = stamp
+        msg.header.frame_id = 'map'
+        if d > 1e-6:
+            sp = 0.0 if d < 0.45 else 0.30
+            msg.cmd_vx = float(dx / d * sp)
+            msg.cmd_vy = float(dy / d * sp)
+        msg.dist_to_target = float(d)
+        msg.chosen_theta = 0.0
+        msg.blocked = False
+        msg.valid = True
+        self._pub_advice.publish(msg)
 
 
 def main(args: Optional[list] = None) -> int:
@@ -285,7 +273,7 @@ def main(args: Optional[list] = None) -> int:
     try:
         while rclpy.ok() and not node.done:
             rclpy.spin_once(node, timeout_sec=0.05)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
         pass
     finally:
         try:

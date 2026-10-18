@@ -43,38 +43,6 @@ from gimbal_common.math_utils import accel_limit, clamp, lowpass
 
 from gimbal_common.time_utils import now
 
-import inspect as _inspect
-
-
-def _accel_limit_apply(target: np.ndarray, prev: np.ndarray, dt: float,
-                       a_max: float) -> np.ndarray:
-    """把 `prev` 平滑到 `target`，限制 ‖Δ‖ ≤ a_max·dt。
-
-    ⚠ 全工程目前存在 **三种** `accel_limit` 签名：
-      - `gimbal_common.math_utils`（工程师 A 的实现，权威）：
-        ``accel_limit(delta_xy, dt, a_max) -> 限幅后的增量``（3 参）
-      - 早期接口约定 / 旧 stub：``accel_limit(delta, max_delta)``（2 参）
-      - 另有实现写成：``accel_limit(target, prev, dt, a_max)``（4 参）
-
-    为了对三种都健壮，这里按**形参个数**分派，统一返回 `prev + 限幅增量`。
-    已回报主理人；最终以 `gimbal_common` 的 3 参增量式为准。
-    """
-    n_args = 3
-    try:
-        n_args = len(_inspect.signature(accel_limit).parameters)
-    except Exception:  # pragma: no cover - 内建/无签名信息时按 3 参处理
-        n_args = 3
-    tgt = np.asarray(target, dtype=float).reshape(2)
-    prv = np.asarray(prev, dtype=float).reshape(2)
-    delta = tgt - prv
-    if n_args >= 4:                       # 目标式：accel_limit(target, prev, dt, a_max)
-        return np.asarray(accel_limit(tgt, prv, dt, a_max), dtype=float).reshape(2)
-    if n_args == 3:                       # 增量式（A 的实现）：accel_limit(delta, dt, a_max)
-        d = accel_limit(delta, dt, a_max)
-    else:                                 # 旧 stub：accel_limit(delta, max_delta)
-        d = accel_limit(delta, float(a_max) * float(dt))
-    return prv + np.asarray(d, dtype=float).reshape(2)
-
 __all__ = [
     'V_MAX',
     'D_SLOW',
@@ -221,7 +189,7 @@ class VelocityLaw:
         prev = np.asarray(last, dtype=float).reshape(2)
         if not np.all(np.isfinite(prev)):
             prev = np.zeros(2, dtype=float)
-        out = _accel_limit_apply(lp, prev, dt, self.a_max)
+        out = prev + accel_limit(lp - prev, dt, self.a_max)
         if not np.all(np.isfinite(out)):  # pragma: no cover - 数值兜底
             out = prev
         self._cmd_out = np.asarray(out, dtype=float).reshape(2)

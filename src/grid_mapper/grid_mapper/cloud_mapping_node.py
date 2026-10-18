@@ -89,7 +89,9 @@ class CloudMappingNode(Node):
             self.poses.add(stamp_seconds(msg.header.stamp),msg.header.frame_id,msg.child_frame_id,
                            [p.x,p.y,p.z],[q.x,q.y,q.z,q.w])
             self.process_pending()
-        except (ValueError,TypeError,OverflowError) as exc: self.reject(exc)
+        except (ValueError,TypeError,OverflowError) as exc:
+            # 外部无效位姿不能用于射线起点；拒绝该帧，等待下一条有效位姿。
+            self.reject(exc)
 
     def on_cloud(self,msg):
         try:
@@ -105,7 +107,9 @@ class CloudMappingNode(Node):
             if len(self.pending)==self.pending.maxlen: self.reject('点云等待匹配位姿队列已满，丢弃最旧帧')
             self.pending.append((stamp,xyz))
             self.process_pending()
-        except (ValueError,TypeError,OverflowError) as exc: self.reject(exc)
+        except (ValueError,TypeError,OverflowError) as exc:
+            # 点云坏包/错坐标/过期不能污染累计地图，也不阻断独立跟踪。
+            self.reject(exc)
 
     def process_pending(self):
         if not self.origin_model_confirmed:
@@ -132,7 +136,9 @@ class CloudMappingNode(Node):
                 self.last_status={**self.mapper.update(xyz,origin,stamp),
                                   'frame_id':self.frame,'sensor_origin':origin.tolist(),
                                   'floor_z':floor,'rejected':self.rejected}
-            except (ValueError,TypeError,OverflowError) as exc: self.reject(exc)
+            except (ValueError,TypeError,OverflowError) as exc:
+                # 拒绝当前点云，不用错误光心或坏数值写入累计地图。
+                self.reject(exc)
 
     def publish(self):
         self.process_pending()
@@ -150,7 +156,9 @@ class CloudMappingNode(Node):
             self.map_pub.publish(msg)
             if self.autosave and time.monotonic()-self.last_save>=self.autosave:
                 try: self.save()
-                except OSError as exc: self.reject('地图保存失败: '+str(exc))
+                except OSError as exc:
+                    # 磁盘/权限故障须报告，但不能让实时地图发布停止。
+                    self.reject('地图保存失败: '+str(exc))
         snapshot=dict(self.last_status)
         if self.mapper.last_stamp is not None:
             age=self.get_clock().now().nanoseconds*1e-9-self.mapper.last_stamp
@@ -179,7 +187,9 @@ class CloudMappingNode(Node):
 
     def on_save(self,_request,response):
         try: response.message=self.save(); response.success=True
-        except (ValueError,OSError) as exc: response.message=str(exc); response.success=False
+        except (ValueError,OSError) as exc:
+            # 服务用失败响应报告“无有效地图”或 IO 错误，不假称保存成功。
+            response.message=str(exc); response.success=False
         return response
 
 
@@ -187,7 +197,7 @@ def main(args=None):
     rclpy.init(args=args)
     node=CloudMappingNode()
     try: rclpy.spin(node)
-    except KeyboardInterrupt: pass
+    except KeyboardInterrupt: pass  # 操作者 Ctrl+C 正常停机，随后保存最后有效地图。
     finally:
         try:
             if node.mapper.accepted_scans: node.save()

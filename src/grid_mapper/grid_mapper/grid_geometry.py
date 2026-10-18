@@ -10,6 +10,19 @@ import math
 import numpy as np
 
 
+def resolve_map_origin(grid_map, params_origin_xyz):
+    """以栅格实际 [x,y,yaw] 写出 YAML；参数原点只用于不一致提示。"""
+    got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), float(grid_map.origin_yaw)]
+    want = [float(value) for value in params_origin_xyz]
+    if len(want) != 3 or not all(math.isfinite(value) for value in got + want):
+        raise ValueError('map origin and configured origin must be finite three-element values')
+    if any(abs(got[i]-want[i]) > 1e-9 for i in range(3)):
+        return got, ('grid.origin_xyz=%s 与栅格实际 origin=%s 不一致'
+                     '（map_source=topic 时外部地图自带 origin）→ map.yaml 按栅格 origin 写'
+                     % (want, got))
+    return got, ''
+
+
 def planar_quaternion_yaw(xyzw) -> float:
     q = np.asarray(xyzw, dtype=float).reshape(4)
     norm = np.linalg.norm(q)

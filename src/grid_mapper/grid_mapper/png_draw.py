@@ -237,10 +237,7 @@ def _draw_square(drw: 'ImageDraw.ImageDraw', p: Tuple[float, float], r: int,
 
 def _finite2(p: Sequence[float]) -> bool:
     """判断二维点是否有限。"""
-    try:
-        return bool(math.isfinite(float(p[0])) and math.isfinite(float(p[1])))
-    except Exception:  # pragma: no cover
-        return False
+    return bool(math.isfinite(float(p[0])) and math.isfinite(float(p[1])))
 
 
 def _ensure_dir(d: str) -> None:

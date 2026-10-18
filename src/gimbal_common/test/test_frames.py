@@ -1,4 +1,4 @@
-"""frames / math_utils / csv_utils / time_utils 单测（含 pitch 符号自检 T-C2）。
+"""frames / math_utils / time_utils 单测（含 pitch 符号自检 T-C2）。
 
 纯 Python，不依赖 ROS。运行::
 
@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from gimbal_common import frames as F
 from gimbal_common import math_utils as M
-from gimbal_common import csv_utils as C
 from gimbal_common import time_utils as T
 
 
@@ -264,33 +263,6 @@ def test_ray_cells_degenerate_inputs():
     assert M.ray_cells((0.0, 0.0), (0.0, 0.0), 1.0, 0.1) == []
     assert M.ray_cells((0.0, 0.0), (1.0, 0.0), 0.0, 0.1) == []
     assert M.ray_cells((0.0, 0.0), (1.0, 0.0), 1.0, 0.0) == []
-
-
-# --------------------------------------------------------------------------------------
-# csv_utils
-# --------------------------------------------------------------------------------------
-def test_format_row_strict_8_cols():
-    row = C.format_row([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-    assert row == '0.100000,0.200000,0.300000,0.400000,0.500000,0.600000,0.700000,0.800000'
-    assert len(row.split(',')) == 8
-
-
-def test_format_row_extra_cols():
-    row = C.format_row([0.1] * 8 + [12.5, 2], extra=True)
-    assert len(row.split(',')) == 10
-    assert row.endswith(',12.500000,2')
-
-
-def test_csv_header_matches_cols():
-    assert C.header_line().split(',') == C.COLS8
-    assert C.header_line(extra=True).split(',') == C.COLS8 + C.COLS_EXTRA
-
-
-def test_sanitize_row_replaces_nonfinite_with_last_valid():
-    last = [1.0] * 8
-    out = C.sanitize_row([float('nan'), 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], last)
-    assert out[0] == pytest.approx(1.0)
-    assert C.all_finite(out)
 
 
 # --------------------------------------------------------------------------------------

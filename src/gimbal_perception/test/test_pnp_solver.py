@@ -61,9 +61,11 @@ class _P:
         self.y = y
 
 
-class _FakePolygon:
-    def __init__(self, pts, frame: str = 'camera_optical_frame') -> None:
-        self.points = [_P(float(x), float(y)) for (x, y) in pts]
+class _FakeMarkerCorners:
+    def __init__(self, pts, marker_id=0, frame: str = 'camera_optical_frame') -> None:
+        self.corners = [_P(float(x), float(y)) for (x, y) in pts]
+        self.marker_id = marker_id
+        self.valid = True
         self.header = type('H', (), {'frame_id': frame, 'stamp': None})()
 
 
@@ -251,8 +253,8 @@ def test_noise_fx_setter_recomputes():
 # --------------------------------------------------------------------------------------
 def test_single_topic_source_accepts_unique_observation_when_filter_off():
     src = SingleTopicMarkerSource(target_digit=0, id_filter_mode='off')
-    poly = _FakePolygon([(100.0, 100.0), (140.0, 100.0), (140.0, 140.0), (100.0, 140.0)])
-    m = src.on_polygon(poly, marker_id=7, t_mono=1.0)
+    poly = _FakeMarkerCorners([(100.0, 100.0), (140.0, 100.0), (140.0, 140.0), (100.0, 140.0)], marker_id=7)
+    m = src.on_polygon(poly, t_mono=1.0)
     assert m is not None
     assert m.marker_id == 7
     assert m.n_corners == 4
@@ -262,23 +264,24 @@ def test_single_topic_source_accepts_unique_observation_when_filter_off():
 
 def test_single_topic_source_filters_by_id_when_filter_on():
     src = SingleTopicMarkerSource(target_digit=3, id_filter_mode='on')
-    poly = _FakePolygon([(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)])
-    assert src.on_polygon(poly, marker_id=5, t_mono=0.0) is None
-    assert src.on_polygon(poly, marker_id=3, t_mono=0.1) is not None
+    poly = _FakeMarkerCorners([(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)], marker_id=5)
+    assert src.on_polygon(poly, t_mono=0.0) is None
+    poly.marker_id = 3
+    assert src.on_polygon(poly, t_mono=0.1) is not None
     assert src.stats['filtered'] == 1
 
 
 def test_single_topic_source_treats_empty_or_bad_length_as_no_observation():
     src = SingleTopicMarkerSource()
-    assert src.on_polygon(_FakePolygon([]), t_mono=0.0) is None
-    assert src.on_polygon(_FakePolygon([(1.0, 1.0)] * 3), t_mono=0.0) is None
+    assert src.on_polygon(_FakeMarkerCorners([]), t_mono=0.0) is None
+    assert src.on_polygon(_FakeMarkerCorners([(1.0, 1.0)] * 3), t_mono=0.0) is None
     assert src.poll() == []
     assert src.stats['seen'] == 0       # 不算"看到"，也不报错
 
 
 def test_single_topic_source_rejects_nonfinite():
     src = SingleTopicMarkerSource()
-    poly = _FakePolygon([(float('nan'), 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)])
+    poly = _FakeMarkerCorners([(float('nan'), 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)])
     assert src.on_polygon(poly, t_mono=0.0) is None
 
 

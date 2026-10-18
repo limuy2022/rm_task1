@@ -71,7 +71,8 @@ class GimbalKinematicsNode(Node):
             p, q = msg.pose.pose.position, msg.pose.pose.orientation
             T = FR.compose_T(quaternion_rotation([q.w, q.x, q.y, q.z]), [p.x, p.y, p.z])
             self.sync.add_base(stamp_seconds(msg.header.stamp), T, self.now_sec())
-        except (AttributeError, TypeError, ValueError): return
+        # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
+        except (TypeError, ValueError): return
 
     def on_imu(self, msg):
         try:
@@ -79,7 +80,8 @@ class GimbalKinematicsNode(Node):
             q = msg.orientation
             self.sync.add_imu(stamp_seconds(msg.header.stamp),
                 quaternion_rotation([q.w, q.x, q.y, q.z]), self.now_sec())
-        except (AttributeError, TypeError, ValueError): return
+        # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
+        except (TypeError, ValueError): return
 
     @staticmethod
     def message(T, parent, child, time_msg):

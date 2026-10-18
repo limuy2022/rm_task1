@@ -38,38 +38,10 @@ DEFAULT_R_MIN_SIGMA = 0.002
 FALLBACK_K_LAT = 0.0     # >0 时按 σ_lat = k_lat · z 构造
 FALLBACK_K_DEPTH = 0.0   # >0 时按 σ_depth = k_depth · z² 构造
 
-_EYE4 = np.eye(4, dtype=np.float64)
-
 
 def _r_gimbal_from_opt() -> np.ndarray:
-    """取得 ``R_gimbal←opt``（把 optical 系向量转到 gimbal_link 系）。
-
-    真源在 ``gimbal_common.frames``。由于历史命名存在歧义（``R_opt_from_link`` 与
-    ``R_link_from_opt`` 在不同实现里含义可能相反），这里做**物理方向自检**而不是
-    盲目相信函数名：optical 的 z 轴（向前）必须映射到 gimbal_link 的 x 轴（向前），
-    即 ``R[:, 2] == (1, 0, 0)``；不满足则转置纠正。
-
-    Returns:
-        shape (3, 3) 的旋转矩阵 ``R_gimbal←opt``。
-    """
-    forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    candidates = []
-
-    fn_link_from_opt = getattr(frames, 'R_link_from_opt', None)
-    if callable(fn_link_from_opt):
-        candidates.append(np.asarray(fn_link_from_opt(), dtype=np.float64).reshape(3, 3))
-    fn_opt_from_link = getattr(frames, 'R_opt_from_link', None)
-    if callable(fn_opt_from_link):
-        candidates.append(np.asarray(fn_opt_from_link(), dtype=np.float64).reshape(3, 3).T)
-
-    for R in candidates:
-        if np.allclose(R[:, 2], forward, atol=1e-6) and np.allclose(R @ R.T, np.eye(3), atol=1e-6):
-            return R
-
-    # 兜底（两函数都不存在时）：optical(x右,y下,z前) → gimbal_link(x前,y左,z上)
-    return np.array([[0.0, 0.0, 1.0],
-                     [-1.0, 0.0, 0.0],
-                     [0.0, -1.0, 0.0]], dtype=np.float64)
+    """Simulation's fixed optical-to-link rotation from the production common module."""
+    return frames.R_opt_from_link()
 
 
 def _rotz2(theta: float) -> np.ndarray:
@@ -84,27 +56,23 @@ def yaw_of_T(T: Sequence[Sequence[float]]) -> float:
         T: 4x4 齐次变换矩阵。
 
     Returns:
-        ``atan2(T[1,0], T[0,0])``；输入异常时返回 0.0。
+        ``atan2(T[1,0], T[0,0])``；输入非有限时报错。
     """
     M = np.asarray(T, dtype=np.float64).reshape(4, 4)
     th = math.atan2(float(M[1, 0]), float(M[0, 0]))
-    return th if math.isfinite(th) else 0.0
+    if not math.isfinite(th):
+        raise ValueError('transform yaw must be finite')
+    return th
 
 
 def as_T(transform_like) -> np.ndarray:
-    """把多种输入规整成 4x4 齐次矩阵。
-
-    支持：4x4 ndarray / 长度 16 的展平数组 / ``None``（返回单位阵）。
-    """
-    if transform_like is None:
-        return _EYE4.copy()
-    M = np.asarray(transform_like, dtype=np.float64)
-    if M.size == 16:
-        M = M.reshape(4, 4)
-    else:
-        M = _EYE4.copy()
-    if not np.all(np.isfinite(M)):
-        return _EYE4.copy()
+    """Require the caller's actual finite rigid transform; never substitute identity."""
+    M = np.asarray(transform_like, dtype=np.float64).reshape(4, 4)
+    R = M[:3, :3]
+    if (not np.all(np.isfinite(M)) or not np.allclose(M[3], [0, 0, 0, 1])
+            or not np.allclose(R.T @ R, np.eye(3), atol=1e-6)
+            or not np.isclose(np.linalg.det(R), 1., atol=1e-6)):
+        raise ValueError('map/world transform must be finite and rigid')
     return M
 
 
@@ -159,17 +127,13 @@ class ObservationBuilder:
             quat_wxyz: 四元数 ``(w, x, y, z)``，world → gimbal_link（``GimbalState.quat``）。
 
         Returns:
-            shape (3, 3) 的旋转矩阵；四元数异常时返回单位阵。
+            shape (3, 3) 的旋转矩阵；无效四元数报错，不伪造单位姿态。
         """
         q = np.asarray(quat_wxyz, dtype=np.float64).reshape(4)
-        if not np.all(np.isfinite(q)):
-            return np.eye(3, dtype=np.float64)
         n = float(np.linalg.norm(q))
-        if n < 0.5:
-            return np.eye(3, dtype=np.float64)
+        if not np.all(np.isfinite(q)) or n < 0.5:
+            raise ValueError('orientation quaternion must be finite with norm >= 0.5')
         Rwg = np.asarray(frames.quat_to_mat(q / n), dtype=np.float64).reshape(3, 3)
-        if not np.all(np.isfinite(Rwg)):
-            return np.eye(3, dtype=np.float64)
         return Rwg @ self._r_gopt
 
     @staticmethod
@@ -228,6 +192,7 @@ class ObservationBuilder:
             return Observation(valid=True, reason='', pos_map=result,
                 pos_world=result.copy(), R_map=covariance, depth=float(p[2]))
         except (TypeError, ValueError, np.linalg.LinAlgError):
+            # Invalid external coordinates/covariance are rejected, never replaced by a pose.
             return bad
 
     # ------------------------------------------------------------------ 主入口
@@ -290,7 +255,8 @@ class ObservationBuilder:
         Rot = _rotz2(theta)
         R_map = Rot @ M @ Rot.T
         if not np.all(np.isfinite(R_map)):
-            R_map = np.zeros((2, 2), dtype=np.float64)
+            bad.reason = 'observation covariance 非有限'
+            return bad
         R_map = 0.5 * (R_map + R_map.T)            # 强制对称
 
         # 防奇异：加 σ_min² 的对角

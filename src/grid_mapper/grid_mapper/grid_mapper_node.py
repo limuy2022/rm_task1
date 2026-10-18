@@ -22,8 +22,7 @@
 - 外部地图原样保留 `header.stamp`；配置图才使用当前 ROS 时钟
 - 所有 dt / 超时 / 定时器周期计算用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
 
-⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
+运行目标为 Ubuntu 22.04 + ROS2 Humble；纯核离线检查不替代 NUC 通信与建图验证。
 """
 
 from __future__ import annotations
@@ -33,9 +32,7 @@ import math
 import sys
 from typing import Any
 from typing import Dict
-from typing import List
 from typing import Optional
-from typing import Tuple
 
 import rclpy
 from rclpy.node import Node
@@ -45,7 +42,7 @@ from rclpy.qos import QoSProfile
 from rclpy.qos import QoSReliabilityPolicy
 from rclpy.time import Time
 from rclpy.duration import Duration
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformListener, TransformException
 from nav_msgs.msg import OccupancyGrid
 
 from gimbal_common.time_utils import now
@@ -54,8 +51,7 @@ from gimbal_common.log_utils import get_logger, throttled
 from .field_config import FieldConfig
 from .grid_builder import GridMap
 from .pgm_io import write_map
-from .png_draw import draw_preview
-from .grid_geometry import planar_quaternion_yaw, compose_grid_origin
+from .grid_geometry import planar_quaternion_yaw, compose_grid_origin, resolve_map_origin
 
 # 默认参数（与 DESIGN §6.13 的 `grid.*` 命名空间一致）
 DEFAULTS: Dict[str, Any] = {
@@ -65,7 +61,7 @@ DEFAULTS: Dict[str, Any] = {
     'grid.origin_xyz': [-6.0, -6.0, 0.0],
     'grid.inflation_radius_m': 0.10,
     'grid.map_source': 'config',          # config | topic
-    'grid.field_yaml': '',                # 空 = 用默认场地
+    'grid.field_yaml': '',                # config 模式必须显式指定实际场地文件
     'grid.map_topic': '/map',
     'grid.source_frame': '',             # empty: validate nonempty incoming header, then resolve TF
     'grid.output_frame': 'map',
@@ -76,74 +72,6 @@ DEFAULTS: Dict[str, Any] = {
     'grid.republish_period_s': 0.0,       # >0 时周期性重发（默认只发一次）
     'grid.write_preview_png': True,
 }
-
-
-def _resolve_field_yaml() -> str:
-    """在未显式配置 `grid.field_yaml` 时，尽力定位 `field.yaml`。
-
-    查找顺序：
-      1. 环境变量 `GIMBAL_FIELD_YAML`
-      2. `ament_index_python` 查到的 `gimbal_tracker_bringup` 安装 share 目录
-      3. 工作区源树 `src/gimbal_tracker_bringup/config/field.yaml`
-      4. 当前工作目录下的 `field.yaml`
-
-    Returns:
-        str：找到的第一个存在的文件路径；都找不到时返回空串（节点随后用默认场地）。
-    """
-    cands: list = []
-    env = os.environ.get('GIMBAL_FIELD_YAML', '')
-    if env:
-        cands.append(env)
-    from ament_index_python.packages import get_package_share_directory
-    try:
-        cands.append(os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
-                                  'config', 'field.yaml'))
-    except Exception:  # pragma: no cover - 无 ament / 包未安装
-        pass
-    here = os.path.dirname(os.path.abspath(__file__))     # <ws>/src/grid_mapper/grid_mapper
-    ws_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
-    cands.append(os.path.join(ws_root, 'src', 'gimbal_tracker_bringup',
-                              'config', 'field.yaml'))
-    cands.append(os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup',
-                              'config', 'field.yaml'))
-    cands.append(os.path.join(os.getcwd(), 'field.yaml'))
-    for c in cands:
-        if c and os.path.isfile(c):
-            return c
-    return ''
-
-
-def resolve_map_origin(grid_map: Any,
-                       params_origin_xyz: Any) -> Tuple[List[float], str]:
-    """决定写进 `map.yaml` 的 origin，并给出不一致时的告警文本。
-
-    **必须以栅格自身的 `origin_xy` 为准**，不能套 `grid.origin_xyz`：
-
-    * `map_source=config`：栅格 origin 来自 `field.yaml`，可能与 `grid.origin_xyz` 不同；
-    * `map_source=topic`：栅格 origin 是**外部 SLAM 地图自带**的，
-      与 `grid.origin_xyz`（12×12m 窗口那个 -6,-6）毫无关系——套错会让整张图平移。
-
-    Args:
-        grid_map: `GridMap`（用其 `origin_xy`）。
-        params_origin_xyz: 参数里的 `grid.origin_xyz`（仅用于比对告警）。
-
-    Returns:
-        (origin_xyz, warning)：`origin_xyz` 为 `[x, y, yaw]`；一致时 `warning` 为空串。
-    """
-    try:
-        got = [float(grid_map.origin_xy[0]), float(grid_map.origin_xy[1]), float(getattr(grid_map, 'origin_yaw', 0.0))]
-    except Exception:  # pragma: no cover - 兜底
-        return [0.0, 0.0, 0.0], ''
-    try:
-        want = [float(params_origin_xyz[0]), float(params_origin_xyz[1]),
-                float(params_origin_xyz[2]) if len(params_origin_xyz) > 2 else 0.0]
-    except Exception:
-        return got, ''
-    if any(abs(got[i]-want[i]) > 1e-9 for i in range(3)):
-        return got, ('grid.origin_xyz=%s 与栅格实际 origin=%s 不一致'
-                     '（map_source=topic 时外部地图自带 origin）→ map.yaml 按栅格 origin 写'
-                     % (want, got))
-    return got, ''
 
 
 class GridMapperNode(Node):  # type: ignore[misc]
@@ -203,49 +131,28 @@ class GridMapperNode(Node):  # type: ignore[misc]
 
     # -- 参数 -----------------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
-        """声明参数（已由 launch 注入时直接取用）。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover - 参数已声明
-            return default
+        """声明并读取参数；类型或重复声明错误直接报告。"""
+        self.declare_parameter(key, default)
+        return self.get_parameter(key).value
 
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1 的 QoS（锁存）。"""
-        if QoSProfile is None:  # pragma: no cover
-            return None
-        try:
-            return QoSProfile(
-                depth=1,
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-            )
-        except Exception:  # pragma: no cover - 不同 rclpy 版本签名差异
-            return QoSProfile(depth=1)
+        return QoSProfile(
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
 
     # -- 建图 -----------------------------------------------------------------
     def _build_from_config(self) -> None:
         """读 field.yaml → 栅格化 → 落盘 → 画预览图。"""
         path = str(self._params['grid.field_yaml'])
         if not path:
-            path = _resolve_field_yaml()
-        if path and os.path.isfile(path):
-            field = FieldConfig.from_yaml(path)
-            self._log.info('已加载 field.yaml: %s' % path)
-        else:
-            field = FieldConfig.from_dict({
-                'grid': {
-                    'resolution': float(self._params['grid.resolution']),
-                    'width_m': float(self._params['grid.width_m']),
-                    'height_m': float(self._params['grid.height_m']),
-                    'origin_xyz': list(self._params['grid.origin_xyz']),
-                    'inflation_radius_m': float(self._params['grid.inflation_radius_m']),
-                },
-            })
-            if path:
-                self._log.warn('field.yaml 不存在(%s)，使用默认场地' % path)
+            raise ValueError('grid.map_source=config requires an explicit grid.field_yaml')
+        field = FieldConfig.from_yaml(os.path.expanduser(path))
+        self._log.info('已加载 field.yaml: %s' % path)
         self._field = field
         self._grid_map = GridMap.build(field)
         self._save_outputs()
@@ -264,16 +171,16 @@ class GridMapperNode(Node):  # type: ignore[misc]
             paths = write_map(out_dir, self._grid_map, image_name=stem+'.pgm',
                               yaml_name=stem+'.yaml', origin_xyz=origin_xyz)
             self._log.info('地图已落盘: %s, %s' % (paths['pgm'], paths['yaml']))
-        except Exception as exc:  # 落盘失败不能拖垮整图，但要明确报错
+        except OSError as exc:  # 磁盘/权限失败不终止地图发布，必须明确报告未成功保存。
             self._log.error('地图落盘失败: %r' % (exc,))
-            paths = {'pgm': '', 'yaml': ''}
         if bool(self._params['grid.write_preview_png']):
+            from .png_draw import draw_preview
             try:
                 boundary = self._field.boundary if self._field is not None else None
                 png_path = os.path.join(out_dir, 'map_preview.png')
                 draw_preview(self._grid_map, png_path, boundary=boundary)
                 self._log.info('预览图已落盘: %s' % png_path)
-            except Exception as exc:  # pragma: no cover
+            except (ImportError, OSError) as exc:  # 可选 PNG 导出调用失败不影响 PGM/YAML；模块导入错误直接暴露。
                 self._log.warn('预览图绘制失败: %r' % (exc,))
         st = self._grid_map.stats()
         self._log.info('建图完成: %dx%d @ %.3fm/cell, origin=(%.2f,%.2f), '
@@ -319,11 +226,12 @@ class GridMapperNode(Node):  # type: ignore[misc]
                 origin_yaw=yaw)
             self._grid_map = gm
             self._source_stamp = msg.header.stamp
-            self._source_load_time = getattr(info, 'map_load_time', None)
+            self._source_load_time = info.map_load_time
             self._pending_external = None
             self._save_outputs()
             self._publish_all()
-        except Exception as exc:
+        except (TransformException, ValueError, TypeError, OverflowError) as exc:
+            # 外部坏地图不替换有效地图；对应时刻的 TF 尚未产生时保留消息重试。
             throttled(self._log, 'warning', f'地图暂未接入（等待有效地图/对应时刻TF）: {exc!r}',
                       'grid_mapper.ext_map_err', 1.0)
 
@@ -334,14 +242,10 @@ class GridMapperNode(Node):  # type: ignore[misc]
     # -- 发布 -----------------------------------------------------------------
     def _publish_all(self) -> None:
         """发布 `/map/grid`（干净三态）与 `/map/ray_grid`（含膨胀）。"""
-        if self._grid_map is None or OccupancyGrid is None:
+        if self._grid_map is None:
             return
-        try:
-            self._pub_grid.publish(self._to_msg(self._grid_map, use_ray=False))
-            self._pub_ray.publish(self._to_msg(self._grid_map, use_ray=True))
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', '地图发布失败: %r' % (exc,),
-                      'grid_mapper.pub_err', 1.0)
+        self._pub_grid.publish(self._to_msg(self._grid_map, use_ray=False))
+        self._pub_ray.publish(self._to_msg(self._grid_map, use_ray=True))
 
     def _to_msg(self, gm: GridMap, use_ray: bool) -> Any:
         """GridMap → OccupancyGrid，外部图保留源stamp和栅格原点yaw。"""
@@ -364,11 +268,8 @@ class GridMapperNode(Node):  # type: ignore[misc]
     # -- 收尾 -----------------------------------------------------------------
     def shutdown(self) -> None:
         """退出钩子（§6.14 第 5 条）：`map_source=config` 时复写一次 maps/。"""
-        try:
-            if str(self._params.get('grid.map_source', 'config')).lower() == 'config':
-                self._save_outputs()
-        except Exception as exc:  # pragma: no cover
-            self._log.warn('退出复写地图失败: %r' % (exc,))
+        if str(self._params['grid.map_source']).lower() == 'config':
+            self._save_outputs()
         self._log.info('grid_mapper_node 退出，耗时 %.2fs' % (now() - self._t_start))
 
 
@@ -378,7 +279,7 @@ def main(args: Optional[list] = None) -> int:
     node = GridMapperNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # 操作者 Ctrl+C 正常停机，仍执行后面的文件/节点收尾。
         pass
     finally:
         try:

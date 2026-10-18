@@ -15,12 +15,11 @@
     ros2 launch gimbal_tracker_bringup mapping.launch.py exit_after_build_s:=5.0
 
 ⚠ 产出的 `map.pgm` / `map.yaml` 必须能被 `nav2_map_server` 加载（PRD A4）。
-⚠ 本文件无法在 Windows（无 ROS 2）上运行验证。
+运行环境：Ubuntu 22.04 / ROS2 Humble。
 """
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 from typing import Dict
@@ -59,19 +58,13 @@ def _share_config(name: str) -> str:
 
 
 def _flat_params(path: str) -> Dict[str, Any]:
-    """读取 `tracker_params.yaml` 的 `/**/ros__parameters` 扁平字典（失败返回空）。"""
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-    except Exception:  # pragma: no cover
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    wildcard = data.get('/**')
-    if not isinstance(wildcard, dict):
-        return {}
-    params = wildcard.get('ros__parameters')
-    return params if isinstance(params, dict) else {}
+    """读取实际参数；缺文件、坏 YAML 和错误结构直接终止启动。"""
+    with open(path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    params = data['/**']['ros__parameters']
+    if not isinstance(params, dict):
+        raise ValueError('需要 /**: ros__parameters: 参数映射')
+    return params
 
 
 def _default_rviz() -> str:
@@ -84,7 +77,11 @@ def _as_bool(text: Any, default: bool = False) -> bool:
     s = str(text).strip().lower() if text is not None else ''
     if s == '':
         return default
-    return s in ('1', 'true', 'yes', 'on', 'y', 't')
+    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
+        return True
+    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
+        return False
+    raise ValueError(f'非法布尔参数: {text!r}')
 
 
 def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[Any]:
@@ -144,10 +141,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
         ]))
 
     if exit_after:
-        try:
-            period = max(0.5, float(exit_after))
-        except ValueError:
-            period = 0.0
+        period = max(0.5, float(exit_after))
         if period > 0.0:
             actions.append(LogInfo(msg='[mapping] %.1fs 后自动退出（建图已落盘）' % period))
             actions.append(TimerAction(period=period, actions=[

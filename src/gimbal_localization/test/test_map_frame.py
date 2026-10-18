@@ -171,9 +171,10 @@ def test_odom_source_poll_and_timeout():
     assert src.poll(11.0).valid is False
 
 
-def test_odom_source_rejects_malformed_msg():
+def test_odom_source_wrong_message_schema_surfaces():
+    # Passing a non-Odometry object is a program error, not a sensor dropout.
     src = OdomTopicSource()
-    with pytest.raises(TypeError):
+    with pytest.raises(AttributeError):
         src.on_odom(object(), t_mono=0.0)
 
 

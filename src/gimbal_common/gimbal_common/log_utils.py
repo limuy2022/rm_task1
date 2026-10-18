@@ -40,8 +40,7 @@ def _log_info(logger: Any, message: str) -> None:
 
 
 def _log_warning(logger: Any, message: str) -> None:
-    fn = getattr(logger, 'warning', None) or getattr(logger, 'warn')
-    fn(message)
+    logger.warning(message)
 
 
 def _log_error(logger: Any, message: str) -> None:
@@ -49,8 +48,7 @@ def _log_error(logger: Any, message: str) -> None:
 
 
 def _log_fatal(logger: Any, message: str) -> None:
-    fn = getattr(logger, 'fatal', None) or getattr(logger, 'critical')
-    fn(message)
+    logger.fatal(message)
 
 
 _EMIT_BY_LEVEL = {
@@ -65,7 +63,7 @@ _EMIT_BY_LEVEL = {
 def _emit(logger: Any, level: Union[str, int], msg: str) -> None:
     """按等级输出一条日志（兼容 rclpy logger 与标准 logging）。"""
     lv = str(level).lower() if isinstance(level, str) else level
-    _EMIT_BY_LEVEL.get(lv, _log_info)(logger, msg)
+    _EMIT_BY_LEVEL[lv](logger, msg)
 
 
 class _FormatLogger:
@@ -94,7 +92,7 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
         rclpy logger。
     """
     import rclpy.logging as _rclpy_logging
-    base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
+    base = node.get_name() if node is not None else 'gimbal'
     return _FormatLogger(_rclpy_logging.get_logger(f'{base}.{name}'))
 
 

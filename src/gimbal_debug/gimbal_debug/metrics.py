@@ -652,7 +652,7 @@ def _fmt(v: Any, nd: int = 3) -> str:
         return 'n/a'
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
         return 'n/a'
     if not math.isfinite(f):
         return 'n/a'
@@ -663,7 +663,7 @@ def _le(v: Any, limit: float) -> bool:
     """``v <= limit``（非有限视为不达标）。"""
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
         return False
     return bool(math.isfinite(f) and f <= limit + 1e-9)
 

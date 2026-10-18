@@ -26,8 +26,7 @@
 - `header.stamp` 用 **ROS 系统时钟** `node.get_clock().now()`（**不替换 node clock**）
 - 所有 dt / 超时 / 定时器周期用 `gimbal_common.time_utils.now()`（= `time.monotonic()`）
 
-⚠ **待 Ubuntu 22.04 + ROS2 Humble 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
+运行目标为 Ubuntu 22.04 + ROS2 Humble；纯核离线检查不替代 NUC 通信与实图验证。
 """
 
 from __future__ import annotations
@@ -197,33 +196,24 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
 
     # -- 参数 / QoS -----------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
-        """声明参数（已由 launch 注入时直接取用）。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
+        """声明并读取参数；类型和声明错误不能悄悄变回默认值。"""
+        self.declare_parameter(key, default)
+        return self.get_parameter(key).value
 
     @staticmethod
     def _sensor_qos() -> Any:
         """SENSOR_DATA 风格 QoS：KEEP_LAST depth=10。"""
-        try:
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                              reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH)
+        return QoSProfile(depth=_SENSOR_QOS_DEPTH,
+                          reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                          history=QoSHistoryPolicy.KEEP_LAST)
 
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1（锁存，等 grid_mapper 的地图）。"""
-        try:
-            return QoSProfile(depth=1,
-                              reliability=QoSReliabilityPolicy.RELIABLE,
-                              history=QoSHistoryPolicy.KEEP_LAST,
-                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=1)
+        return QoSProfile(depth=1,
+                          reliability=QoSReliabilityPolicy.RELIABLE,
+                          history=QoSHistoryPolicy.KEEP_LAST,
+                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
     # -- 回调 -----------------------------------------------------------------
     def _clock_seconds(self) -> float:
@@ -277,7 +267,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._ray.set_grid(adapter)
             self._ray_adapter = adapter
             self._has_grid = True
-        except Exception as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
+            # 外部坏地图不能继续用于方向建议；下一条有效地图可恢复。
             self._has_grid = False
             throttled(self._log, 'warning', f'ray_grid 拒绝: {exc!r}', 'ray_grid', 1.)
 
@@ -293,7 +284,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._free.set_grid(adapter.arr, adapter.origin_xy, adapter.resolution, adapter.origin_yaw)
             self._clean_adapter = adapter
             self._has_clean_grid = True
-        except Exception as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
+            # 外部坏地图不能继续用于方向建议；下一条有效地图可恢复。
             self._has_clean_grid = False
             throttled(self._log, 'warning', f'grid 拒绝: {exc!r}', 'clean_grid', 1.)
 
@@ -315,7 +307,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._base_yaw = math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))
             self._base_stamp, self._base_received = stamp, now()
             self._has_base = True
-        except Exception as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
+            # 错坐标/无效姿态属于输入故障，清除有效标志而非使用旧位置。
             self._has_base = False
             throttled(self._log, 'warning', f'base_pose 拒绝: {exc!r}', 'base_pose', 1.)
 
@@ -338,7 +331,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._observation_stamp = stamp-observation_age
             self._has_target, self._track_status = True, int(msg.track_status)
             self._t_lost = None
-        except Exception as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
+            # 丢失或损坏的目标观测不能产生建议速度。
             self._mark_lost()
             throttled(self._log, 'warning', f'target 拒绝: {exc!r}', 'target', 1.)
 
@@ -470,28 +464,11 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         msg.chosen_theta = float(theta)
         msg.blocked = bool(blocked)
         msg.valid = bool(valid)
-        try:
-            self._pub.publish(msg)
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'advice 发布失败: %r' % (exc,),
-                      'chassis_advisor.pub_err', 1.0)
+        self._pub.publish(msg)
         if blocked:
             throttled(self._log, 'warn',
                       '没有得到可验证的可行方向，保持零建议；不会强造朝目标速度',
                       'chassis_advisor.blocked', 1.0)
-
-    # -- 工具 -----------------------------------------------------------------
-    @staticmethod
-    def _yaw_from_quat(q: Any) -> float:
-        """从四元数取 yaw（绕 +z），忽略 pitch/roll。"""
-        try:
-            w = float(q.w)
-            x = float(q.x)
-            y = float(q.y)
-            z = float(q.z)
-        except Exception:  # pragma: no cover
-            return 0.0
-        return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     def shutdown(self) -> None:
         """退出日志摘要。"""
@@ -506,7 +483,7 @@ def main(args: Optional[list] = None) -> int:
     node = ChassisAdvisorNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # 操作者 Ctrl+C 正常停机，仍销毁节点与 ROS 上下文。
         pass
     finally:
         try:

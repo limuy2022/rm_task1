@@ -23,6 +23,25 @@ def extract_method(path,name,env):
     return env[name]
 
 class Regression(unittest.TestCase):
+    def test_sensor_loggers_accept_best_effort_publishers(self):
+        # ROS defaults reliability to RELIABLE even when only depth/history
+        # are set. Check the production QoS builders, not a duplicate node.
+        # This checks configuration; it does not run DDS transport.
+        for package, filename in (
+            ('gimbal_dataio', 'trajectory_annotator_node.py'),
+            ('gimbal_debug', 'gt_error_monitor_node.py'),
+        ):
+            with self.subTest(node=filename):
+                profile = extract_method(root/'src'/package/package/filename,
+                    '_sensor_qos', {
+                        'Any': object, '_SENSOR_QOS_DEPTH': 10, '_SENSOR_DEPTH': 10,
+                        'QoSHistoryPolicy': NS(KEEP_LAST='KEEP_LAST'),
+                        'QoSReliabilityPolicy': NS(BEST_EFFORT='BEST_EFFORT'),
+                        'QoSProfile': lambda **kw: NS(**{'reliability': 'RELIABLE', **kw}),
+                    })()
+                self.assertEqual(profile.reliability, 'BEST_EFFORT',
+                    'BEST_EFFORT state publishers cannot match a RELIABLE subscriber')
+
     def test_adapter_tick_maps_two_joint_rates_to_twist_and_wire_payload(self):
         # Execute the production timer body with a message double: no ROS,
         # physical port, or actuator. Independent expected bytes catch a swap
@@ -56,19 +75,19 @@ class Regression(unittest.TestCase):
         self.assertEqual(len(frame), 14)
         self.assertTrue(frame_ok(frame, 8))
 
-    def test_real_polygon_shape(self):
+    def test_marker_corners_carries_actual_id(self):
         stamp=NS(sec=5,nanosec=123)
-        msg=NS(header=NS(frame_id='camera_optical_frame',stamp=stamp),
-               polygon=NS(points=[NS(x=x,y=y) for x,y in ((1,2),(3,2),(3,4),(1,4))]))
-        result=SingleTopicMarkerSource().on_polygon(msg,marker_id=3,t_mono=1.)
+        msg=NS(header=NS(frame_id='camera_optical_frame',stamp=stamp), valid=True, marker_id=3,
+               corners=[NS(x=x,y=y) for x,y in ((1,2),(3,2),(3,4),(1,4))])
+        result=SingleTopicMarkerSource().on_polygon(msg,t_mono=1.)
         self.assertIsNotNone(result)
         self.assertEqual(result.marker_id,3)
         np.testing.assert_array_equal(result.corners_uv,[[1,2],[3,2],[3,4],[1,4]])
-        msg.polygon.points=[]
+        msg.corners=[]
         self.assertIsNone(SingleTopicMarkerSource().on_polygon(msg))
-    def test_legacy_points_still_supported(self):
-        self.assertIsNotNone(SingleTopicMarkerSource().on_polygon(
-            NS(points=[NS(x=1,y=2)]*4)))
+    def test_legacy_points_no_longer_invent_id_and_validity(self):
+        with self.assertRaises(AttributeError):
+            SingleTopicMarkerSource().on_polygon(NS(points=[NS(x=1,y=2)]*4))
     def test_disabled_and_before_imu_are_silent(self):
         g=CommandGate();g.command(1.,1.,True,0.)
         self.assertIsNone(g.output(0.))

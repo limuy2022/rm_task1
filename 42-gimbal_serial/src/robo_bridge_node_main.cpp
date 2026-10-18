@@ -17,7 +17,7 @@ int main(int argc, char ** argv)
     RCLCPP_FATAL(rclcpp::get_logger("robo_bridge"), "%s", e.what());
     ret = e.device_absent ? gimbal_serial::kExitDeviceAbsent : gimbal_serial::kExitFatal;
   } catch (const std::exception & e) {
-    // 参数非法等：直接报错退出
+    // 仅在进程边界记录参数/程序异常并退出；不在回调中吞错或假装恢复
     RCLCPP_FATAL(rclcpp::get_logger("robo_bridge"), "%s", e.what());
     ret = gimbal_serial::kExitFatal;
   }

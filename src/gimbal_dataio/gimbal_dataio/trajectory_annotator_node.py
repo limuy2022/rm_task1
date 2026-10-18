@@ -13,8 +13,7 @@
 
 ⚠ 本包依赖 `grid_mapper` 的 `GridMap` / `png_draw`（同一工作区内，已在 package.xml 声明）。
 
-⚠ **待 Ubuntu 24.04 + ROS2 Jazzy 编译验证**：本机为 Windows，无 ROS2，
-本文件只做了静态一致性检查，未经 `colcon build` 与运行时验证。
+运行环境：Ubuntu 22.04 / ROS2 Humble；此日志工具不替代正式九列评分提交器。
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy
 from rclpy.qos import QoSHistoryPolicy
 from rclpy.qos import QoSProfile
+from rclpy.qos import QoSReliabilityPolicy
 from nav_msgs.msg import Odometry, OccupancyGrid
 from gimbal_interfaces.msg import TargetState
 
@@ -84,31 +84,22 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
 
     # -- ROS 胶水 -------------------------------------------------------------
     def _declare(self, key: str, default: Any) -> Any:
-        """声明参数。"""
-        try:
-            self.declare_parameter(key, default)
-            return self.get_parameter(key).value
-        except Exception:  # pragma: no cover
-            return default
+        """参数声明失败直接暴露配置错误。"""
+        return self.declare_parameter(key, default).value
 
     @staticmethod
     def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS。"""
-        try:
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH)
+        """目标和底盘状态由 BEST_EFFORT 发布；仅设 depth 会默认要求 RELIABLE。"""
+        return QoSProfile(depth=_SENSOR_QOS_DEPTH,
+                          reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                          history=QoSHistoryPolicy.KEEP_LAST)
 
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1。"""
-        try:
-            return QoSProfile(depth=1,
-                              history=QoSHistoryPolicy.KEEP_LAST,
-                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=1)
+        return QoSProfile(depth=1,
+                          history=QoSHistoryPolicy.KEEP_LAST,
+                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
     # -- 回调 -----------------------------------------------------------------
     def _on_grid(self, msg: Any) -> None:
@@ -122,42 +113,34 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
             self._log.info('已接收 /map/grid: %dx%d @ %.3f'
                            % (int(info.width), int(info.height),
                               float(info.resolution)))
-        except Exception as exc:
+        except ValueError as exc:  # 外部地图可能有错误尺寸/数据长度，拒绝这帧并报告。
             throttled(self._log, 'error', '/map/grid 解析失败: %r' % (exc,),
                       'annotator.grid_err', 1.0)
 
     def _on_target(self, msg: Any) -> None:
         """缓存目标当前/预测位置与轨迹。"""
-        try:
-            if not bool(msg.valid):
-                return
-            cx = float(msg.cur_x)
-            cy = float(msg.cur_y)
-            px = float(msg.pred_x)
-            py = float(msg.pred_y)
-            if not (np.isfinite(cx) and np.isfinite(cy)):
-                return
-            self._append(self._target_traj, (cx, cy))
-            self._target_cur = (cx, cy)
-            if np.isfinite(px) and np.isfinite(py):
-                self._target_pred = (px, py)
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'target_state 解析失败: %r' % (exc,),
-                      'annotator.target_err', 1.0)
+        if not bool(msg.valid):
+            return
+        cx = float(msg.cur_x)
+        cy = float(msg.cur_y)
+        px = float(msg.pred_x)
+        py = float(msg.pred_y)
+        if not (np.isfinite(cx) and np.isfinite(cy)):
+            return
+        self._append(self._target_traj, (cx, cy))
+        self._target_cur = (cx, cy)
+        if np.isfinite(px) and np.isfinite(py):
+            self._target_pred = (px, py)
 
     def _on_base_pose(self, msg: Any) -> None:
         """缓存底盘位置与轨迹。"""
-        try:
-            p = msg.pose.pose.position
-            x = float(p.x)
-            y = float(p.y)
-            if not (np.isfinite(x) and np.isfinite(y)):
-                return
-            self._append(self._base_traj, (x, y))
-            self._base_cur = (x, y)
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'base_pose 解析失败: %r' % (exc,),
-                      'annotator.base_err', 1.0)
+        p = msg.pose.pose.position
+        x = float(p.x)
+        y = float(p.y)
+        if not (np.isfinite(x) and np.isfinite(y)):
+            return
+        self._append(self._base_traj, (x, y))
+        self._base_cur = (x, y)
 
     def _append(self, buf: List[Tuple[float, float]],
                 pt: Tuple[float, float]) -> None:
@@ -186,7 +169,7 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
                          given_point=(0.0, 0.0))
             self._log.info('map_tracked.png 已落盘: %s（target=%d 点, base=%d 点）'
                            % (png_path, len(self._target_traj), len(self._base_traj)))
-        except Exception as exc:
+        except (OSError, ImportError) as exc:  # 轨迹PNG是可选产物；缺绘图库/写盘失败只报告。
             self._log.error('map_tracked.png 绘制失败: %r' % (exc,))
         self._log.info('trajectory_annotator_node 退出，耗时 %.2fs'
                        % (now() - self._t_start))
@@ -198,7 +181,7 @@ def main(args: Optional[list] = None) -> int:
     node = TrajectoryAnnotatorNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C 正常退出，finally 仍保存并关闭文件。
         pass
     finally:
         try:

@@ -14,7 +14,9 @@ import os
 
 import numpy as np
 import pytest
+import yaml
 
+from gimbal_common.config_loader import ConfigError
 from grid_mapper.field_config import FieldConfig
 from grid_mapper.grid_builder import (FREE, OCCUPIED, UNKNOWN, GridMap, inflate)
 from grid_mapper.pgm_io import (PGM_FREE, PGM_OCCUPIED, PGM_UNKNOWN,
@@ -321,7 +323,7 @@ def test_from_occupancy_grid_inflates_ray_grid_only():
 
 def test_resolve_map_origin_prefers_grid_origin():
     """map.yaml 的 origin 取栅格自身的 origin；与参数不一致时给告警。"""
-    from grid_mapper.grid_mapper_node import resolve_map_origin
+    from grid_mapper.grid_geometry import resolve_map_origin
 
     gm = GridMap.from_arrays(np.zeros((4, 4), dtype=np.int8), 0.05, (1.5, -2.5))
     # 参数与栅格 origin 一致 → 取栅格值、无告警
@@ -340,4 +342,31 @@ def test_resolve_map_origin_prefers_grid_origin():
     org3, warn3 = resolve_map_origin(gm3, [-6.0, -6.0, 0.0])
     assert abs(org3[0]) < 1e-12 and abs(org3[1]) < 1e-12, '必须用栅格 origin'
     assert '不一致' in warn3
+
+
+def test_missing_or_broken_field_yaml_cannot_become_a_default_map(tmp_path):
+    with pytest.raises(ConfigError):
+        FieldConfig.from_yaml(str(tmp_path / 'missing.yaml'))
+    broken = tmp_path / 'broken.yaml'
+    broken.write_text('grid: [unterminated', encoding='utf-8')
+    with pytest.raises(yaml.YAMLError):
+        FieldConfig.from_yaml(str(broken))
+    broken.write_text('{}', encoding='utf-8')
+    with pytest.raises(ValueError):
+        FieldConfig.from_yaml(str(broken))
+
+
+@pytest.mark.parametrize('bad', [
+    None,
+    {'grid': []},
+    {'grid': {}, 'boundary': [[0, 0], [1, 0]]},
+    {'grid': {'resolution': 0}, 'boundary': [[0, 0], [1, 0], [0, 1]]},
+    {'grid': {}, 'boundary': [[0, 0], [1, 0], [0, 1]], 'obstacles': [
+        {'type': 'rectangle_typo', 'center_xy': [0, 0], 'size_xy': [1, 1]}]},
+    {'grid': {}, 'boundary': [[0, 0], [1, 0], [0, 1]], 'obstacles': [
+        {'type': 'rect', 'center_xy': [0], 'size_xy': [1, 1]}]},
+])
+def test_invalid_field_geometry_cannot_silently_clear_obstacles(bad):
+    with pytest.raises((ValueError, TypeError, KeyError)):
+        FieldConfig.from_dict(bad)
 

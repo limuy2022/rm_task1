@@ -108,13 +108,6 @@ def install_ros_test_doubles():
     module('gimbal_interfaces')
     module('gimbal_interfaces.msg', MarkerCorners=MarkerCorners, MarkerObservation=MarkerObservation)
 
-    class CvBridge:
-        def imgmsg_to_cv2(self, *args, **kwargs):
-            # cv_bridge/DDS are outside this offline test. Exercise the real
-            # production byte/stride decoder, as the pre-merge harness did.
-            raise RuntimeError('offline transport stand-in: use production manual decoder')
-
-    module('cv_bridge', CvBridge=CvBridge)
     module('ament_index_python')
 
     def package_share(name):
@@ -219,14 +212,14 @@ class PerceptionRegression(unittest.TestCase):
     def test_old_parameter_api_branch(self):
         constructor = (cv2.aruco.DetectorParameters if hasattr(cv2.aruco, 'DetectorParameters')
                        else cv2.aruco.DetectorParameters_create)
-        with mock.patch.object(cv2.aruco, 'DetectorParameters', side_effect=AttributeError('old API'), create=True):
+        with mock.patch.object(cv2.aruco, 'DetectorParameters', create=True):
+            del cv2.aruco.DetectorParameters
             with mock.patch.object(cv2.aruco, 'DetectorParameters_create',
                                    side_effect=constructor, create=True):
                 self.assertIsNotNone(detector_module._make_detector_params())
 
-    def test_stride_fallback_reads_padded_rows(self):
+    def test_image_decoder_reads_padded_rows(self):
         detector, _ = pipeline()
-        detector._bridge = None
         image = render_marker()
         np.testing.assert_array_equal(detector._to_gray(image_message(image, padding=8)), image)
         bad = image_message(image)

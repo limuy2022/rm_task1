@@ -95,12 +95,14 @@ class MapFrameBroadcasterNode:
                 if now-self._t_first_valid >= float(self._params['localization.origin_settle_s']):
                     self._origin_stamp=stamp
             self._try_freeze()
-        except (AttributeError,TypeError,ValueError) as exc:
+        except (TypeError,ValueError) as exc:
+            # Bad external pose/stamp must not freeze an invented origin.
             LU.throttled(self._log,'warning',f'底盘源拒绝: {exc}','base_invalid',1.)
 
     def _on_origin_freeze(self,msg):
         try:stamp=stamp_seconds(msg.stamp)
-        except (AttributeError,TypeError,ValueError):return
+        # 坏的回放时间戳不能冻结比赛起点；拒绝该输入。
+        except (TypeError,ValueError):return
         if self._origin_stamp is not None:
             if abs(self._origin_stamp-stamp)>1e-6:
                 self._log.error('收到不同回放起点；本进程保留原轮次，请在新轮开始前重启输出/定位')
@@ -169,8 +171,6 @@ class MapFrameBroadcasterNode:
 
 def main(args=None):
     rclpy.init(args=args);node=NU.create_node(NODE_NAME)
-    try:app=MapFrameBroadcasterNode(node)
-    except Exception:
-        node.destroy_node();NU.shutdown();return 1
+    app=MapFrameBroadcasterNode(node)
     NU.spin_with_finally(node,on_shutdown=app.shutdown)
     node.destroy_node();NU.shutdown();return 0

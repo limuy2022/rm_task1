@@ -2,14 +2,14 @@
 
 P0 只实现 :class:`SingleTopicMarkerSource`：
 
-* 输入 ``geometry_msgs/PolygonStamped``，像素在 ``points[i].x / .y``，
+* 输入 ``gimbal_interfaces/MarkerCorners``，像素在 ``corners[i].x / .y``，
   顺序 **左上 → 右上 → 右下 → 左下**，``frame_id = camera_optical_frame``。
 * 空 polygon 或长度 ≠ 4 → 视为**本帧无观测**（正常路径，不报错）。
 * 过滤：`id_filter_mode=off`（默认）接受唯一观测；`on` 要求 ``marker_id == target_digit``。
 
 ``MultiTopicSource`` / ``ImageDetectSource`` 为 P1 预留的抽象，**P0 不实现**。
 
-本模块不 import ROS 消息类型（鸭子类型读取 ``points``），可在无 ROS 环境单测。
+本模块不 import ROS 消息类型，测试对象使用相同的 MarkerCorners 字段。
 """
 
 from __future__ import annotations
@@ -77,13 +77,11 @@ class SingleTopicMarkerSource(MarkerSource):
     def name(self) -> str:
         return f'single_topic(target={self.target_digit}, filter={self.id_filter_mode})'
 
-    def on_polygon(self, msg: Any, marker_id: int = 0,
-                   t_mono: Optional[float] = None) -> Optional[RawMarker]:
-        """喂入一条 ``geometry_msgs/PolygonStamped``（鸭子类型）。
+    def on_polygon(self, msg: Any, t_mono: Optional[float] = None) -> Optional[RawMarker]:
+        """喂入一条 MarkerCorners；ID 只来自该消息，不猜测也不补默认值。
 
         Args:
-            msg: 具有 ``points``（元素含 ``x``/``y``）与 ``header.frame_id`` 的消息。
-            marker_id: 该观测的 marker id（话题本身不带 id 时由外部给出）。
+            msg: 具有 corners、marker_id、valid 和 header.frame_id 的消息。
             t_mono: 本地收到时刻（单调秒）；None 时取当前单调时刻。
 
         Returns:
@@ -94,19 +92,13 @@ class SingleTopicMarkerSource(MarkerSource):
         if t_mono is None:
             import time as _time
             t_mono = _time.monotonic()
-        try:
-            if hasattr(msg, 'valid') and not msg.valid:
-                self.reset()
-                return None
-            if hasattr(msg, 'corners'):
-                pts = list(msg.corners)
-                marker_id = int(msg.marker_id)
-            else:
-                polygon = getattr(msg, 'polygon', msg)
-                pts = list(polygon.points)
-            frame_id = str(getattr(getattr(msg, 'header', None), 'frame_id', '')
-                           or 'camera_optical_frame')
-        except AttributeError:
+        if not msg.valid:
+            self.reset()
+            return None
+        pts = list(msg.corners)
+        marker_id = int(msg.marker_id)
+        frame_id = str(msg.header.frame_id)
+        if frame_id != 'camera_optical_frame':
             self._n_malformed += 1
             return None
         if len(pts) != 4:
@@ -115,7 +107,8 @@ class SingleTopicMarkerSource(MarkerSource):
             return None
         try:
             uv = np.array([[float(p.x), float(p.y)] for p in pts], dtype=np.float64).reshape(4, 2)
-        except (AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError):
+            # 外部角点数值非法只丢弃该观测，不污染待处理队列。
             self._n_malformed += 1
             return None
         if not np.all(np.isfinite(uv)):

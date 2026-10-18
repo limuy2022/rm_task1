@@ -117,19 +117,16 @@ def current_angles(f: np.ndarray) -> Tuple[float, float]:
     return float(yaw_c), pitch_c
 
 
-def feedforward(r: np.ndarray, vel_world: Sequence[float],
-                y_body: Sequence[float]) -> Tuple[float, float]:
+def feedforward(r: np.ndarray, vel_world: Sequence[float]) -> Tuple[float, float]:
     """Exact yaw/elevation rate of a sight line, in protocol pitch convention.
 
-    vel_world is target minus aiming-origin translational velocity. The legacy
-    y_body argument is retained for source compatibility; the exact derivatives
-    do not need it. Singular/invalid sight lines give zero feedforward; callers
+    vel_world is target minus aiming-origin translational velocity.
+    Singular/invalid sight lines give zero feedforward; callers
     must reject the undefined aiming geometry, as ControlLaw.compute does.
     """
     rv = np.asarray(r, dtype=np.float64).reshape(3)
     vv = np.asarray(vel_world, dtype=np.float64).reshape(3)
-    yv = np.asarray(y_body, dtype=np.float64).reshape(3)
-    if not (np.all(np.isfinite(rv)) and np.all(np.isfinite(vv)) and np.all(np.isfinite(yv))):
+    if not (np.all(np.isfinite(rv)) and np.all(np.isfinite(vv))):
         return 0.0, 0.0
     # Exact derivatives of yaw and protocol pitch. cross(r,v)/|r|² is an
     # angular velocity vector, whose z component is not yaw_dot off the horizon.
@@ -329,6 +326,7 @@ class ControlLaw:
             if math.hypot(float(r[0]), float(r[1])) < 1e-6:
                 raise ValueError('undefined yaw')
         except (TypeError, ValueError, OverflowError):
+            # 外部目标/姿态/关节数值非法时清斜坡，明确输出 invalid 零指令。
             self.reset()
             return ControlOutput(mode=mode)
 
@@ -342,7 +340,7 @@ class ControlLaw:
             return ControlOutput(mode=mode)
         e_yaw = float(wrap_pi(yaw_t - yaw_c))
         e_pitch = float(pitch_t - pitch_c)
-        ff_yaw, ff_pitch = feedforward(r, velocity - origin_v, y_body)
+        ff_yaw, ff_pitch = feedforward(r, velocity - origin_v)
         measured_yaw, measured_pitch = imu_feedback(gv, pitch_c)
         # The drive accepts joint rates, whereas the gyro measures total world
         # motion (base + joints). Subtract base rates, and damp the rate error
@@ -368,8 +366,7 @@ class ControlLaw:
         Returns:
             ``(omega_yaw, omega_pitch)``。
         """
-        # yaw_c / pitch_c are retained argument names for source compatibility;
-        # here they mean measured MECHANICAL joint positions only.
+        # 此处yaw_c/pitch_c是实测机械关节位置，不是IMU惯性系的朝向。
         values = (omega_yaw, omega_pitch, yaw_c, pitch_c, dt)
         if not all(math.isfinite(float(v)) for v in values) or dt <= 0.0:
             self.reset()
@@ -470,6 +467,7 @@ class BearingControlLaw(ControlLaw):
                                  float(error_rates[1]), float(ff_rates[0]),
                                  float(ff_rates[1]))
         except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError):
+            # 观测无效或几何求解奇异时必须清斜坡，不能保留上一拍角速度。
             self.reset()
             return ControlOutput(mode='bearing')
 
@@ -486,8 +484,7 @@ def gimbal_origin_world(base_pos_odom: Sequence[float],
     ``p_base_world   = T_world←odom ∘ p_base_odom``
     ``p_gimbal_world = p_base_world + R_world←odom · Rz(yaw_base) · mount_xyz``
 
-    优先委托 ``gimbal_common.frames.gimbal_origin_world``（单一真源）；
-    该函数不存在时使用本地等价实现。
+    委托 ``gimbal_common.frames.gimbal_origin_world``（单一真源）。
 
     Args:
         base_pos_odom: 底盘在 odom 系的 (x, y) 或 (x, y, z)。
@@ -498,47 +495,12 @@ def gimbal_origin_world(base_pos_odom: Sequence[float],
     Returns:
         云台原点在 world 系下的坐标，shape (3,)。
     """
-    fn = getattr(frames, 'gimbal_origin_world', None)
-    if callable(fn):
-        out = np.asarray(fn(base_pos_odom, float(base_yaw), mount_xyz, T_world_odom),
-                         dtype=np.float64).reshape(3)
-        return out if np.all(np.isfinite(out)) else np.zeros(3, dtype=np.float64)
-
-    p = np.asarray(base_pos_odom, dtype=np.float64).reshape(-1)
-    p3 = np.array([p[0], p[1], p[2] if p.size > 2 else 0.0], dtype=np.float64)
-    T_wo = (np.eye(4, dtype=np.float64) if T_world_odom is None
-            else np.asarray(T_world_odom, dtype=np.float64).reshape(4, 4))
-    R2 = np.asarray(frames.rotz2(float(base_yaw)), dtype=np.float64).reshape(2, 2)
-    m = np.asarray(mount_xyz, dtype=np.float64).reshape(3)
-    off_body = np.array([R2[0, 0] * m[0] + R2[0, 1] * m[1],
-                         R2[1, 0] * m[0] + R2[1, 1] * m[1],
-                         m[2]], dtype=np.float64)
-    out = T_wo[0:3, 0:3] @ p3 + T_wo[0:3, 3] + T_wo[0:3, 0:3] @ off_body
-    return out if np.all(np.isfinite(out)) else np.zeros(3, dtype=np.float64)
+    return np.asarray(frames.gimbal_origin_world(
+        base_pos_odom, float(base_yaw), mount_xyz, T_world_odom),
+        dtype=np.float64).reshape(3)
 
 
 def r_gimbal_from_opt() -> np.ndarray:
-    """取得 ``R_gimbal←opt``（optical 系 → gimbal_link 系）。
-
-    与 estimation 侧同一套**物理方向自检**逻辑：optical 的 z（向前）必须映射到
-    gimbal_link 的 x（向前），即 ``R[:, 2] == (1, 0, 0)``；否则转置纠正。
-    这样无论 ``frames.R_link_from_opt`` / ``frames.R_opt_from_link`` 的命名如何，
-    都能拿到方向正确的矩阵。
-
-    Returns:
-        shape (3, 3) 的旋转矩阵 ``R_gimbal←opt``。
-    """
-    forward = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    candidates = []
-    fn_link_from_opt = getattr(frames, 'R_link_from_opt', None)
-    if callable(fn_link_from_opt):
-        candidates.append(np.asarray(fn_link_from_opt(), dtype=np.float64).reshape(3, 3))
-    fn_opt_from_link = getattr(frames, 'R_opt_from_link', None)
-    if callable(fn_opt_from_link):
-        candidates.append(np.asarray(fn_opt_from_link(), dtype=np.float64).reshape(3, 3).T)
-    for R in candidates:
-        if np.allclose(R[:, 2], forward, atol=1e-6) and np.allclose(R @ R.T, np.eye(3), atol=1e-6):
-            return R
-    return np.array([[0.0, 0.0, 1.0],
-                     [-1.0, 0.0, 0.0],
-                     [0.0, -1.0, 0.0]], dtype=np.float64)
+    """标准 optical → gimbal_link 旋转由 common 单一定义。"""
+    # common 的历史函数名相反；其文档/矩阵明确 R_opt_from_link 才是 G←O。
+    return np.asarray(frames.R_opt_from_link(), dtype=np.float64).reshape(3, 3)

@@ -194,6 +194,7 @@ class PnpSolver:
         try:
             obs = np.asarray(corners_uv, dtype=np.float64).reshape(-1, 2)
         except (TypeError, ValueError):
+            # 外部角点形状非法是无观测，不能送入 OpenCV。
             return PnpResult(ok=False, reason='corner_shape')
         if obs.shape[0] != 4:
             return PnpResult(ok=False, reason='corner_count')
@@ -222,8 +223,9 @@ class PnpSolver:
                                            flags=cv2.SOLVEPNP_IPPE_SQUARE)
                     if ok:
                         candidates.append((r, t))
-        except (cv2.error, ValueError, TypeError):
-            pass  # A solver exception is a reason to try the mature fallback.
+        except cv2.error:
+            # IPPE 对部分平面观测会拒绝求解；保留实际 ITERATIVE 候选比较。
+            pass
 
         evaluated = []
         for r, t in candidates:
@@ -239,7 +241,8 @@ class PnpSolver:
                     refined = self._evaluate(rr, tt, obs)
                     if refined is not None:
                         evaluated.append(refined)
-                except (cv2.error, ValueError, TypeError):
+                except cv2.error:
+                    # 观测可能无法完成 LM 精化，仍可评估本次未精化的候选。
                     pass
 
         # Compare a fresh planar ITERATIVE initialization even if an IPPE branch
@@ -253,7 +256,8 @@ class PnpSolver:
                 result = self._evaluate(r, t, obs)
                 if result is not None:
                     evaluated.append(result)
-        except (cv2.error, ValueError, TypeError):
+        except cv2.error:
+            # 某帧退化观测可令 ITERATIVE 求解失败；仅保留其他有效候选。
             pass
         if not evaluated:
             return PnpResult(ok=False, reason='solve_failed')
@@ -286,5 +290,6 @@ class PnpSolver:
             if not math.isfinite(error):
                 return None
             return PnpResult(rvec=r.copy(), tvec_opt=t.copy(), reproj_err_px=error)
-        except (cv2.error, ValueError, TypeError):
+        except cv2.error:
+            # 候选投影不成立时不能参与重投影误差排名。
             return None

@@ -12,7 +12,7 @@
 * 只输出 optical 系下的点，world/map 换算放在 estimation（D-3）。
 * 输出保留原始图像stamp；丢失、拒绝和ID变化时显式发无效观测并清初值。
 
-⚠ 本文件依赖 ROS 2，只能在 Ubuntu 24.04 + ROS 2 Jazzy 上编译/运行验证。
+本文件依赖 ROS 2；实际比赛接口须在 Ubuntu 22.04 + ROS 2 Humble 验证。
 """
 
 from __future__ import annotations
@@ -67,22 +67,14 @@ def _sensor_qos(depth: int = 10) -> QoSProfile:
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包名相对 → 绝对；缺失时返回原样由上层 FATAL）。"""
+    """绝对路径原样读取；文件名从安装的 bringup/config 获取。"""
     if not name_or_path:
-        name_or_path = 'virtual.yaml'
-    if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
+        raise ValueError('config.virtual_yaml cannot be empty')
+    if os.path.isabs(name_or_path):
         return name_or_path
     from ament_index_python.packages import get_package_share_directory
-    try:
-        share = get_package_share_directory('gimbal_tracker_bringup')
-        cand = os.path.join(share, 'config', os.path.basename(name_or_path))
-        if os.path.isfile(cand):
-            return cand
-    except Exception:
-        pass
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config',
-                        os.path.basename(name_or_path))
-    return cand if os.path.isfile(cand) else name_or_path
+    return os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
+                        'config', name_or_path)
 
 
 class MarkerPnpNode:
@@ -96,13 +88,8 @@ class MarkerPnpNode:
 
         # ---- 内参：默认取自 virtual.yaml（唯一数据源）
         vpath = _resolve_virtual_yaml(str(p['config.virtual_yaml']))
-        try:
-            vcfg = CL.load_yaml(vpath, required=True)
-        except CL.ConfigError as exc:
-            self._log.fatal(f'{exc}（DESIGN §8.6：virtual.yaml 是内参/外参唯一数据源，'
-                            '禁止用其它外参跑仿真）')
-            raise
-        cam = vcfg.get('camera', {})
+        vcfg = CL.load_yaml(vpath, required=True)
+        cam = vcfg['camera']
         self._solver = PnpSolver.from_camera_config(
             cam,
             marker_size_m=float(p['perception.marker_size_m']),
@@ -157,50 +144,47 @@ class MarkerPnpNode:
             if fx > 0.0 and fy > 0.0:
                 self._solver.set_intrinsics(fx, fy, cx, cy, list(msg.d) if msg.d else None)
                 self._noise.fx = fx
-        except Exception as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
+            # 外部 CameraInfo 数值非法时保留上一份有效标定，不写入无效内参。
             LU.throttled(self._log, 'warning', f'camera_info 解析失败: {exc!r}', 'cam_info', 1.0)
 
     def _on_corners(self, msg: MarkerCorners) -> None:
         """收到角点 → 过滤 → PnP → 发布 ``MarkerObservation``。"""
-        try:
-            target = int(self._node.get_parameter('perception.target_digit').value)
-            self._input_stamp = msg.header.stamp
-            if target != self._last_target:
-                self._solver.reset_guess()
-                self._source.reset()
-                self._last_target = target
-            # ID is supplied by the decoder, never inferred from a parameter.
-            # This rejects queued old-target frames during a two-node ID switch.
-            if (target < 0 or msg.marker_id != target or not msg.valid
-                    or msg.header.frame_id != 'camera_optical_frame'):
-                self._clear_observation(max(0, target))
-                return
-            self._params['perception.target_digit'] = target
-            self._source.target_digit = target
-            t_mono = TU.now()
-            raw = self._source.on_polygon(msg, marker_id=int(msg.marker_id),
-                                          t_mono=t_mono)
-            self._source.poll()  # 本节点同步消费raw，不累积另一份待处理队列
-            if raw is None:
-                self._clear_observation(target)
-                return
-            res = self._solver.solve(raw.corners_uv)
-            if not res.ok:
-                self._n_reject += 1
-                self._clear_observation(target)
-                # Numeric errors change every frame. A key such as
-                # pnp_reproj_2.81px bypasses throttling and floods a real NUC log.
-                category = res.reason.split('_', 1)[0]
-                LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}',
-                             f'pnp_reject_{category}', 2.0)
-                return
-            self._n_obs += 1
-            self._t_last_obs = t_mono
-            cov = self._noise.cov_optical(res.depth)
-            self._publish(raw.marker_id, res.tvec_opt, cov, res.depth,
-                          res.reproj_err_px, True)
-        except Exception as exc:
-            LU.throttled(self._log, 'error', f'corners 回调异常: {exc!r}', 'corners_cb', 1.0)
+        target = int(self._node.get_parameter('perception.target_digit').value)
+        self._input_stamp = msg.header.stamp
+        if target != self._last_target:
+            self._solver.reset_guess()
+            self._source.reset()
+            self._last_target = target
+        # ID is supplied by the decoder, never inferred from a parameter.
+        # This rejects queued old-target frames during a two-node ID switch.
+        if (target < 0 or msg.marker_id != target or not msg.valid
+                or msg.header.frame_id != 'camera_optical_frame'):
+            self._clear_observation(max(0, target))
+            return
+        self._params['perception.target_digit'] = target
+        self._source.target_digit = target
+        t_mono = TU.now()
+        raw = self._source.on_polygon(msg, t_mono=t_mono)
+        self._source.poll()  # 本节点同步消费raw，不累积另一份待处理队列
+        if raw is None:
+            self._clear_observation(target)
+            return
+        res = self._solver.solve(raw.corners_uv)
+        if not res.ok:
+            self._n_reject += 1
+            self._clear_observation(target)
+            # Numeric errors change every frame. A key such as
+            # pnp_reproj_2.81px bypasses throttling and floods a real NUC log.
+            category = res.reason.split('_', 1)[0]
+            LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}',
+                         f'pnp_reject_{category}', 2.0)
+            return
+        self._n_obs += 1
+        self._t_last_obs = t_mono
+        cov = self._noise.cov_optical(res.depth)
+        self._publish(raw.marker_id, res.tvec_opt, cov, res.depth,
+                      res.reproj_err_px, True)
 
     def _clear_observation(self, target: int) -> None:
         self._source.reset()
@@ -227,7 +211,7 @@ class MarkerPnpNode:
     def shutdown(self) -> None:
         """收尾日志。"""
         self._log.info(f'感知节点退出：有效观测 {self._n_obs} 帧，拒绝 {self._n_reject} 帧，'
-                       f'过滤统计={getattr(self._source, "stats", {})}')
+                       f'过滤统计={self._source.stats}')
 
 
 def main(args=None) -> int:
@@ -235,11 +219,6 @@ def main(args=None) -> int:
     node = NU.create_node(NODE_NAME)
     try:
         app = MarkerPnpNode(node)
-    except Exception:
-        node.destroy_node()
-        NU.shutdown()
-        return 1
-    try:
         NU.spin_with_finally(node, on_shutdown=app.shutdown)
     finally:
         node.destroy_node()

@@ -40,7 +40,7 @@ def _setup(context):
     result.extend(Node(package=pkg, executable=exe, name=exe, output='screen', parameters=common) for pkg,exe in nodes)
     if submission:
         result.append(Node(package='gimbal_judge_io', executable='judge_io_node', name='judge_io_node',
-            output='screen', parameters=common+[{'judge.emit_t_tick': True, 'judge.fresh_run': False,
+            output='screen', parameters=common+[{'judge.fresh_run': False,
                 'judge.team_id': ParameterValue(LaunchConfiguration('team_id').perform(context), value_type=str),
                 'judge.output_dir': LaunchConfiguration('output_dir').perform(context)}]))
     return result

@@ -52,7 +52,7 @@ def heading_deg(vx: float, vy: float) -> float:
         if not (math.isfinite(x) and math.isfinite(y)) or math.hypot(x, y) <= 1e-12:
             return float('nan')
         return math.degrees(math.atan2(y, x))
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         return float('nan')
 
 
@@ -62,7 +62,7 @@ def angle_between_deg(a_deg: float, b_deg: float) -> float:
         if not (math.isfinite(a) and math.isfinite(b)):
             return float('nan')
         return abs((a - b + 180.0) % 360.0 - 180.0)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         return float('nan')
 
 
@@ -79,13 +79,13 @@ def direction_error_deg(vx: float, vy: float, std_dir_deg: float,
     """
     try:
         x, y = float(vx), float(vy)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         return DIR_FULL_ERR_DEG
     if not (math.isfinite(x) and math.isfinite(y)):
         return DIR_FULL_ERR_DEG
     try:
         distance = float(dist_to_target_m)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         distance = float('nan')
     if math.hypot(x, y) < float(stop_speed):
         return 0.0 if math.isfinite(distance) and 0.0 <= distance < stop_near_m else DIR_FULL_ERR_DEG
@@ -110,7 +110,7 @@ def direction_term(err_deg: Sequence[float], weight: float = W_DIR,
 def _coordinate(series, index, axis):
     try:
         return float(series[index][axis])
-    except (TypeError, ValueError, IndexError, KeyError, OverflowError):
+    except (TypeError, ValueError, IndexError, KeyError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         return float('nan')
 
 
@@ -166,7 +166,7 @@ def score(pred: Sequence[Sequence[float]], cur: Sequence[Sequence[float]],
             denominators.append(float('nan'))
     try:
         long_side = float(field_long_side_m)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         long_side = float('nan')
     base_denominators = [long_side if math.isfinite(long_side) and long_side > 0
                          and base is not None else float('nan')] * n
@@ -199,7 +199,7 @@ def _f(value, digits=4):
     try:
         value = float(value)
         return f'{value:.{digits}f}' if math.isfinite(value) else '未评估'
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError, OverflowError):  # 离线评分输入可能缺失或非法；按无效数据规则计分，不把坏值当真值。
         return '未评估'
 
 

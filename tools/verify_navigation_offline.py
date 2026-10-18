@@ -216,20 +216,32 @@ class RosAdapterStandinTests(unittest.TestCase):
         self.assertAlmostEqual(tfs[0].transform.translation.z,.7)
 
     def test_map_callback_waits_for_tf_then_publishes_and_preserves_metadata(self):
-        import grid_mapper.grid_mapper_node as adapter
+        # Execute the production callbacks without importing ROS transport.
+        path = ROOT/'src/grid_mapper/grid_mapper/grid_mapper_node.py'
+        source = ast.parse(path.read_text())
+        original = next(n for n in source.body if isinstance(n, ast.ClassDef) and n.name == 'GridMapperNode')
+        selected = {'_on_external_map', '_retry_pending_external', '_publish_all', '_to_msg'}
+        cls = ast.ClassDef(name='MapAdapterHarness', bases=[], keywords=[],
+                           body=[n for n in original.body if isinstance(n, ast.FunctionDef) and n.name in selected],
+                           decorator_list=[])
+        class TransformUnavailable(Exception):
+            pass
+        env = {'np':np, 'math':math, 'GridMap':GridMap,
+               'planar_quaternion_yaw':planar_quaternion_yaw, 'compose_grid_origin':compose_grid_origin,
+               'TransformException':TransformUnavailable, 'throttled':lambda *args:None,
+               'Time':NS(from_msg=lambda stamp:stamp), 'Duration':lambda **kwargs:None,
+               'OccupancyGrid':lambda:NS(header=NS(frame_id='',stamp=None),
+                    info=NS(map_load_time=None,resolution=0.,width=0,height=0,
+                            origin=NS(position=NS(x=0.,y=0.,z=0.),orientation=NS(x=0.,y=0.,z=0.,w=0.))),data=[])}
+        code = ast.Module(body=[ast.ImportFrom(module='__future__',names=[ast.alias(name='annotations')],level=0),cls],type_ignores=[])
+        exec(compile(ast.fix_missing_locations(code),str(path),'exec'),env)
         saved=[];outputs=[]
-        old=(getattr(adapter,'Time',None),getattr(adapter,'Duration',None),adapter.OccupancyGrid)
-        adapter.Time=NS(from_msg=lambda msg:msg)
-        adapter.Duration=lambda **kwargs:None
-        adapter.OccupancyGrid=lambda:NS(header=NS(frame_id='',stamp=None),
-            info=NS(map_load_time=None,resolution=0.,width=0,height=0,
-                    origin=NS(position=NS(x=0.,y=0.,z=0.),orientation=NS(x=0.,y=0.,z=0.,w=0.))),data=[])
         available=[False]
         def lookup(*args,**kwargs):
-            if not available[0]:raise RuntimeError('origin TF not yet available')
+            if not available[0]:raise TransformUnavailable('origin TF not yet available')
             return NS(transform=NS(translation=NS(x=3.,y=4.,z=0.),
                                   rotation=NS(x=0.,y=0.,z=math.sqrt(.5),w=math.sqrt(.5))))
-        app=adapter.GridMapperNode.__new__(adapter.GridMapperNode)
+        app=env['MapAdapterHarness']()
         app._params={'grid.source_frame':'lio_map','grid.inflation_radius_m':0.}
         app._output_frame='map';app._pending_external=None;app._grid_map=None
         app._tf_buffer=NS(lookup_transform=lookup)
@@ -243,22 +255,19 @@ class RosAdapterStandinTests(unittest.TestCase):
             info=NS(width=3,height=2,resolution=.2,map_load_time=stamp,
                     origin=NS(position=NS(x=2.,y=-1.,z=0.),
                               orientation=NS(x=0.,y=0.,z=0.,w=1.))))
-        try:
-            app._on_external_map(message)
-            self.assertEqual(saved,[]);self.assertEqual(outputs,[])
-            self.assertIs(app._pending_external,message)
-            available[0]=True;app._retry_pending_external()
-            self.assertEqual(len(saved),1);self.assertEqual(len(outputs),2)
-            out=outputs[0]
-            self.assertIs(out.header.stamp,stamp)
-            self.assertEqual(out.header.frame_id,'map')
-            self.assertEqual(out.data,message.data)
-            self.assertAlmostEqual(out.info.origin.position.x,4.)
-            self.assertAlmostEqual(out.info.origin.position.y,6.)
-            self.assertAlmostEqual(out.info.origin.orientation.z,math.sqrt(.5))
-            self.assertIsNone(app._pending_external)
-        finally:
-            adapter.Time,adapter.Duration,adapter.OccupancyGrid=old
+        app._on_external_map(message)
+        self.assertEqual(saved,[]);self.assertEqual(outputs,[])
+        self.assertIs(app._pending_external,message)
+        available[0]=True;app._retry_pending_external()
+        self.assertEqual(len(saved),1);self.assertEqual(len(outputs),2)
+        out=outputs[0]
+        self.assertIs(out.header.stamp,stamp)
+        self.assertEqual(out.header.frame_id,'map')
+        self.assertEqual(out.data,message.data)
+        self.assertAlmostEqual(out.info.origin.position.x,4.)
+        self.assertAlmostEqual(out.info.origin.position.y,6.)
+        self.assertAlmostEqual(out.info.origin.orientation.z,math.sqrt(.5))
+        self.assertIsNone(app._pending_external)
 
 
 if __name__=='__main__':

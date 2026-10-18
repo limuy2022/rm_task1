@@ -44,7 +44,7 @@ def _tick_us(text, fixed=False):
         if scaled != scaled.to_integral_value():
             raise ValueError('参考 t_tick 精度不能超过微秒')
         return int(scaled)
-    except InvalidOperation as exc:
+    except InvalidOperation as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
         raise ValueError('t_tick 无法解析') from exc
 
 
@@ -64,7 +64,7 @@ def _read_submission(path):
                 continue
             try:
                 tick = _tick_us(fields[8], fixed=True)
-            except ValueError as exc:
+            except ValueError as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
                 issues.append(f'❌ 第{line_number}行：{exc}')
                 continue
             if previous is not None and tick <= previous:
@@ -77,7 +77,7 @@ def _read_submission(path):
             for name, raw in zip(COLS9[:8], fields[:8]):
                 try:
                     value = float(raw)
-                except (TypeError, ValueError, OverflowError):
+                except (TypeError, ValueError, OverflowError):  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
                     value = float('nan')
                 if not math.isfinite(value):
                     issues.append(f'❌ 第{line_number}行 {name}：非有限或不可解析数值 {raw!r}（nan/inf）')
@@ -94,7 +94,7 @@ def check_csv(path, cols=9, *, expected_rows=None):
         return False, ['❌ 当前赛题一只接受九列，八列兼容格式不能用于正式提交']
     try:
         rows, issues = _read_submission(path)
-    except (OSError, ValueError, csv.Error) as exc:
+    except (OSError, ValueError, csv.Error) as exc:  # 外部CSV/统计输入可能损坏；明确报告无效项，不把它当作有效测量。
         return False, [f'❌ CSV读取失败：{exc}']
     lines = list(issues)
     for row in rows:

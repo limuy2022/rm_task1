@@ -3,7 +3,7 @@
 <package format="3">
   <name>gimbal_dataio</name>
   <version>0.1.0</version>
-  <description>数据落盘：20Hz 严格 8 列 CSV、result_with_header.csv、run_meta.json、map_tracked.png</description>
+  <description>运行元数据 run_meta.json 与轨迹标注 map_tracked.png；正式 CSV 由 gimbal_judge_io 写出</description>
   <maintainer email="gimbal@example.com">gimbal_team</maintainer>
   <license>Apache-2.0</license>
 

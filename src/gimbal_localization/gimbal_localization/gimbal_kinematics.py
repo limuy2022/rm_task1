@@ -26,7 +26,7 @@ from gimbal_common.time_buffer import PoseHistory
 def finite_vector(value, length, name):
     try:
         out = np.asarray(value, dtype=float)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError) as exc:  # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
         raise ValueError(f'{name}: expected {length} finite numbers') from exc
     if out.shape != (length,) or not np.all(np.isfinite(out)):
         raise ValueError(f'{name}: expected {length} finite numbers')
@@ -248,7 +248,7 @@ class SynchronizedKinematics:
             return False
         try:
             self.base.put(stamp, transform_matrix(T_odom_base, 'T_odom_base'))
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
             self.last_error = str(exc)
             return False
         return True
@@ -258,7 +258,7 @@ class SynchronizedKinematics:
             return False
         try:
             self.pending[float(stamp)] = rotation_matrix(R_world_gimbal, 'R_world_gimbal')
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
             self.last_error = str(exc)
             return False
         if len(self.pending) > 64:
@@ -282,6 +282,6 @@ class SynchronizedKinematics:
                 out.append(KinematicsSample(stamp, joints, self.model.forward(joints.yaw, joints.pitch)))
                 self.last_stamp = stamp
                 self.last_error = ''
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError) as exc:  # 外部姿态/标定值可能无效或无可达解；明确拒绝该样本，不发布伪造姿态。
                 self.last_error = str(exc)
         return out

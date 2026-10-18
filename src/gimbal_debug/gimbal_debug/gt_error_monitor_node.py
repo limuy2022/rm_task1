@@ -16,7 +16,7 @@
 时钟（主理人拍板 1，混合时钟）：`header.stamp` 用 ROS 系统时钟；
 **所有采样时刻、定时器 dt、统计时间轴一律用 `gimbal_common.time_utils.now()`**。
 
-⚠ 本文件依赖 rclpy，**只做静态检查，待 Ubuntu 24.04 + ROS2 Jazzy 编译/运行验证**。
+本文件依赖 rclpy；离线检查不能替代 Ubuntu 22.04 + ROS2 Humble 通信验证。
 """
 
 from __future__ import annotations
@@ -36,7 +36,9 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy
 from rclpy.qos import QoSHistoryPolicy
 from rclpy.qos import QoSProfile
-from geometry_msgs.msg import PointStamped, TransformStamped
+from rclpy.qos import QoSReliabilityPolicy
+from geometry_msgs.msg import PointStamped, TransformStamped, PoseStamped
+from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Path
 from std_msgs.msg import Float64
 from gimbal_interfaces.msg import GimbalState, TargetState
@@ -97,51 +99,19 @@ _CURVE_HEADER = '# t_mono,t_rel_s,e_ang_deg,bearing_deg,track_status,est_err_m\n
 # 小工具
 # ---------------------------------------------------------------------------
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包 share → 工作区源树 → 原样返回）。"""
-    if not name_or_path:
-        name_or_path = 'virtual.yaml'
-    if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
+    """只接受显式绝对路径或已安装包的config文件。"""
+    if os.path.isabs(name_or_path):
         return name_or_path
-    base = os.path.basename(name_or_path)
-    from ament_index_python.packages import get_package_share_directory
-    try:
-        cand = os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
-                            'config', base)
-        if os.path.isfile(cand):
-            return cand
-    except Exception:  # pragma: no cover - 无 ament / 未安装
-        pass
-    here = os.path.dirname(os.path.abspath(__file__))
-    ws_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
-    cand = os.path.join(ws_root, 'src', 'gimbal_tracker_bringup', 'config', base)
-    if os.path.isfile(cand):
-        return cand
-    cand = os.path.join(os.getcwd(), 'src', 'gimbal_tracker_bringup', 'config', base)
-    return cand if os.path.isfile(cand) else name_or_path
+    return os.path.join(get_package_share_directory('gimbal_tracker_bringup'), 'config', name_or_path)
 
 
 def half_fov_rad_from_yaml(path: str) -> float:
-    """从 ``virtual.yaml`` 的 ``camera.{width,fx}`` 算水平半视场（rad），**不硬编码内参**。
-
-    Args:
-        path: virtual.yaml 路径。
-
-    Returns:
-        float: ``atan((width/2) / fx)``；读取失败时 0.0（调用方据此跳过摆幅判定）。
-    """
-    try:
-        cfg = CL.load_yaml(path, required=False)
-    except Exception:  # pragma: no cover
-        return 0.0
-    cam = (cfg or {}).get('camera', {}) if isinstance(cfg, dict) else {}
-    try:
-        width = float(cam.get('width', 0.0))
-        fx = float(cam.get('fx', 0.0))
-    except (TypeError, ValueError):
-        return 0.0
-    if width <= 0.0 or fx <= 0.0:
-        return 0.0
-    return float(math.atan((width * 0.5) / fx))
+    """真实相机配置缺失/错误应使评估失败，不能跳过摆幅判定。"""
+    cam = CL.load_yaml(path)['camera']
+    width, fx = float(cam['width']), float(cam['fx'])
+    if not math.isfinite(width) or not math.isfinite(fx) or width <= 0 or fx <= 0:
+        raise ValueError('相机width/fx必须为有限正数')
+    return math.atan(width / (2 * fx))
 
 
 def _quat_xyzw_to_wxyz(q: Any) -> List[float]:
@@ -151,27 +121,14 @@ def _quat_xyzw_to_wxyz(q: Any) -> List[float]:
 
 def _T_world_from_map(msg: Any) -> Optional[np.ndarray]:
     """把 ``map → world`` 的 ``TransformStamped`` 转成 ``T_world←map`` (4,4)。"""
-    try:
-        t = msg.transform.translation
-        R = (FR.quat_to_mat(_quat_xyzw_to_wxyz(msg.transform.rotation)))
-        T = np.eye(4, dtype=np.float64)
-        T[0:3, 0:3] = np.asarray(R, dtype=np.float64).reshape(3, 3)
-        T[0:3, 3] = np.array([float(t.x), float(t.y), float(t.z)], dtype=np.float64)
-        return T
-    except Exception:  # pragma: no cover
-        return None
-
-
-def _tf_from_pose(pose: Any) -> np.ndarray:
-    """``geometry_msgs/Pose`` → ``T`` (4,4)。"""
+    t = msg.transform.translation
+    R = (FR.quat_to_mat(_quat_xyzw_to_wxyz(msg.transform.rotation)))
     T = np.eye(4, dtype=np.float64)
-    try:
-        T[0:3, 0:3] = (FR.quat_to_mat(_quat_xyzw_to_wxyz(pose.orientation)))
-        T[0:3, 3] = [float(pose.position.x), float(pose.position.y),
-                     float(pose.position.z)]
-    except Exception:  # pragma: no cover
-        pass
+    T[0:3, 0:3] = np.asarray(R, dtype=np.float64).reshape(3, 3)
+    T[0:3, 3] = np.array([float(t.x), float(t.y), float(t.z)], dtype=np.float64)
     return T
+
+
 
 
 def _ensure_dir(d: str) -> None:
@@ -237,10 +194,9 @@ class GtErrorMonitorNode:
                                  self._on_target_state, sensor_qos)
         node.create_subscription(TransformStamped, TOPIC_T_MAP_WORLD,
                                  self._on_t_map_world, self._latched_qos())
-        self._pub_err = node.create_publisher(Float64, str(p['debug.error_topic']),
-                                              sensor_qos)
-        self._pub_path = node.create_publisher(Path, str(p['debug.path_topic']),
-                                               sensor_qos)
+        # 调试输出保留默认 RELIABLE，与现有 RViz 的 Path 订阅一致。
+        self._pub_err = node.create_publisher(Float64, str(p['debug.error_topic']), 10)
+        self._pub_path = node.create_publisher(Path, str(p['debug.path_topic']), 10)
         self._path = Path()
         self._path.header.frame_id = 'world'
         node.create_timer(self._period, self._on_timer)
@@ -255,60 +211,43 @@ class GtErrorMonitorNode:
     # -- QoS ----------------------------------------------------------------
     @staticmethod
     def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS。"""
-        try:
-            return QoSProfile(depth=_SENSOR_DEPTH,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_DEPTH)
+        """虚拟云台和目标状态由 BEST_EFFORT 发布，订阅不能要求 RELIABLE。"""
+        return QoSProfile(depth=_SENSOR_DEPTH,
+                          reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                          history=QoSHistoryPolicy.KEEP_LAST)
 
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1（一次性的 map→world 变换）。"""
-        try:
-            return QoSProfile(depth=1,
-                              history=QoSHistoryPolicy.KEEP_LAST,
-                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=1)
+        return QoSProfile(depth=1,
+                          history=QoSHistoryPolicy.KEEP_LAST,
+                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
     # -- 回调 ----------------------------------------------------------------
     def _on_gt(self, msg: Any) -> None:
         """缓存目标真值（world 系）。仅日志用外部 stamp（DESIGN §8.2 第 3 条）。"""
-        try:
-            self._gt_xyz = np.array([float(msg.point.x), float(msg.point.y),
-                                     float(msg.point.z)], dtype=np.float64)
-            self._t_gt = now()
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'GT 真值解析失败: %r' % (exc,),
-                      'gimbal_debug.gt_err', 1.0)
+        self._gt_xyz = np.array([float(msg.point.x), float(msg.point.y),
+                                 float(msg.point.z)], dtype=np.float64)
+        self._t_gt = now()
 
     def _on_gimbal_state(self, msg: Any) -> None:
         """缓存云台姿态（quat = world→gimbal_link）与链路状态。"""
-        try:
-            q = np.asarray([float(msg.quat[0]), float(msg.quat[1]),
-                            float(msg.quat[2]), float(msg.quat[3])],
-                           dtype=np.float64)
-            n = float(np.linalg.norm(q))
-            if not math.isfinite(n) or n <= 1e-9:
-                return
-            self._quat = q / n
-            self._link_state = int(msg.link_state)
-            self._t_state = now()
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'GimbalState 解析失败: %r' % (exc,),
-                      'gimbal_debug.state_err', 1.0)
+        q = np.asarray([float(msg.quat[0]), float(msg.quat[1]),
+                        float(msg.quat[2]), float(msg.quat[3])],
+                       dtype=np.float64)
+        n = float(np.linalg.norm(q))
+        if not math.isfinite(n) or n <= 1e-9:
+            return
+        self._quat = q / n
+        self._link_state = int(msg.link_state)
+        self._t_state = now()
 
     def _on_target_state(self, msg: Any) -> None:
         """缓存目标估计（map 系）与 track_status。"""
-        try:
-            self._est_valid = bool(msg.valid)
-            self._track_status = int(msg.track_status)
-            self._est_map_xyz = np.array([float(msg.cur_x), float(msg.cur_y), 0.0],
-                                         dtype=np.float64)
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', 'TargetState 解析失败: %r' % (exc,),
-                      'gimbal_debug.target_err', 1.0)
+        self._est_valid = bool(msg.valid)
+        self._track_status = int(msg.track_status)
+        self._est_map_xyz = np.array([float(msg.cur_x), float(msg.cur_y), 0.0],
+                                     dtype=np.float64)
 
     def _on_t_map_world(self, msg: Any) -> None:
         """缓存 ``T_world←map``（用于把 map 系估计换算到 world 比对真值）。"""
@@ -361,39 +300,30 @@ class GtErrorMonitorNode:
         """发布 ``/debug/angle_error_deg``。"""
         if not math.isfinite(e_deg):  # pragma: no cover
             return
-        try:
-            msg = Float64()
-            msg.data = float(e_deg)
-            self._pub_err.publish(msg)
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', '误差发布失败: %r' % (exc,),
-                      'gimbal_debug.pub_err', 1.0)
+        msg = Float64()
+        msg.data = float(e_deg)
+        self._pub_err.publish(msg)
 
     def _append_path(self, t_now: float) -> None:
         """把真值点追加到 ``/debug/target_path`` 并按周期发布（供 RViz 显示轨迹）。"""
         if self._path is None or self._gt_xyz is None:  # pragma: no cover
             return
-        from geometry_msgs.msg import PoseStamped
-        try:
-            ps = PoseStamped()
-            ps.header.frame_id = 'world'
-            ps.header.stamp = self._node.get_clock().now().to_msg()
-            ps.pose.position.x = float(self._gt_xyz[0])
-            ps.pose.position.y = float(self._gt_xyz[1])
-            ps.pose.position.z = float(self._gt_xyz[2])
-            ps.pose.orientation.w = 1.0
-            self._path.poses.append(ps)
-            max_n = int(self._params.get('debug.path_max_points', 20000))
-            if max_n > 0 and len(self._path.poses) > max_n:
-                del self._path.poses[0:len(self._path.poses) - max_n]
-            if (t_now - self._t_last_path) >= float(
-                    self._params.get('debug.path_period_s', 0.5)):
-                self._path.header.stamp = self._node.get_clock().now().to_msg()
-                self._pub_path.publish(self._path)
-                self._t_last_path = t_now
-        except Exception as exc:  # pragma: no cover
-            throttled(self._log, 'error', '轨迹发布失败: %r' % (exc,),
-                      'gimbal_debug.path_err', 1.0)
+        ps = PoseStamped()
+        ps.header.frame_id = 'world'
+        ps.header.stamp = self._node.get_clock().now().to_msg()
+        ps.pose.position.x = float(self._gt_xyz[0])
+        ps.pose.position.y = float(self._gt_xyz[1])
+        ps.pose.position.z = float(self._gt_xyz[2])
+        ps.pose.orientation.w = 1.0
+        self._path.poses.append(ps)
+        max_n = int(self._params.get('debug.path_max_points', 20000))
+        if max_n > 0 and len(self._path.poses) > max_n:
+            del self._path.poses[0:len(self._path.poses) - max_n]
+        if (t_now - self._t_last_path) >= float(
+                self._params.get('debug.path_period_s', 0.5)):
+            self._path.header.stamp = self._node.get_clock().now().to_msg()
+            self._pub_path.publish(self._path)
+            self._t_last_path = t_now
 
     # -- 收尾 ----------------------------------------------------------------
     def _build_thresholds(self) -> M.EvalThresholds:
@@ -474,7 +404,7 @@ class GtErrorMonitorNode:
             _ensure_dir(os.path.dirname(os.path.abspath(path)))
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(text)
-        except Exception as exc:  # pragma: no cover
+        except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
             self._log.error('写 %s 失败: %r' % (path, exc))
 
     def _write_curve(self, path: str) -> None:
@@ -491,7 +421,7 @@ class GtErrorMonitorNode:
                         math.degrees(s.bearing_rad) if math.isfinite(s.bearing_rad) else float('nan'),
                         int(s.track_status),
                         ('%.6f' % s.est_err_m) if math.isfinite(s.est_err_m) else 'nan'))
-        except Exception as exc:  # pragma: no cover
+        except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
             self._log.error('写误差曲线失败: %r' % (exc,))
 
     def _write_json(self, path: str, data: Dict[str, Any]) -> None:
@@ -502,7 +432,7 @@ class GtErrorMonitorNode:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.write('\n')
-        except Exception as exc:  # pragma: no cover
+        except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
             self._log.error('写 %s 失败: %r' % (path, exc))
 
 
@@ -510,7 +440,7 @@ def _s(v: Any) -> str:
     """数值转字符串（非有限显示 n/a）。"""
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # 报告中的缺失统计值显示n/a，不伪造成数字。
         return 'n/a'
     return ('%.3f' % f) if math.isfinite(f) else 'n/a'
 
