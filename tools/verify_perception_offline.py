@@ -114,15 +114,14 @@ def render_marker(marker_id=3, translation=(0., 0., 2.), rotation=None):
                                borderValue=255)
 
 
-def image_message(image, sec=10, padding=0):
+def image_message(image, sec=10):
     height, width = image.shape
-    rows = np.pad(image, ((0, 0), (0, padding)), constant_values=123)
     msg = Image()
     msg.height = height
     msg.width = width
     msg.encoding = 'mono8'
-    msg.step = width + padding
-    msg.data = rows.tobytes()
+    msg.step = width
+    msg.data = image.tobytes()
     msg.header.stamp = Time(sec=sec, nanosec=123000000)
     return msg
 
@@ -192,15 +191,6 @@ class PerceptionRegression(unittest.TestCase):
             with mock.patch.object(cv2.aruco, 'DetectorParameters_create',
                                    side_effect=constructor, create=True):
                 self.assertIsNotNone(detector_module._make_detector_params())
-
-    def test_stride_fallback_reads_padded_rows(self):
-        detector, _ = pipeline()
-        detector._bridge = None
-        image = render_marker()
-        np.testing.assert_array_equal(detector._to_gray(image_message(image, padding=8)), image)
-        bad = image_message(image)
-        bad.step = image.shape[1] - 1
-        self.assertIsNone(detector._to_gray(bad))
 
     def test_loss_clears_guess_and_reacquires(self):
         detector, pnp = pipeline()

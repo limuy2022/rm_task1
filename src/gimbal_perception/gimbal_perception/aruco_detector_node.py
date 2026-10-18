@@ -216,13 +216,10 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             return
         self._latest = None                 # 只处理最新帧，旧的直接丢
         try:
-            gray = self._to_gray(msg)
+            gray = self._bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
         except Exception as exc:
             throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
                        'aruco.conv_err', 1.0)
-            self._publish(None, msg.header.stamp)
-            return
-        if gray is None:
             self._publish(None, msg.header.stamp)
             return
         self._n_frame += 1
@@ -240,40 +237,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._publish(chosen, msg.header.stamp)
 
     # -- 检测 -----------------------------------------------------------------
-    def _to_gray(self, msg: Any) -> Optional[np.ndarray]:
-        """Image → 灰度 uint8（优先 cv_bridge，回退手工解码）。"""
-        if self._bridge is not None:
-            try:
-                img = self._bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
-                return np.asarray(img)
-            except Exception:
-                pass
-        try:
-            h = int(msg.height)
-            w = int(msg.width)
-            enc = str(msg.encoding).lower()
-            channels = 3 if enc in ('rgb8', 'bgr8') else 1
-            row_size = w * channels
-            step = int(getattr(msg, 'step', row_size))
-            if h <= 0 or w <= 0 or step < row_size:
-                return None
-            buf = np.frombuffer(msg.data, dtype=np.uint8)
-            if buf.size < h * step:
-                return None
-            rows = buf[:h * step].reshape(h, step)[:, :row_size]
-            if enc in ('rgb8', 'bgr8'):
-                img = rows.reshape((h, w, 3))
-                if enc == 'rgb8':
-                    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            if enc in ('mono8', '8uc1'):
-                return rows.reshape((h, w))
-        except Exception:
-            return None
-        throttled(self._log, 'error', '不支持的图像编码 %r' % msg.encoding,
-                   'aruco.enc', 2.0)
-        return None
-
     def _detect(self, gray: np.ndarray):
         """返回 (corners, ids)；无检测时 ids is None。"""
         try:
