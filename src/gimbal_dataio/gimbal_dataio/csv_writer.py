@@ -26,13 +26,9 @@ from typing import List
 from typing import Optional
 from typing import Sequence
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.csv_utils import COLS8, COLS_EXTRA, format_row
-    from gimbal_common.log_utils import get_logger, throttled
-    from gimbal_common.time_utils import now
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import (COLS8, COLS_EXTRA, format_row, get_logger, now,
-                          throttled)
+from gimbal_common.csv_utils import COLS8, COLS_EXTRA, format_row
+from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.time_utils import now
 
 __all__ = [
     'COLS8',

@@ -92,7 +92,9 @@ def install_ros_test_doubles():
         sys.modules[name] = value
         return value
 
-    module('rclpy')
+    rclpy = module('rclpy')
+    import logging
+    rclpy.logging = module('rclpy.logging', get_logger=logging.getLogger)
     module('rclpy.node', Node=Node)
     module('rclpy.parameter', Parameter=object)
     policies = NS(RELIABLE=1, BEST_EFFORT=2, KEEP_LAST=1, VOLATILE=1, TRANSIENT_LOCAL=2)
@@ -198,8 +200,9 @@ class PerceptionRegression(unittest.TestCase):
         self.assertEqual(len(corners), len(ids))
 
     def test_old_parameter_api_branch(self):
-        constructor = cv2.aruco.DetectorParameters
-        with mock.patch.object(cv2.aruco, 'DetectorParameters', side_effect=AttributeError('old API')):
+        constructor = (cv2.aruco.DetectorParameters if hasattr(cv2.aruco, 'DetectorParameters')
+                       else cv2.aruco.DetectorParameters_create)
+        with mock.patch.object(cv2.aruco, 'DetectorParameters', side_effect=AttributeError('old API'), create=True):
             with mock.patch.object(cv2.aruco, 'DetectorParameters_create',
                                    side_effect=constructor, create=True):
                 self.assertIsNotNone(detector_module._make_detector_params())

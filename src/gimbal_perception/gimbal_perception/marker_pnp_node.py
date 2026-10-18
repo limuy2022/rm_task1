@@ -72,8 +72,8 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
         name_or_path = 'virtual.yaml'
     if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
         return name_or_path
+    from ament_index_python.packages import get_package_share_directory
     try:
-        from ament_index_python.packages import get_package_share_directory
         share = get_package_share_directory('gimbal_tracker_bringup')
         cand = os.path.join(share, 'config', os.path.basename(name_or_path))
         if os.path.isfile(cand):

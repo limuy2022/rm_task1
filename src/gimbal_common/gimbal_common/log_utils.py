@@ -91,14 +91,9 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
         name: 子节点/模块名，用于日志定位。
 
     Returns:
-        rclpy（或标准 logging）logger。
+        rclpy logger。
     """
-    try:
-        import rclpy.logging as _rclpy_logging
-    except ImportError:
-        import logging as _logging
-        base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
-        return _logging.getLogger(f'{base}.{name}')
+    import rclpy.logging as _rclpy_logging
     base = node.get_name() if node is not None and hasattr(node, 'get_name') else 'gimbal'
     return _FormatLogger(_rclpy_logging.get_logger(f'{base}.{name}'))
 

@@ -24,10 +24,7 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.math_utils import clamp, ray_cells
-except Exception:  # pragma: no cover - Windows 无 ROS2 时的兜底
-    from ._compat import clamp, ray_cells
+from gimbal_common.math_utils import clamp, ray_cells
 
 from .field_config import FieldConfig, masks_from_field, occupancy_grid_to_arrays
 

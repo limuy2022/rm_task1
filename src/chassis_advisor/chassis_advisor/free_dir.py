@@ -38,10 +38,7 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.math_utils import ray_cells, wrap_pi
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import ray_cells, wrap_pi
+from gimbal_common.math_utils import ray_cells, wrap_pi
 
 __all__ = [
     'FREE_DIR_L_M',

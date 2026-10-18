@@ -37,37 +37,19 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSDurabilityPolicy
-    from rclpy.qos import QoSHistoryPolicy
-    from rclpy.qos import QoSProfile
-    from rclpy.qos import QoSReliabilityPolicy
-    from rclpy.time import Time
-    from rclpy.duration import Duration
-    from tf2_ros import Buffer, TransformListener
-    from nav_msgs.msg import OccupancyGrid
-except Exception as _e:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    OccupancyGrid = None  # type: ignore[assignment]
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSDurabilityPolicy
+from rclpy.qos import QoSHistoryPolicy
+from rclpy.qos import QoSProfile
+from rclpy.qos import QoSReliabilityPolicy
+from rclpy.time import Time
+from rclpy.duration import Duration
+from tf2_ros import Buffer, TransformListener
+from nav_msgs.msg import OccupancyGrid
 
-    class _QoSProfile:  # noqa: D401 - 占位，仅为静态检查通过
-        """ROS 缺失时的占位类。"""
-
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    QoSProfile = _QoSProfile  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.time_utils import now
-    from gimbal_common.log_utils import get_logger, throttled
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import now, get_logger, throttled
+from gimbal_common.time_utils import now
+from gimbal_common.log_utils import get_logger, throttled
 
 from .field_config import FieldConfig
 from .grid_builder import GridMap
@@ -112,8 +94,8 @@ def _resolve_field_yaml() -> str:
     env = os.environ.get('GIMBAL_FIELD_YAML', '')
     if env:
         cands.append(env)
-    try:  # 安装态（colcon build 之后）
-        from ament_index_python.packages import get_package_share_directory
+    from ament_index_python.packages import get_package_share_directory
+    try:
         cands.append(os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
                                   'config', 'field.yaml'))
     except Exception:  # pragma: no cover - 无 ament / 包未安装
@@ -392,9 +374,6 @@ class GridMapperNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover - Windows 无 ROS2
-        print('[grid_mapper_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
-        return 1
     rclpy.init(args=args)
     node = GridMapperNode()
     try:

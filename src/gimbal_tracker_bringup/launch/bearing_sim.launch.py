@@ -36,16 +36,6 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch_ros.actions import Node
 
-# 虚拟相机内参：合成图像与 PnP 用同一组 K（PnP 内参加来自 /virtual_gimbal/camera_info，
-# 自动一致）。用 640×480（edu 默认分辨率）而非实机的 1440×1080：
-# 容器 CPU 下 1440×1080 的 ArUco 检测端到端延迟可达 0.4s，kp=6 的比例环
-# 在该延迟下不稳（实测过冲 3 倍、码冲出视场丢失死锁）；640×480 检测快约
-# 一个数量级，闭环稳定。半视场 atan(320/554)≈0.52 rad，默认目标偏置 0.3 rad 在视场内。
-_SIM_CAMERA = {'width': 640, 'height': 480,
-               'fx': 554.26, 'fy': 554.26,
-               'cx': 319.5, 'cy': 239.5}
-
-
 def _share_dir(package: str) -> str:
     return get_package_share_directory(package)
 
@@ -57,6 +47,7 @@ def _as_bool(text) -> bool:
 def _setup(context) -> list:
     params_file = context.launch_configurations['params_file']
     vehicle = context.launch_configurations['vehicle_config']
+    camera_config = context.launch_configurations['camera_config']
     target_id = int(context.launch_configurations['target_id'])
     port = context.launch_configurations['port']
     step = float(context.launch_configurations['startup_step_s'])
@@ -81,7 +72,7 @@ def _setup(context) -> list:
     bridge = Node(package='gimbal_serial_bridge', executable='vgimbal_bridge_node',
                   name='vgimbal_bridge_node', output='screen', parameters=src_params)
     vision = Node(package='virtual_gimbal', executable='virtual_vision', name='virtual_vision',
-                  output='screen', parameters=[{
+                  output='screen', parameters=[camera_config, {
                       'vision_mode': 'corners', 'synthetic_image': True,
                       'trajectory': 'static',
                       # static 轨迹的目标方位由 yaw_offset/pitch_offset 决定
@@ -89,7 +80,7 @@ def _setup(context) -> list:
                       'yaw_offset': target_yaw, 'pitch_offset': target_pitch,
                       'target_distance': target_distance,
                       'marker_size': 0.10, 'marker_id': target_id,
-                      'rate_hz': 10.0, 'gt_rate_hz': 30.0, **_SIM_CAMERA}])
+                      'rate_hz': 10.0, 'gt_rate_hz': 30.0}])
     detector = Node(package='gimbal_perception', executable='aruco_detector_node',
                     name='aruco_detector_node', output='screen', parameters=src_params,
                     remappings=[('/image_raw', '/virtual_gimbal/image_raw')])
@@ -137,12 +128,14 @@ def generate_launch_description():
                             'tracker_params.yaml'), description='§6.13 全表参数'),
         DeclareLaunchArgument('vehicle_config', default_value=os.path.join(share, 'config',
                             'vehicle_sim.yaml'), description='仿真整车配置（标定开关=真值模型）'),
+        DeclareLaunchArgument('camera_config', default_value=os.path.join(share, 'config',
+                            'camera_sim.yaml'), description='虚拟相机内参；PnP 从 CameraInfo 获取同组内参'),
         DeclareLaunchArgument('target_id', default_value='0', description='要瞄准的 ArUco ID'),
         DeclareLaunchArgument('port', default_value='/tmp/ttyVGIMBAL', description='虚拟 MCU pty'),
         DeclareLaunchArgument('startup_step_s', default_value='0.3', description='阶梯启动步长'),
         DeclareLaunchArgument('target_yaw', default_value='0.3',
                                description='静态目标方位角 rad（逆时针为正）；'
-                                           '初始必须在半视场内（1440/fx1793 ≈ 0.38 rad），'
+                                           '初始必须在 camera_config 指定相机的半视场内，'
                                            '否则目标不可见、观测恒空'),
         DeclareLaunchArgument('target_pitch', default_value='0.12',
                                description='静态目标俯仰角 rad（低头为正）'),

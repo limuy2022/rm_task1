@@ -40,6 +40,9 @@ TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PKG_DIR = os.path.abspath(os.path.join(TEST_DIR, '..'))
 SRC_DIR = os.path.abspath(os.path.join(PKG_DIR, '..'))
 WS_DIR = os.path.abspath(os.path.join(SRC_DIR, '..'))
+PACKAGE_DIRS = {os.path.basename(os.path.dirname(p)): os.path.dirname(p)
+                for p in glob.glob(os.path.join(SRC_DIR, '*', 'setup.py'))}
+PACKAGE_DIRS['virtual_gimbal'] = os.path.join(WS_DIR, 'gimbal-edu-tools', 'virtual_gimbal')
 
 CONFIG_DIR = os.path.join(PKG_DIR, 'config')
 TRACKER_PARAMS = os.path.join(CONFIG_DIR, 'tracker_params.yaml')
@@ -101,11 +104,11 @@ def entry_points() -> Dict[str, Tuple[str, str]]:
     """`{可执行文件名: (包目录名, 模块路径)}`。"""
     import re
     out: Dict[str, Tuple[str, str]] = {}
-    for setup_py in sorted(glob.glob(os.path.join(SRC_DIR, '*', 'setup.py'))):
-        pkg_dir = os.path.dirname(setup_py)
+    for pkg_dir in sorted(PACKAGE_DIRS.values()):
+        setup_py = os.path.join(pkg_dir, 'setup.py')
         with open(setup_py, 'r', encoding='utf-8') as f:
             txt = f.read()
-        for m in re.finditer(r"'([A-Za-z0-9_]+_node)\s*=\s*([A-Za-z0-9_.]+):([A-Za-z0-9_]+)'",
+        for m in re.finditer(r"'([A-Za-z0-9_]+)\s*=\s*([A-Za-z0-9_.]+):([A-Za-z0-9_]+)'",
                              txt):
             out[m.group(1)] = (os.path.basename(pkg_dir), m.group(2))
     return out
@@ -133,7 +136,7 @@ def test_b_entry_points_resolve(entry_points):
     assert entry_points, '未解析到任何入口点'
     bad = []
     for exe, (pkg, modpath) in entry_points.items():
-        mod_file = os.path.join(SRC_DIR, pkg, *modpath.split('.')) + '.py'
+        mod_file = os.path.join(PACKAGE_DIRS[pkg], *modpath.split('.')) + '.py'
         if not os.path.isfile(mod_file):
             bad.append('%s -> 模块缺失 %s' % (exe, _rel(mod_file)))
             continue

@@ -25,10 +25,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-try:
-    import cv2
-except ImportError as _exc:  # pragma: no cover - 环境依赖
-    raise ImportError(f'opencv-python 未安装：{_exc!r}') from _exc
+import cv2
 
 __all__ = ['PnpResult', 'PnpSolver', 'marker_object_points', 'rpy_to_R']
 

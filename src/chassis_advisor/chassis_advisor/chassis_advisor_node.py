@@ -40,47 +40,19 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSDurabilityPolicy
-    from rclpy.qos import QoSHistoryPolicy
-    from rclpy.qos import QoSProfile
-    from rclpy.qos import QoSReliabilityPolicy
-    from nav_msgs.msg import OccupancyGrid, Odometry
-    from gimbal_interfaces.msg import ChassisAdvice, TargetState
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    OccupancyGrid = None  # type: ignore[assignment]
-    Odometry = None  # type: ignore[assignment]
-    ChassisAdvice = None  # type: ignore[assignment]
-    TargetState = None  # type: ignore[assignment]
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSDurabilityPolicy
+from rclpy.qos import QoSHistoryPolicy
+from rclpy.qos import QoSProfile
+from rclpy.qos import QoSReliabilityPolicy
+from nav_msgs.msg import OccupancyGrid, Odometry
+from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
-    class _QoSProfile:  # noqa: D401 - 占位
-        """ROS 缺失时的占位类。"""
+from gimbal_common.time_utils import now
+from gimbal_common.log_utils import get_logger, throttled
 
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    QoSProfile = _QoSProfile  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-    QoSReliabilityPolicy = None  # type: ignore[assignment]
-
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.time_utils import now
-    from gimbal_common.log_utils import get_logger, throttled
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import get_logger, now, throttled
-
-try:  # rotz2 在 gimbal_common.frames 里（不在 math_utils），单独兜底
-    from gimbal_common.frames import rotz2
-except Exception:  # pragma: no cover
-    try:
-        from gimbal_common.math_utils import rotz2
-    except Exception:
-        from .cost_raycast import rotz2
+from gimbal_common.frames import rotz2
 
 from .cost_raycast import (DIR_SPAN_DEG, LOOKAHEAD_M, N_DIRS, W_ANG, W_OBS,
                            W_UNK, CostRaycast, RayGridAdapter)
@@ -220,8 +192,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     @staticmethod
     def _sensor_qos() -> Any:
         """SENSOR_DATA 风格 QoS：KEEP_LAST depth=10。"""
-        if QoSProfile is None:  # pragma: no cover
-            return _SENSOR_QOS_DEPTH
         try:
             return QoSProfile(depth=_SENSOR_QOS_DEPTH,
                               reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -232,8 +202,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1（锁存，等 grid_mapper 的地图）。"""
-        if QoSProfile is None:  # pragma: no cover
-            return 1
         try:
             return QoSProfile(depth=1,
                               reliability=QoSReliabilityPolicy.RELIABLE,
@@ -444,8 +412,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     def _publish(self, cmd: np.ndarray, dist: float, theta: float,
                  blocked: bool, valid: bool) -> None:
         """发布 `/chassis/advice`（header.stamp 走 ROS 系统时钟）。"""
-        if ChassisAdvice is None:  # pragma: no cover
-            return
         msg = ChassisAdvice()
         msg.header.frame_id = (str(self._params['chassis.base_frame_id'])
                                if str(self._params['chassis.cmd_frame']) == 'base_link'
@@ -489,9 +455,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover
-        print('[chassis_advisor_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
-        return 1
     rclpy.init(args=args)
     node = ChassisAdvisorNode()
     try:

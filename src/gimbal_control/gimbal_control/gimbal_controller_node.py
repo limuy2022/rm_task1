@@ -132,8 +132,8 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
         name_or_path = 'virtual.yaml'
     if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
         return name_or_path
+    from ament_index_python.packages import get_package_share_directory
     try:
-        from ament_index_python.packages import get_package_share_directory
         share = get_package_share_directory('gimbal_tracker_bringup')
         cand = os.path.join(share, 'config', os.path.basename(name_or_path))
         if os.path.isfile(cand):
@@ -152,8 +152,8 @@ def load_camera_intrinsics(virtual_yaml: str):
         ``(width, fx)``；读取失败或字段非法时返回 ``(0.0, 0.0)``
         （调用方据此回退保守半视场）。
     """
+    from gimbal_common import config_loader as cl
     try:
-        from gimbal_common import config_loader as cl
         cfg = cl.load_yaml(_resolve_virtual_yaml(virtual_yaml), required=True)
     except Exception:
         return 0.0, 0.0

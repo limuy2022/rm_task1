@@ -46,14 +46,9 @@ _OPTICAL_RPY: Sequence[float] = (-math.pi / 2.0, 0.0, -math.pi / 2.0)
 # 工具
 # ---------------------------------------------------------------------------
 def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """定位包的 share 目录；未安装时退回工作区源树（便于 ``--symlink-install`` 前后调试）。"""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return get_package_share_directory(package)
-    except Exception:  # pragma: no cover - 无 ament / 未安装
-        here = os.path.dirname(os.path.abspath(__file__))          # .../launch/include
-        pkg_root = os.path.abspath(os.path.join(here, '..', '..'))
-        return pkg_root
+    """从 ament 安装索引定位包的 share 目录。"""
+    from ament_index_python.packages import get_package_share_directory
+    return get_package_share_directory(package)
 
 
 def _default_config(name: str) -> str:
@@ -121,10 +116,7 @@ def _assert_optical_rpy_matches_frames() -> None:
     Raises:
         RuntimeError: 二者不一致（说明有人改了外参定义却没同步）。
     """
-    try:
-        from gimbal_common.frames import R_opt_from_link, rpy_to_mat
-    except Exception:  # pragma: no cover - 无 gimbal_common 时跳过（不阻断 launch）
-        return
+    from gimbal_common.frames import R_opt_from_link, rpy_to_mat
     R_here = rpy_to_mat(list(_OPTICAL_RPY))
     R_ref = R_opt_from_link()
     if not bool(abs(R_here - R_ref).max() < 1e-9):
