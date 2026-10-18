@@ -1,0 +1,48 @@
+# 台架专用配置（bearing_bench.launch.py 使用）——仅限"车身固定静止、上电时放平"的台架试转。
+#
+# 与 vehicle_sim.yaml 的区别：不经过 load_vehicle_config 的实车校验，IMU 来自
+# 真实 42 桥（/red_standard_robot1/gimbal）而非虚拟云台；底盘位姿用 mock 静止源
+# ——对完全静止的台架而言恒等位姿就是真值，不是近似。
+#
+# ⚠ 台架假设（不成立就不要用本文件）：
+#   1. 车身固定不动（轮子锁死/压重），上电时大致放平（IMU 世界基准沿重力）；
+#   2. 几何全部按零假设：yaw 关节角将带一个未知常数偏差（IMU 上电朝向随机），
+#      PC 侧软限位因此不可信——依赖固件编码器限位（协议§10.3）+ 低速 + 人工断电；
+#   3. 正式比赛/移动场景必须换 bearing_hardware.launch.py + 实测整车参数。
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+    # ---- 底盘：台架静止 ----
+    localization.base_pose_source: mock
+    localization.mock_motion: static
+    localization.publish_base_tf: true
+    localization.origin_mode: base_init
+
+    # ---- kinematics：台架零几何假设，开关显式确认（epoch 由 launch 参数传入）----
+    kinematics.calibration_confirmed: true
+    kinematics.joint_zero_known: true
+    kinematics.mounted_on_base_confirmed: true
+    kinematics.calibrated_epoch: 0            # 占位；bearing_bench 的 epoch 参数会覆盖
+    # kinematics.imu_topic 用节点默认 /red_standard_robot1/gimbal（真实 42 桥）
+
+    # ---- 感知 ----
+    perception.image_topic: /image_raw        # 官方相机发布者
+    perception.camera_info_source: yaml       # 台架用本队标定文件
+    perception.marker_size_m: 0.10            # 与打印实码边长一致
+    perception.target_digit: 0                # launch 的 target_id 覆盖
+
+    # ---- 轴承闭环：开关由 launch 参数传入，默认全关 ----
+    control.enabled: false
+    control.search_enabled: false
+    # 台架首转预设：低速小增益（协议上限 omega_max=2 不是首动建议值）。
+    # 仿真实测 kp=6 在 0.5s 检测延迟下过冲3倍丢码死锁；确认转向正确后
+    # 再按 30s 闭环表现逐步上调。max_age 按 NUC 实测检测延迟的 2 倍调整。
+    control.kp_yaw: 0.5
+    control.kp_pitch: 0.5
+    control.omega_max_yaw: 0.5
+    control.omega_max_pitch: 0.5
+    control.bearing.max_age_s: 0.4
+
+    # ---- 串口桥：真实设备，port 由 launch 参数传入 ----
+    serial.publish_tf: false                  # TF 让位 kinematics（避免 gimbal_link 双父）
