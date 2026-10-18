@@ -15,6 +15,9 @@ from verify_visual_servo import create_harness, corners_message, imu_message
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src/gimbal_perception'))
+# Reuse transport/import stand-ins; importing this module does not run its
+# unittest suite. The production detector, OpenCV and PID methods run below.
+import verify_perception_offline  # noqa: F401 - installs the shared stand-ins
 from gimbal_perception.aruco_detector_node import ArucoDetectorNode, _make_detector_params
 
 

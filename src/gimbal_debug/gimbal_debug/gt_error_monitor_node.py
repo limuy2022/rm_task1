@@ -31,64 +31,21 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSDurabilityPolicy
-    from rclpy.qos import QoSHistoryPolicy
-    from rclpy.qos import QoSProfile
-    from geometry_msgs.msg import PointStamped, TransformStamped
-    from nav_msgs.msg import Path
-    from std_msgs.msg import Float64
-    from gimbal_interfaces.msg import GimbalState, TargetState
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    PointStamped = None  # type: ignore[assignment]
-    TransformStamped = None  # type: ignore[assignment]
-    Path = None  # type: ignore[assignment]
-    Float64 = None  # type: ignore[assignment]
-    GimbalState = None  # type: ignore[assignment]
-    TargetState = None  # type: ignore[assignment]
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSDurabilityPolicy
+from rclpy.qos import QoSHistoryPolicy
+from rclpy.qos import QoSProfile
+from geometry_msgs.msg import PointStamped, TransformStamped
+from nav_msgs.msg import Path
+from std_msgs.msg import Float64
+from gimbal_interfaces.msg import GimbalState, TargetState
 
-    class _QoSProfile:  # noqa: D401 - ROS 缺失时的占位
-        """ROS 缺失时的占位类。"""
-
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    QoSProfile = _QoSProfile  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-
-try:
-    from gimbal_common import config_loader as CL
-    from gimbal_common import frames as FR
-    from gimbal_common import node_utils as NU
-    from gimbal_common.log_utils import get_logger, throttled
-    from gimbal_common.time_utils import now
-except Exception:  # pragma: no cover - 兜底，保证本文件可被静态检查
-    CL = None  # type: ignore[assignment]
-    FR = None  # type: ignore[assignment]
-    NU = None  # type: ignore[assignment]
-
-    def get_logger(node: Any = None, name: str = 'gimbal') -> Any:  # type: ignore[misc]
-        """兜底 logger。"""
-        import logging
-        return logging.getLogger(name)
-
-    def throttled(logger: Any, level: str, msg: str, key: str,
-                  period_s: float = 1.0) -> bool:  # type: ignore[misc]
-        """兜底节流日志（无 gimbal_common 时直接输出）。"""
-        fn = getattr(logger, str(level).lower(), None)
-        if fn is not None:
-            fn(msg)
-        return True
-
-    def now() -> float:  # type: ignore[misc]
-        """兜底单调时钟。"""
-        import time
-        return time.monotonic()
+from gimbal_common import config_loader as CL
+from gimbal_common import frames as FR
+from gimbal_common import node_utils as NU
+from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.time_utils import now
 
 from gimbal_debug import metrics as M
 
@@ -146,8 +103,8 @@ def _resolve_virtual_yaml(name_or_path: str) -> str:
     if os.path.isabs(name_or_path) and os.path.isfile(name_or_path):
         return name_or_path
     base = os.path.basename(name_or_path)
+    from ament_index_python.packages import get_package_share_directory
     try:
-        from ament_index_python.packages import get_package_share_directory
         cand = os.path.join(get_package_share_directory('gimbal_tracker_bringup'),
                             'config', base)
         if os.path.isfile(cand):
@@ -172,8 +129,6 @@ def half_fov_rad_from_yaml(path: str) -> float:
     Returns:
         float: ``atan((width/2) / fx)``；读取失败时 0.0（调用方据此跳过摆幅判定）。
     """
-    if CL is None:
-        return 0.0
     try:
         cfg = CL.load_yaml(path, required=False)
     except Exception:  # pragma: no cover
@@ -198,8 +153,7 @@ def _T_world_from_map(msg: Any) -> Optional[np.ndarray]:
     """把 ``map → world`` 的 ``TransformStamped`` 转成 ``T_world←map`` (4,4)。"""
     try:
         t = msg.transform.translation
-        R = (FR.quat_to_mat(_quat_xyzw_to_wxyz(msg.transform.rotation))
-             if FR is not None else np.eye(3))
+        R = (FR.quat_to_mat(_quat_xyzw_to_wxyz(msg.transform.rotation)))
         T = np.eye(4, dtype=np.float64)
         T[0:3, 0:3] = np.asarray(R, dtype=np.float64).reshape(3, 3)
         T[0:3, 3] = np.array([float(t.x), float(t.y), float(t.z)], dtype=np.float64)
@@ -212,8 +166,7 @@ def _tf_from_pose(pose: Any) -> np.ndarray:
     """``geometry_msgs/Pose`` → ``T`` (4,4)。"""
     T = np.eye(4, dtype=np.float64)
     try:
-        T[0:3, 0:3] = (FR.quat_to_mat(_quat_xyzw_to_wxyz(pose.orientation))
-                       if FR is not None else np.eye(3))
+        T[0:3, 0:3] = (FR.quat_to_mat(_quat_xyzw_to_wxyz(pose.orientation)))
         T[0:3, 3] = [float(pose.position.x), float(pose.position.y),
                      float(pose.position.z)]
     except Exception:  # pragma: no cover
@@ -236,7 +189,7 @@ class GtErrorMonitorNode:
     def __init__(self, node: Any) -> None:
         self._node = node
         self._log = get_logger(node, 'gt_error')
-        self._params = NU.declare_params(node, PARAM_DEFAULTS) if NU is not None else {}
+        self._params = NU.declare_params(node, PARAM_DEFAULTS)
         p = self._params
 
         self._t_start = now()
@@ -244,8 +197,7 @@ class GtErrorMonitorNode:
         self._t_last_path = self._t_start
 
         # 相机外参（单一真源 gimbal_common.frames），显式取一次避免每次重算
-        self._R_gimbal_from_opt = (np.asarray(FR.R_opt_from_link(), dtype=np.float64)
-                                  if FR is not None else None)
+        self._R_gimbal_from_opt = (np.asarray(FR.R_opt_from_link(), dtype=np.float64))
         self._half_fov = half_fov_rad_from_yaml(
             _resolve_virtual_yaml(str(p.get('config.virtual_yaml', 'virtual.yaml'))))
         self._gimbal_origin = np.asarray(
@@ -289,9 +241,8 @@ class GtErrorMonitorNode:
                                               sensor_qos)
         self._pub_path = node.create_publisher(Path, str(p['debug.path_topic']),
                                                sensor_qos)
-        if Path is not None:
-            self._path = Path()
-            self._path.header.frame_id = 'world'
+        self._path = Path()
+        self._path.header.frame_id = 'world'
         node.create_timer(self._period, self._on_timer)
 
         self._log.info(
@@ -305,8 +256,6 @@ class GtErrorMonitorNode:
     @staticmethod
     def _sensor_qos() -> Any:
         """SENSOR_DATA 风格 QoS。"""
-        if QoSProfile is None:  # pragma: no cover
-            return _SENSOR_DEPTH
         try:
             return QoSProfile(depth=_SENSOR_DEPTH,
                               history=QoSHistoryPolicy.KEEP_LAST)
@@ -316,8 +265,6 @@ class GtErrorMonitorNode:
     @staticmethod
     def _latched_qos() -> Any:
         """TRANSIENT_LOCAL + depth=1（一次性的 map→world 变换）。"""
-        if QoSProfile is None:  # pragma: no cover
-            return 1
         try:
             return QoSProfile(depth=1,
                               history=QoSHistoryPolicy.KEEP_LAST,
@@ -412,7 +359,7 @@ class GtErrorMonitorNode:
 
     def _publish_error(self, e_deg: float) -> None:
         """发布 ``/debug/angle_error_deg``。"""
-        if Float64 is None or not math.isfinite(e_deg):  # pragma: no cover
+        if not math.isfinite(e_deg):  # pragma: no cover
             return
         try:
             msg = Float64()
@@ -424,10 +371,10 @@ class GtErrorMonitorNode:
 
     def _append_path(self, t_now: float) -> None:
         """把真值点追加到 ``/debug/target_path`` 并按周期发布（供 RViz 显示轨迹）。"""
-        if Path is None or self._path is None or self._gt_xyz is None:  # pragma: no cover
+        if self._path is None or self._gt_xyz is None:  # pragma: no cover
             return
+        from geometry_msgs.msg import PoseStamped
         try:
-            from geometry_msgs.msg import PoseStamped
             ps = PoseStamped()
             ps.header.frame_id = 'world'
             ps.header.stamp = self._node.get_clock().now().to_msg()
@@ -549,8 +496,8 @@ class GtErrorMonitorNode:
 
     def _write_json(self, path: str, data: Dict[str, Any]) -> None:
         """写 JSON（失败只报错）。"""
+        import json
         try:
-            import json
             _ensure_dir(os.path.dirname(os.path.abspath(path)))
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -573,9 +520,6 @@ def _s(v: Any) -> str:
 # ---------------------------------------------------------------------------
 def main(args: Optional[list] = None) -> int:
     """节点入口（`use_sim_time=false` 由 `node_utils.create_node` 强制）。"""
-    if rclpy is None:  # pragma: no cover - Windows 无 ROS2
-        print('[gt_error_monitor_node] FATAL rclpy 不可用（需要 ROS2 Jazzy）')
-        return 1
     rclpy.init(args=args)
     node = NU.create_node(NODE_NAME)
     app = GtErrorMonitorNode(node)

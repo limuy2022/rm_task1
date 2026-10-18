@@ -49,25 +49,14 @@ import time
 from typing import Any
 from typing import Optional
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
                            QoSProfile, QoSReliabilityPolicy)
-    from std_msgs.msg import Header
-    from nav_msgs.msg import Odometry
-    from gimbal_interfaces.msg import ChassisAdvice, TargetState
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    Header = None  # type: ignore[assignment]
-    Odometry = None  # type: ignore[assignment]
-    ChassisAdvice = None  # type: ignore[assignment]
-    TargetState = None  # type: ignore[assignment]
-    QoSProfile = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-    QoSReliabilityPolicy = None  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
+from std_msgs.msg import Header
+from nav_msgs.msg import Odometry
+from gimbal_interfaces.msg import ChassisAdvice, TargetState
+
 
 NODE_NAME = 'judge_sim'
 
@@ -291,9 +280,6 @@ class JudgeSimNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover
-        print('[judge_sim] FATAL rclpy 不可用（需要 ROS2）')
-        return 1
     rclpy.init(args=args)
     node = JudgeSimNode()
     try:

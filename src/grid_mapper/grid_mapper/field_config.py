@@ -45,10 +45,7 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.config_loader import load_yaml
-except Exception:  # pragma: no cover - Windows 无 ROS2 时的兜底
-    from ._compat import load_yaml
+from gimbal_common.config_loader import load_yaml
 
 __all__ = [
     'DEFAULT_FIELD',

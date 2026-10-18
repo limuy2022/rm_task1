@@ -1,12 +1,14 @@
 """Compile production C++ parser/SerialPort with sanitizers, then test OS-created PTY.
 
 No physical port paths, automatic device selection, ROS, gtest or installation.
+Uses CXX when set; otherwise discovers c++, g++, or clang++ on PATH.
 PTY baud is 115200 for POSIX portability; this does not validate the 921600 wire,
 rclcpp/DDS node behavior, firmware control, watchdog or real hardware safety.
 """
 from pathlib import Path
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -14,13 +16,21 @@ import sys
 
 def main():
     root = Path(__file__).resolve().parents[1]
-    compiler = shutil.which('clang++')
-    if compiler is None:
-        raise SystemExit('clang++ missing; no compiler will be installed automatically')
+    configured = os.environ.get('CXX', '').strip()
+    if configured:
+        compiler = shlex.split(configured)
+        if not compiler or shutil.which(compiler[0]) is None:
+            raise SystemExit(f'CXX compiler not found: {configured}')
+    else:
+        executable_path = next((path for name in ('c++', 'g++', 'clang++')
+                                if (path := shutil.which(name))), None)
+        if executable_path is None:
+            raise SystemExit('C++ compiler missing; set CXX or provide c++, g++, or clang++ on PATH')
+        compiler = [executable_path]
     build = root / 'build' / 'offline'
     build.mkdir(parents=True, exist_ok=True)
     executable = build / 'verify_protocol_offline'
-    command = [compiler, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
+    command = compiler + ['-std=c++17', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
                '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-pthread',
                '-I', str(root / '42-gimbal_serial/include'),
                str(root / 'tools/verify_protocol_offline.cpp'),
@@ -47,7 +57,7 @@ def main():
     if process.returncode:
         raise SystemExit(process.returncode)
     result = json.loads(stdout.strip())
-    result['compiler'] = compiler
+    result['compiler'] = shlex.join(compiler)
     result['sanitizers'] = ['address', 'undefined']
     result['limitations'] = ['no ROS/DDS', 'no firmware/watchdog', 'no physical 921600 line']
     print(json.dumps(result, ensure_ascii=False, indent=2))

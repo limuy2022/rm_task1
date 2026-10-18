@@ -3,6 +3,7 @@
 from __future__ import annotations
 import math
 import sys
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -11,6 +12,30 @@ import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
 for name in ('gimbal_common','chassis_advisor'):
     sys.path.insert(0,str(ROOT/'src'/name))
+
+
+def install_ros_test_doubles():
+    """Replace transport imports only; advisor callbacks/kernels stay real."""
+    def module(name, **members):
+        value = types.ModuleType(name)
+        value.__dict__.update(members)
+        sys.modules[name] = value
+        return value
+
+    module('rclpy')
+    module('rclpy.node', Node=object)
+    policies = NS(RELIABLE=1, BEST_EFFORT=2, KEEP_LAST=1,
+                  VOLATILE=1, TRANSIENT_LOCAL=2)
+    module('rclpy.qos', QoSProfile=lambda **kwargs: NS(**kwargs),
+           QoSDurabilityPolicy=policies, QoSHistoryPolicy=policies,
+           QoSReliabilityPolicy=policies)
+    module('nav_msgs')
+    module('nav_msgs.msg', OccupancyGrid=NS, Odometry=NS)
+    module('gimbal_interfaces')
+    module('gimbal_interfaces.msg', ChassisAdvice=NS, TargetState=NS)
+
+
+install_ros_test_doubles()
 import chassis_advisor.chassis_advisor_node as node_module
 from chassis_advisor.chassis_advisor_node import ChassisAdvisorNode, DEFAULTS
 from chassis_advisor.cost_raycast import CostRaycast,RayGridAdapter,rotz2

@@ -43,26 +43,14 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
                            QoSProfile, QoSReliabilityPolicy)
-    from std_msgs.msg import Header
-    from nav_msgs.msg import Odometry, OccupancyGrid
-    from gimbal_interfaces.msg import ChassisAdvice, TargetState
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    Header = None  # type: ignore[assignment]
-    Odometry = None  # type: ignore[assignment]
-    OccupancyGrid = None  # type: ignore[assignment]
-    ChassisAdvice = None  # type: ignore[assignment]
-    TargetState = None  # type: ignore[assignment]
-    QoSProfile = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-    QoSReliabilityPolicy = None  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
+from std_msgs.msg import Header
+from nav_msgs.msg import Odometry, OccupancyGrid
+from gimbal_interfaces.msg import ChassisAdvice, TargetState
+
 
 from .tick_csv import V_STOP, TickCsvWriter
 from .tick_sampler import TickSampler
@@ -376,26 +364,18 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         if self._grid is None:
             return False
         self._t_last_map_save = time.monotonic()
+        from grid_mapper.pgm_io import write_map_yaml, write_pgm
         try:
-            from grid_mapper.pgm_io import write_map_yaml, write_pgm
-        except Exception:
-            write_pgm = None  # type: ignore[assignment]
-            write_map_yaml = None  # type: ignore[assignment]
-        try:
-            if write_pgm is not None:
-                write_pgm(self._map_pgm, self._grid)
-                write_map_yaml(self._map_yaml,
-                               image=self._map_image_name,
-                               resolution=self._grid_res,
-                               origin_xyz=(float(self._grid_origin[0]),
-                                           float(self._grid_origin[1]), self._grid_yaw),
-                               occupied_thresh=float(
-                                   self._params['judge.map_occupied_thresh']),
-                               free_thresh=float(
-                                   self._params['judge.map_free_thresh']))
-            else:
-                self._write_pgm_fallback(self._map_pgm, self._grid)
-                self._write_yaml_fallback(self._map_yaml)
+            write_pgm(self._map_pgm, self._grid)
+            write_map_yaml(self._map_yaml,
+                           image=self._map_image_name,
+                           resolution=self._grid_res,
+                           origin_xyz=(float(self._grid_origin[0]),
+                                       float(self._grid_origin[1]), self._grid_yaw),
+                           occupied_thresh=float(
+                               self._params['judge.map_occupied_thresh']),
+                           free_thresh=float(
+                               self._params['judge.map_free_thresh']))
         except Exception as exc:
             self._log.error('地图保存失败(%s): %r' % (reason, exc))
             return False
@@ -406,38 +386,6 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                           self._grid.shape[0], self._grid.shape[1],
                           self._grid_res))
         return True
-
-    def _write_pgm_fallback(self, path: str, grid: np.ndarray) -> None:
-        """grid_mapper 不可用时的 P5 PGM 兜底写入（行序翻转）。"""
-        g = np.asarray(grid)
-        w, h = int(g.shape[0]), int(g.shape[1])
-        vals = np.where(g == 100, 0, np.where(g == 0, 254, 205)).astype(np.uint8)
-        img = np.empty((h, w), dtype=np.uint8)
-        for r in range(h):
-            img[r, :] = vals[:, (h - 1 - r)]
-        with open(path, 'wb') as f:
-            f.write(b'P5\n')
-            f.write(('%d %d\n' % (w, h)).encode('ascii'))
-            f.write(b'255\n')
-            f.write(img.tobytes())
-
-    def _write_yaml_fallback(self, path: str) -> None:
-        """map.yaml 兜底写入。"""
-        lines = [
-            'image: %s' % self._map_image_name,
-            'mode: trinary',
-            'resolution: %s' % ('%g' % self._grid_res),
-            'origin: [%s, %s, %s]' % ('%g' % float(self._grid_origin[0]),
-                                     '%g' % float(self._grid_origin[1]),
-                                     '%g' % self._grid_yaw),
-            'negate: 0',
-            'occupied_thresh: %s' % ('%g' % float(
-                self._params['judge.map_occupied_thresh'])),
-            'free_thresh: %s' % ('%g' % float(
-                self._params['judge.map_free_thresh'])),
-        ]
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(lines) + '\n')
 
     # -- 收尾 -----------------------------------------------------------------
     def shutdown(self) -> None:
@@ -454,9 +402,6 @@ class JudgeIoNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover
-        print('[judge_io_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
-        return 1
     rclpy.init(args=args)
     node = JudgeIoNode()
     try:

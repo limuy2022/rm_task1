@@ -1,0 +1,10 @@
+# bearing_sim 的虚拟相机，独立于实机 virtual.yaml。
+# 使用较低分辨率减少容器 CPU 上的检测延迟；PnP 通过 CameraInfo 使用同一组内参。
+virtual_vision:
+  ros__parameters:
+    width: 640
+    height: 480
+    fx: 554.26
+    fy: 554.26
+    cx: 319.5
+    cy: 239.5

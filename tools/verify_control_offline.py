@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 for package in ('gimbal_control', 'gimbal_common'):
     sys.path.insert(0, str(ROOT / 'src' / package))
 from gimbal_common import frames
+from gimbal_control.bearing_supervisor import BearingSupervisor
 from gimbal_control.control_law import (
     BearingControlLaw, ControlLaw, feedforward, r_gimbal_from_opt,
 )
@@ -273,6 +274,28 @@ class ControlRegressions(unittest.TestCase):
         self.assertFalse(law.compute_bearing((0, 0, 2), joint_angles=(0, 0),
                                              R_gimbal_optical=r_gimbal_from_opt()).valid)
 
+    def test_bearing_feedforward_signs_and_scaling(self):
+        # Translational feedforward is divided by distance; the base-rotation
+        # term is not (both sides of the Jacobian are rad/s).
+        law = BearingControlLaw(kp_yaw=0, kp_pitch=0, ff_gain=1)
+        common = dict(joint_angles=(0, 0), R_gimbal_optical=r_gimbal_from_opt(),
+                      geometry_verified=True, enabled=True, dt=.01)
+        out = law.compute_bearing((0, 0, 2), target_relative_velocity_gimbal=(0, 0, -.5), **common)
+        self.assertAlmostEqual(out.ff_pitch, .5 / 2)   # target descending -> head down
+        out = law.compute_bearing((0, 0, 2), target_relative_velocity_gimbal=(0, .4, 0), **common)
+        self.assertAlmostEqual(out.ff_yaw, .4 / 2)     # target moving left -> yaw left
+        out = law.compute_bearing((0, 0, 2), base_omega_gimbal=(0, 0, .3), **common)
+        self.assertAlmostEqual(out.ff_yaw, -.3)        # base turning left -> counter right
+
+    def test_bearing_near_singular_pitch_rejected(self):
+        # min singular value of the joint Jacobian is |cos(pitch)|.
+        law = BearingControlLaw()
+        common = dict(R_gimbal_optical=r_gimbal_from_opt(),
+                      geometry_verified=True, enabled=True)
+        self.assertTrue(law.compute_bearing((.5, 0, 2), joint_angles=(0, 1.2), **common).valid)
+        self.assertFalse(law.compute_bearing((.5, 0, 2), joint_angles=(0, 1.4), **common).valid)
+        self.assertFalse(law.compute_bearing((.5, 0, 2), joint_angles=(0, -1.4), **common).valid)
+
     def test_slew_magnitude_and_real_joint_limits(self):
         law = BearingControlLaw()
         out = law.compute_bearing((-1, -1, 2), joint_angles=(0, 0),
@@ -356,6 +379,120 @@ class ControlRegressions(unittest.TestCase):
         node.tick()
         self.assertFalse(sent[-1].valid)
         self.assertEqual((sent[-1].yaw_omega, sent[-1].pitch_omega), (0, 0))
+
+
+def bearing_node_harness():
+    """Load exact gimbal_bearing_node methods without importing unavailable ROS."""
+    source = ROOT / 'src/gimbal_control/gimbal_control/gimbal_bearing_node.py'
+    tree = ast.parse(source.read_text())
+    cls_def = next(n for n in tree.body if isinstance(n, ast.ClassDef)
+                   and n.name == 'GimbalBearingNode')
+    selected = {'_source_time', '_mono_of', 'on_marker', 'on_joint_state',
+                'on_epoch', 'tick'}
+    cls = ast.ClassDef(name='BearingNodeHarness', bases=[], keywords=[],
+                       body=[n for n in cls_def.body if isinstance(n, ast.FunctionDef)
+                             and n.name in selected], decorator_list=[])
+    module = ast.Module(body=[ast.ImportFrom(module='__future__',
+                        names=[ast.alias(name='annotations')], level=0), cls],
+                        type_ignores=[])
+    clock = NS(ros=100.0, mono=200.0)
+    scope = {'math': math, 'np': np, 'now': lambda: clock.mono,
+             'GimbalOmegaCmd': FakeCommand, 'throttled': lambda *args: None,
+             'MARKER_FRAME_ID': 'camera_optical_frame'}
+    exec(compile(ast.fix_missing_locations(module), '<actual-bearing-methods>', 'exec'), scope)
+    node = scope['BearingNodeHarness']()
+    parameters = {'control.bearing.enabled': False,
+                  'control.bearing.geometry_verified': False,
+                  'control.joint_yaw_name': 'yaw',
+                  'control.joint_pitch_name': 'pitch'}
+    node.get_parameter = lambda name: NS(value=parameters[name])
+    node.get_clock = lambda: NS(now=lambda: NS(nanoseconds=int(clock.ros * 1e9),
+                                               to_msg=lambda: message_stamp(clock.ros).stamp))
+    node._sup = BearingSupervisor(
+        BearingControlLaw(kp_yaw=6., kp_pitch=6., ff_gain=0.),
+        max_age_s=.15, joint_timeout_s=.2, default_dt_s=.02)
+    node._prev_enabled = False
+    node._pub = NS(publish=lambda msg: sent.append(msg))
+    node._log = NS(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
+    sent = []
+    return node, clock, parameters, sent
+
+
+class BearingNodeRegressions(unittest.TestCase):
+    def test_node_disabled_by_default_and_gates_inputs(self):
+        node, clock, params, sent = bearing_node_harness()
+        node.on_marker(NS(header=message_stamp(99.95, 'camera_optical_frame'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'pitch'],
+                               position=[0., 0.]))
+        node.tick()
+        self.assertEqual(len(sent), 1)
+        self.assertFalse(sent[-1].valid)                  # control.bearing.enabled=False
+        self.assertEqual((sent[-1].yaw_omega, sent[-1].pitch_omega), (0., 0.))
+        params.update({'control.bearing.enabled': True})
+        node.tick()
+        self.assertFalse(sent[-1].valid)                  # geometry_verified still False
+        params['control.bearing.geometry_verified'] = True
+        node.tick()
+        self.assertTrue(sent[-1].valid)                   # fresh marker + joints -> command
+        self.assertGreater(sent[-1].yaw_omega, 0)         # marker left -> turn left
+
+    def test_node_rejects_wrong_marker_frame_and_bad_joints(self):
+        node, clock, params, sent = bearing_node_harness()
+        params.update({'control.bearing.enabled': True,
+                       'control.bearing.geometry_verified': True})
+        node.on_marker(NS(header=message_stamp(99.95, 'map'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'yaw'],
+                               position=[0., 0.]))
+        node.tick()
+        self.assertFalse(sent[-1].valid)                  # frame/关节名不符 -> 停止
+        # 修正输入后恢复
+        node.on_marker(NS(header=message_stamp(99.97, 'camera_optical_frame'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(99.98), name=['yaw', 'pitch'],
+                               position=[0., 0.]))
+        node.tick()
+        self.assertTrue(sent[-1].valid)
+
+    def test_node_stops_on_stale_marker_and_epoch_reset(self):
+        node, clock, params, sent = bearing_node_harness()
+        params.update({'control.bearing.enabled': True,
+                       'control.bearing.geometry_verified': True})
+        node.on_marker(NS(header=message_stamp(99.95, 'camera_optical_frame'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(99.96), name=['yaw', 'pitch'],
+                               position=[0., 0.]))
+        node.on_epoch(NS(data=5))
+        node.tick()
+        self.assertTrue(sent[-1].valid)
+        # 观测断流 0.5s：源龄超 max_age -> invalid 零指令（保活帧仍在发）
+        clock.ros += .5; clock.mono += .5
+        node.tick()
+        self.assertFalse(sent[-1].valid)
+        # 恢复观测，但 epoch 复位 -> fault
+        node.on_marker(NS(header=message_stamp(clock.ros - .02, 'camera_optical_frame'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(clock.ros - .01), name=['yaw', 'pitch'],
+                               position=[0., 0.]))
+        node.on_epoch(NS(data=6))
+        node.tick()
+        self.assertFalse(sent[-1].valid)
+        self.assertTrue(node._sup.fault)
+        # enabled 关→开（上升沿 rearm）后，锁存新 epoch 并恢复输出
+        params['control.bearing.enabled'] = False
+        node.tick()
+        params['control.bearing.enabled'] = True
+        node.tick()
+        self.assertFalse(node._sup.fault)
+        # fault 时观测已被清空：重新喂新鲜观测/关节后恢复
+        node.on_marker(NS(header=message_stamp(clock.ros - .02, 'camera_optical_frame'),
+                          x=-.3, y=0, z=2, valid=True, marker_id=3))
+        node.on_joint_state(NS(header=message_stamp(clock.ros - .01), name=['yaw', 'pitch'],
+                               position=[0., 0.]))
+        node.on_epoch(NS(data=6))                      # 与新上膛值相同：不再 fault
+        node.tick()
+        self.assertTrue(sent[-1].valid)
 
 
 if __name__ == '__main__':

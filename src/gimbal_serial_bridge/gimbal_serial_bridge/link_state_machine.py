@@ -26,11 +26,7 @@ from typing import Deque, Optional, Tuple
 
 from collections import deque
 
-try:  # 作为包导入
-    from gimbal_common.time_utils import now as _default_now
-except ImportError:  # 单测里直接 import 文件时的兜底
-    import time as _time
-    _default_now = _time.monotonic
+from gimbal_common.time_utils import now as _default_now
 
 __all__ = [
     'IDLE', 'ACTIVE', 'FAULT_SILENT', 'SHUTDOWN',

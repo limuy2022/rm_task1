@@ -1,0 +1,53 @@
+# 仿真专用整车配置（bearing_sim.launch.py 使用；正式比赛用实测 vehicle 配置）。
+#
+# ⚠ 四个 kinematics 标定开关在**仿真中**显式确认是合法的：虚拟云台/虚拟相机
+# 的外参就是生成数据的真值模型（零平移、零旋转、零位准确、epoch 固定）。
+# 实机绝不能照抄本文件——必须按实验室手册实测后才能把 vehicle_template.yaml
+# 的对应项改为 true。
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+    # ---- 底盘：仿真无底盘 → mock 静止在原点 ----
+    localization.base_pose_source: mock
+    localization.mock_motion: static
+    localization.publish_base_tf: true
+    localization.origin_mode: base_init
+
+    # ---- kinematics：仿真真值模型，标定四开关显式确认 ----
+    kinematics.calibration_confirmed: true
+    kinematics.joint_zero_known: true
+    kinematics.mounted_on_base_confirmed: true
+    kinematics.calibrated_epoch: 1              # = vgimbal 桥 serial.sim_epoch 默认值
+    kinematics.imu_topic: /offboardlink/imu_data  # vgimbal 桥的 IMU（非实机话题）
+    # 其余几何（base_mount/yaw_to_pitch/pitch_gimbal/gimbal_camera、joint_zero、
+    # odom_world_rpy）全部为零——与虚拟云台零偏模型一致，直接用节点默认值。
+
+    # ---- 感知：图像与内参加来自虚拟相机（话题） ----
+    perception.image_topic: /image_raw          # launch 里从 /virtual_gimbal/image_raw remap
+    perception.camera_info_source: topic
+    perception.camera_info_topic: /virtual_gimbal/camera_info
+    perception.marker_size_m: 0.10              # 与 virtual_vision 的 marker_size 一致
+    perception.target_digit: 0                  # launch 的 target_id 会覆盖
+
+    # ---- 轴承闭环：仿真即开（这正是本链路要验证的东西） ----
+    control.bearing.enabled: true
+    control.bearing.geometry_verified: true     # 仿真外参=真值，允许确认
+    # ⚠ 容器 CPU 饥饿是主要矛盾：检测端到端延迟随负载在 0.1~0.6s 摆动。
+    # 实机 kp=6 / max_age=0.15 在此环境下：要么观测全被拒（窗太窄），要么
+    # 延迟过大导致比例环发散（实测过冲、丢码、甚至转满 134°）。仿真用
+    # 低增益 + 宽观测窗 + 全面降频（视觉/检测 10Hz、GT TF 50Hz、桥 100/50Hz）
+    # 把延迟压回 ~0.15s。实机按实测延迟单独调参，不照抄本段。
+    control.bearing.max_age_s: 0.8
+    control.kp_yaw: 0.5
+    control.kp_pitch: 0.5
+    control.enabled: false                      # 旧 world 控制器保持关（同话题互斥）
+    control.search_enabled: false
+    perception.detect_rate_hz: 10.0
+    # ---- 串口桥降频（IMU 200Hz 足够 kinematics 同步；指令 50Hz 满足协议 ≥20Hz）----
+    serial.rx_rate_hz: 100.0
+    serial.cmd_rate_hz: 50.0
+
+    # ---- 串口桥：虚拟 MCU 的 pty；TF 让位 kinematics 的 base_link→gimbal_link 链 ----
+    serial.port: /tmp/ttyVGIMBAL
+    serial.publish_tf: false

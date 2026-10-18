@@ -15,8 +15,7 @@
 * **零污染**：`stub_ros_env()` 会快照 `sys.modules`，退出时删除窗口内新增的模块并还原被替换的
   模块，保证 `rclpy` / `launch` / 消息桩不会泄漏到其它包的测试（`pytest src -q` 单进程跑全套）。
 * **不假装通过**：无法在本机验证的项用 `pytest.skip("需 Ubuntu + ROS2")` 明确跳过。
-* `ament_index_python` **故意不桩** —— 这样 `get_package_share_directory` 走异常分支，
-  正好验证 launch 里"回退到工作区源树"的兜底路径。
+* `ament_index_python` 由测试桩提供包目录，生产代码直接使用安装索引。
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ for _p in (PKG_DIR,
 
 #: 受桩影响的模块命名空间前缀（只有这些会在退出时被清理/还原）
 STUB_PREFIXES = frozenset({
-    'launch', 'launch_ros', 'rclpy',
+    'launch', 'launch_ros', 'rclpy', 'ament_index_python',
     'geometry_msgs', 'nav_msgs', 'std_msgs', 'gimbal_interfaces',
     'gimbal_common', 'gimbal_debug',
 })
@@ -427,7 +426,18 @@ class StubRos(object):
         # launch 时可通过 launch_arguments 覆盖的参数值
         self.args: Dict[str, str] = {}
 
+        ament = types.ModuleType('ament_index_python')
+        packages = types.ModuleType('ament_index_python.packages')
+        def get_package_share_directory(package):
+            path = os.path.join(SRC_DIR, package)
+            if not os.path.isdir(path):
+                raise LookupError(package)
+            return path
+        packages.get_package_share_directory = get_package_share_directory
+        ament.packages = packages
+
         self.launch_modules = {
+            'ament_index_python': ament, 'ament_index_python.packages': packages,
             'launch': launch,
             'launch.actions': actions,
             'launch.substitutions': substitutions,

@@ -1,7 +1,6 @@
 """`map_preview.png` / `map_tracked.png` 绘制（Pillow）。
 
-纯 Python（不依赖 rclpy），但依赖 Pillow；Pillow 缺失时退化为**纯 numpy 写 PPM**，
-保证"落盘不失败"这条硬约束。
+纯 Python（不依赖 rclpy），依赖 Pillow 输出 PNG。
 
 颜色约定（DESIGN §6.11）：
 
@@ -32,27 +31,18 @@ from typing import Tuple
 
 import numpy as np
 
-try:
-    from PIL import Image, ImageDraw
-    _HAS_PIL = True
-except Exception:  # pragma: no cover - 无 Pillow 时用 PPM 兜底
-    Image = None  # type: ignore[assignment]
-    ImageDraw = None  # type: ignore[assignment]
-    _HAS_PIL = False
+from PIL import Image, ImageDraw
 
 from .grid_builder import GridMap
 from .pgm_io import grid_to_pgm_image
 
 __all__ = [
-    'HAS_PIL',
     'world_to_pixel',
     'base_image',
     'draw_preview',
     'draw_tracked',
     'downsample',
 ]
-
-HAS_PIL: bool = _HAS_PIL
 
 # 配色（R, G, B）
 C_OCC = (0, 0, 0)
@@ -133,9 +123,6 @@ def draw_preview(grid_map: GridMap,
     """
     _ensure_dir(os.path.dirname(os.path.abspath(path)))
     rgb = base_image(grid_map)
-    if not _HAS_PIL:  # pragma: no cover - 兜底
-        _write_ppm(path, rgb)
-        return path
     img = Image.fromarray(rgb, mode='RGB')
     drw = ImageDraw.Draw(img)
     if boundary is not None and len(boundary) >= 2:
@@ -178,9 +165,6 @@ def draw_tracked(grid_map: GridMap,
     """
     _ensure_dir(os.path.dirname(os.path.abspath(path)))
     rgb = base_image(grid_map)
-    if not _HAS_PIL:  # pragma: no cover - 兜底
-        _write_ppm(path, rgb)
-        return path
     img = Image.fromarray(rgb, mode='RGB')
     drw = ImageDraw.Draw(img)
 
@@ -263,11 +247,3 @@ def _ensure_dir(d: str) -> None:
     """确保目录存在。"""
     if d:
         os.makedirs(d, exist_ok=True)
-
-
-def _write_ppm(path: str, rgb: np.ndarray) -> None:  # pragma: no cover
-    """无 Pillow 时的兜底：写 P6 PPM（扩展名仍用调用方给的 .png）。"""
-    h, w = rgb.shape[0], rgb.shape[1]
-    with open(path, 'wb') as f:
-        f.write(b'P6\n%d %d\n255\n' % (w, h))
-        f.write(np.asarray(rgb, dtype=np.uint8).tobytes())

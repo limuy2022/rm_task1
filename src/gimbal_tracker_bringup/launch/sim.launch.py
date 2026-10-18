@@ -35,14 +35,9 @@ _PACKAGE_NAME = 'gimbal_tracker_bringup'
 
 
 def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """定位包的 share 目录；未安装时退回工作区源树。"""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return get_package_share_directory(package)
-    except Exception:  # pragma: no cover
-        pkg_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                               '..'))
-        return pkg_root
+    """从 ament 安装索引定位包的 share 目录。"""
+    from ament_index_python.packages import get_package_share_directory
+    return get_package_share_directory(package)
 
 
 def _default_config(name: str) -> str:

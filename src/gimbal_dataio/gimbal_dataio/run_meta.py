@@ -18,10 +18,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.time_utils import now
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import now
+from gimbal_common.time_utils import now
 
 __all__ = ['RunMeta', 'DEFAULT_META_NAME']
 
@@ -145,12 +142,9 @@ def _ensure_dir(d: str) -> None:
 
 
 def _numpy_version() -> str:
-    """取 numpy 版本；缺失时返回 'n/a'。"""
-    try:
-        import numpy as np
-        return str(np.__version__)
-    except Exception:  # pragma: no cover
-        return 'n/a'
+    """取已安装的 numpy 版本。"""
+    import numpy as np
+    return str(np.__version__)
 
 
 def _jsonable(v: Any) -> Any:

@@ -24,6 +24,7 @@ setup(
             'gimbal_controller_node = gimbal_control.gimbal_controller_node:main',
             'visual_servo_node = gimbal_control.visual_servo_node:main',
             'tracking_debug_node = gimbal_control.tracking_debug_node:main',
+            'gimbal_bearing_node = gimbal_control.gimbal_bearing_node:main',
         ],
     },
 )

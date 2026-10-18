@@ -35,10 +35,7 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # 优先用 T01 的 gimbal_common（契约：ray_cells(origin, dir, L, res) -> list[(i,j)]）
-    from gimbal_common.math_utils import ray_cells
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import ray_cells
+from gimbal_common.math_utils import ray_cells
 
 __all__ = [
     'N_DIRS',

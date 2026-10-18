@@ -30,42 +30,20 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    import cv2  # type: ignore[import-untyped]
-except Exception:  # pragma: no cover
-    cv2 = None  # type: ignore[assignment]
+import cv2
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
                            QoSProfile, QoSReliabilityPolicy)
-    from sensor_msgs.msg import Image
-    from geometry_msgs.msg import Point32
-    from gimbal_interfaces.msg import MarkerCorners
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    Image = None  # type: ignore[assignment]
-    Point32 = None  # type: ignore[assignment]
-    MarkerCorners = None  # type: ignore[assignment]
-    QoSProfile = None  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-    QoSReliabilityPolicy = None  # type: ignore[assignment]
-    QoSDurabilityPolicy = None  # type: ignore[assignment]
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Point32
+from gimbal_interfaces.msg import MarkerCorners
 
-try:
-    from cv_bridge import CvBridge
-except Exception:  # pragma: no cover
-    CvBridge = None  # type: ignore[assignment]
+from cv_bridge import CvBridge
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.log_utils import get_logger, throttled
-    from gimbal_common.time_utils import now
-except Exception:  # pragma: no cover
-    get_logger = None  # type: ignore[assignment]
-    throttled = None  # type: ignore[assignment]
-    now = None  # type: ignore[assignment]
+from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.time_utils import now
 
 NODE_NAME = 'aruco_detector_node'
 
@@ -189,16 +167,12 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         for key, val in PARAM_DEFAULTS.items():
             self._params[key] = self._declare(key, val)
 
-        if cv2 is None:
-            self._log.error('cv2 不可用，无法做 ArUco 检测（请装 python3-opencv）')
-            self._ok = False
-            return
         if not hasattr(cv2, 'aruco'):
             self._log.error('cv2.aruco 不可用（OpenCV 未带 contrib/aruco 模块）')
             self._ok = False
             return
 
-        self._bridge = CvBridge() if CvBridge is not None else None
+        self._bridge = CvBridge()
         self._dict = self._make_dict(str(self._params['perception.aruco_dict']))
         if self._dict is None:
             self._ok = False
@@ -406,8 +380,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
     # -- 发布 -----------------------------------------------------------------
     def _publish(self, corners: Optional[np.ndarray], stamp: Any) -> None:
         """Publish ID and corners atomically; None explicitly clears tracking."""
-        if MarkerCorners is None:  # pragma: no cover
-            return
         msg = MarkerCorners()
         msg.header.stamp = stamp
         msg.header.frame_id = str(self._params['perception.corners_frame_id'])
@@ -435,9 +407,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover
-        print('[aruco_detector_node] FATAL rclpy 不可用（需要 ROS2 Humble）')
-        return 1
     rclpy.init(args=args)
     node = ArucoDetectorNode()
     try:

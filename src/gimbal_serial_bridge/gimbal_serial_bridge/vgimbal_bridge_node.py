@@ -30,7 +30,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from sensor_msgs.msg import Imu
-from std_msgs.msg import String
+from std_msgs.msg import String, UInt64
 from tf2_ros import TransformBroadcaster
 
 from gimbal_common import frames as FR
@@ -65,6 +65,12 @@ PARAM_DEFAULTS = {
     'serial.bad_frame_window_s': 1.0,
     'serial.bad_frame_limit': 50,
     'serial.frame_origin_xyz': [0.0, 0.0, 0.0],
+    # 仿真 epoch：固定值（实机 42 桥用系统时钟 ns，每次启动不同）。
+    # kinematics.calibrated_epoch 与 gimbal_bearing 的 epoch 锁存都以它为准。
+    'serial.sim_epoch': 1,
+    # world→gimbal_link TF 开关；关闭时该边让位（如 kinematics 发布
+    # base_link→gimbal_link 的链路，避免 gimbal_link 出现两个父节点）。
+    'serial.publish_tf': True,
     'gimbal.pitch_sign': -1.0,
     'gimbal.yaw_limits': [-2.8, 2.8],
     'gimbal.pitch_limits': [-0.5, 0.35],
@@ -139,7 +145,15 @@ class VgimbalBridgeNode:
         qos = _sensor_qos(10)
         self._pub_imu = node.create_publisher(Imu, '/offboardlink/imu_data', qos)
         self._pub_state = node.create_publisher(GimbalState, '/gimbal/state', qos)
-        self._tf_broadcaster = TransformBroadcaster(node)
+        self._tf_broadcaster = TransformBroadcaster(node) if bool(p['serial.publish_tf']) else None
+        # epoch：镜像 42 桥——启动发布一次（TRANSIENT_LOCAL 迟到订阅者可取），
+        # 检测到下位机复位（stamp/seq 回退）后 +1 重发。
+        self._pub_epoch = node.create_publisher(
+            UInt64, '/task1/gimbal_reset_epoch',
+            QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+        self._epoch_value = int(p['serial.sim_epoch'])
+        self._publish_epoch()
         node.create_subscription(GimbalOmegaCmd, '/gimbal/cmd_omega', self._on_cmd_omega, qos)
         node.create_subscription(String, '/virtual_gimbal/status', self._on_status, qos)
 
@@ -182,6 +196,13 @@ class VgimbalBridgeNode:
                 f'串口桥退出: 收到 IMU {self._imu_frames} 帧（丢弃 {self._imu_bad}），'
                 f'parser={self._parser.stats()}, port={stats}, '
                 f'faults={self._lsm.n_faults}')
+
+    def _publish_epoch(self) -> None:
+        """发布当前 epoch（TRANSIENT_LOCAL；与 42 桥同一话题/语义）。"""
+        msg = UInt64()
+        msg.data = int(self._epoch_value)
+        self._pub_epoch.publish(msg)
+        self._log.info(f'epoch 发布: {msg.data}')
 
     # ------------------------------------------------------------------ 收包
     def _rx_tick(self) -> None:
@@ -227,6 +248,8 @@ class VgimbalBridgeNode:
         evt = self._imu_monitor.update(imu.seq, imu.stamp_us)
         if evt['reset']:
             LU.throttled(self._log, 'warn', '下位机复位：重置 IMU 基准', 'imu_reset', 1.0)
+            self._epoch_value += 1
+            self._publish_epoch()
         if evt['lost']:
             LU.throttled(self._log, 'warn',
                          f"IMU 丢帧 {evt['lost']} 帧（累计 {self._imu_monitor.stats()['lost_frames']}）",
@@ -286,7 +309,8 @@ class VgimbalBridgeNode:
         msg.seq_last = int(imu.seq)
         self._pub_state.publish(msg)
 
-        self._publish_tf(imu.quat_wxyz)
+        if self._tf_broadcaster is not None:
+            self._publish_tf(imu.quat_wxyz)
 
     def _publish_tf(self, quat_wxyz) -> None:
         """发布 TF ``world → gimbal_link``（**本机是唯一发布者**）。"""

@@ -37,12 +37,8 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # gimbal_common.frames 是纯 numpy，不引入 rclpy
-    from gimbal_common.frames import R_opt_from_link as _frames_R_opt_from_link
-    from gimbal_common.frames import quat_to_mat as _frames_quat_to_mat
-except Exception:  # pragma: no cover - 无 gimbal_common 时由调用方显式注入
-    _frames_R_opt_from_link = None  # type: ignore[assignment]
-    _frames_quat_to_mat = None  # type: ignore[assignment]
+from gimbal_common.frames import R_opt_from_link as _frames_R_opt_from_link
+from gimbal_common.frames import quat_to_mat as _frames_quat_to_mat
 
 __all__ = [
     'DEFAULT_RMS_MAX_DEG',
@@ -232,11 +228,7 @@ def optical_axis_world(quat_wxyz: Sequence[float],
     Returns:
         np.ndarray | None: (3,) 单位向量；输入退化时 None。
 
-    Raises:
-        RuntimeError: 既未注入 ``R_gimbal_from_opt``，又无法 import ``gimbal_common.frames``。
     """
-    if _frames_quat_to_mat is None:
-        raise RuntimeError('gimbal_common.frames 不可用：请先安装 gimbal_common')
     R_wg = _frames_quat_to_mat(np.asarray(quat_wxyz, dtype=np.float64).reshape(4))
     R_go = _resolve_R_gimbal_from_opt(R_gimbal_from_opt)
     axis_gimbal = R_go @ np.array([0.0, 0.0, 1.0], dtype=np.float64)
@@ -247,10 +239,6 @@ def _resolve_R_gimbal_from_opt(R_gimbal_from_opt: Optional[np.ndarray]) -> np.nd
     """取 ``R_gimbal←opt``：优先用调用方注入，否则用 gimbal_common.frames。"""
     if R_gimbal_from_opt is not None:
         return np.asarray(R_gimbal_from_opt, dtype=np.float64).reshape(3, 3)
-    if _frames_R_opt_from_link is None:
-        raise RuntimeError(
-            'gimbal_common.frames.R_opt_from_link 不可用；请安装 gimbal_common '
-            '或显式传入 R_gimbal_from_opt（本模块不重复定义该外参，DESIGN §8.6）')
     return np.asarray(_frames_R_opt_from_link(), dtype=np.float64).reshape(3, 3)
 
 

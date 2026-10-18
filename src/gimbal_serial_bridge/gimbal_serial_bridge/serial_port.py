@@ -70,10 +70,7 @@ class SerialPort:
         Raises:
             SerialPortError: pyserial 缺失、打开失败或被其它进程占用。
         """
-        try:
-            import serial  # 惰性导入
-        except ImportError as exc:  # pragma: no cover - 环境依赖
-            raise SerialPortError(f'pyserial 未安装：{exc!r}') from exc
+        import serial  # 惰性导入
 
         if self.is_open:
             return

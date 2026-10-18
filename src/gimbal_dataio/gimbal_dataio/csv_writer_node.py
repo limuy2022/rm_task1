@@ -30,34 +30,15 @@ from typing import Optional
 
 import numpy as np
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSHistoryPolicy
-    from rclpy.qos import QoSProfile
-    from nav_msgs.msg import Odometry
-    from gimbal_interfaces.msg import ChassisAdvice, TargetState
-except Exception:  # pragma: no cover - Windows 无 ROS2
-    rclpy = None  # type: ignore[assignment]
-    Node = object  # type: ignore[assignment,misc]
-    Odometry = None  # type: ignore[assignment]
-    ChassisAdvice = None  # type: ignore[assignment]
-    TargetState = None  # type: ignore[assignment]
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSHistoryPolicy
+from rclpy.qos import QoSProfile
+from nav_msgs.msg import Odometry
+from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
-    class _QoSProfile:  # noqa: D401 - 占位
-        """ROS 缺失时的占位类。"""
-
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-    QoSProfile = _QoSProfile  # type: ignore[assignment]
-    QoSHistoryPolicy = None  # type: ignore[assignment]
-
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.time_utils import now
-    from gimbal_common.log_utils import get_logger, throttled
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import get_logger, now, throttled
+from gimbal_common.time_utils import now
+from gimbal_common.log_utils import get_logger, throttled
 
 from .csv_writer import CsvWriter
 from .run_meta import RunMeta
@@ -142,8 +123,6 @@ class CsvWriterNode(Node):  # type: ignore[misc]
     @staticmethod
     def _sensor_qos() -> Any:
         """SENSOR_DATA 风格 QoS。"""
-        if QoSProfile is None:  # pragma: no cover
-            return _SENSOR_QOS_DEPTH
         try:
             return QoSProfile(depth=_SENSOR_QOS_DEPTH,
                               history=QoSHistoryPolicy.KEEP_LAST)
@@ -234,9 +213,6 @@ class CsvWriterNode(Node):  # type: ignore[misc]
 
 def main(args: Optional[list] = None) -> int:
     """节点入口。"""
-    if rclpy is None:  # pragma: no cover
-        print('[csv_writer_node] FATAL rclpy 不可用（需要 ROS2 Jazzy）')
-        return 1
     rclpy.init(args=args)
     node = CsvWriterNode()
     try:

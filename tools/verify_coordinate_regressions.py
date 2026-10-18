@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 import numpy as np
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src/gimbal_common'))
+for package in ('gimbal_common', 'grid_mapper'):
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'/package))
 
 root = Path(__file__).resolve().parents[1] / 'src'
 
@@ -30,11 +31,15 @@ on_grid(obj, msg)
 assert abs(obj._grid_yaw - .8) < 1e-12
 assert obj._grid.tolist() == [[0],[100]]
 obj._map_image_name='47_map.pgm';obj._params={'judge.map_occupied_thresh':.65,'judge.map_free_thresh':.196}
-fallback = method(judge, '_write_yaml_fallback', env)
+obj._map_saved_final=False;obj._n_tick=1;obj._map_pgm='';obj._log=NS(error=lambda *a:None,info=lambda *a:None)
+save_map = method(judge, '_save_map', dict(env, time=__import__('time')))
 with tempfile.TemporaryDirectory() as d:
-    p=Path(d)/'map.yaml';fallback(obj,str(p))
-    assert 'origin: [-1, 2, 0.8]' in p.read_text()
-print('PASS map origin yaw preserved in ingestion and fallback YAML')
+    p=Path(d)/'map.yaml'
+    obj._map_pgm=str(Path(d)/'map.pgm');obj._map_yaml=str(p)
+    assert save_map(obj,'final')
+    import yaml
+    np.testing.assert_allclose(yaml.safe_load(p.read_text())['origin'],[-1,2,.8])
+print('PASS map origin yaw preserved in ingestion and saved YAML')
 
 from verify_timing_offline import TimingTests
 case=TimingTests('test_no_timeout_origin_fallback_or_new_round_rebase')

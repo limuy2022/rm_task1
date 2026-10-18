@@ -39,20 +39,11 @@ from typing import Tuple
 
 import numpy as np
 
-try:  # 优先用 T01 的 gimbal_common
-    from gimbal_common.math_utils import accel_limit, clamp, lowpass
-except Exception:  # pragma: no cover - Windows 无 ROS2 兜底
-    from ._compat import accel_limit, clamp, lowpass
+from gimbal_common.math_utils import accel_limit, clamp, lowpass
 
-try:  # 单调时钟（丢失衰减的 t_now / t_lost）
-    from gimbal_common.time_utils import now
-except Exception:  # pragma: no cover
-    from ._compat import now
+from gimbal_common.time_utils import now
 
-try:
-    import inspect as _inspect
-except Exception:  # pragma: no cover
-    _inspect = None  # type: ignore[assignment]
+import inspect as _inspect
 
 
 def _accel_limit_apply(target: np.ndarray, prev: np.ndarray, dt: float,
@@ -69,11 +60,10 @@ def _accel_limit_apply(target: np.ndarray, prev: np.ndarray, dt: float,
     已回报主理人；最终以 `gimbal_common` 的 3 参增量式为准。
     """
     n_args = 3
-    if _inspect is not None:
-        try:
-            n_args = len(_inspect.signature(accel_limit).parameters)
-        except Exception:  # pragma: no cover - 内建/无签名信息时按 3 参处理
-            n_args = 3
+    try:
+        n_args = len(_inspect.signature(accel_limit).parameters)
+    except Exception:  # pragma: no cover - 内建/无签名信息时按 3 参处理
+        n_args = 3
     tgt = np.asarray(target, dtype=float).reshape(2)
     prv = np.asarray(prev, dtype=float).reshape(2)
     delta = tgt - prv

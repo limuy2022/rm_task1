@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     output = ROOT/'build/offline'; output.mkdir(parents=True,exist_ok=True)
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join(str(p) for p in (ROOT/'src').iterdir() if (p/'setup.py').exists())
+    package_paths = [str(p) for p in (ROOT/'src').iterdir() if (p/'setup.py').exists()]
+    env['PYTHONPATH'] = os.pathsep.join(package_paths + [env.get('PYTHONPATH', '')])
     names = ['perception','control','navigation','advisor','timing','kinematics','processing',
              'submission','protocol','pipeline']
     jobs = [('pytest', [sys.executable,'-B','-m','pytest','-q','src','--import-mode=importlib'])]
