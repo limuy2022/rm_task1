@@ -124,7 +124,7 @@ def _assert_optical_rpy_matches_frames() -> None:
 
 def _make_tf(name: str, parent: str, child: str, xyz: Sequence[float],
              rpy: Sequence[float], use_sim_time: bool) -> Node:
-    """构造一个 `static_transform_publisher` 节点（Jazzy 的 `--flag` 参数风格）。"""
+    """构造一个 `static_transform_publisher` 节点（`--flag` 参数风格）。"""
     args = [
         '--x', _num(xyz[0]), '--y', _num(xyz[1]), '--z', _num(xyz[2]),
         '--roll', _num(rpy[0]), '--pitch', _num(rpy[1]), '--yaw', _num(rpy[2]),

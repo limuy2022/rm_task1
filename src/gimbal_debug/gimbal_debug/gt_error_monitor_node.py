@@ -16,7 +16,7 @@
 时钟（主理人拍板 1，混合时钟）：`header.stamp` 用 ROS 系统时钟；
 **所有采样时刻、定时器 dt、统计时间轴一律用 `gimbal_common.time_utils.now()`**。
 
-⚠ 本文件依赖 rclpy，**只做静态检查，待 Ubuntu 24.04 + ROS2 Jazzy 编译/运行验证**。
+⚠ 本文件依赖 rclpy，**已通过真 ROS2 Humble 功能性回归**（``test_node_itest.py``）。
 """
 
 from __future__ import annotations

@@ -34,8 +34,6 @@ import cv2
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
-                           QoSProfile, QoSReliabilityPolicy)
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point32
 from gimbal_interfaces.msg import MarkerCorners
@@ -44,6 +42,7 @@ from cv_bridge import CvBridge
 
 from gimbal_common.log_utils import get_logger, throttled
 from gimbal_common.node_utils import declare_params
+from gimbal_common.qos_utils import reliable_qos
 
 NODE_NAME = 'aruco_detector_node'
 
@@ -62,14 +61,6 @@ PARAM_DEFAULTS: Dict[str, Any] = {
 }
 
 
-def _reliable_keep_last(depth: int = 1) -> Any:
-    """RELIABLE + KEEP_LAST（官方明确要求 `/image_raw` 用这个）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.VOLATILE)
-
-
 def _make_detector_params(logger: Any = None) -> Any:
     """构造 ArUco 检测参数：**同时兼容 OpenCV 新旧两套 API**。
 
@@ -83,19 +74,18 @@ def _make_detector_params(logger: Any = None) -> Any:
 
     只写新 API 的后果不是"少个参数"，而是这里抛 AttributeError → 被外层
     try 捕获 → 本节点把 ``_ok`` 置 False → **整个 ArUco 检测静默停摆**，
-    而 cur_x/cur_y 合计 0.5 分（你的口径）全靠它。Windows 侧的静态检查
-    看不到 OpenCV 版本，所以这类问题必须靠 ``tools/precheck.py`` 的 E5 规则兜。
+    而 cur_x/cur_y 合计 0.5 分（你的口径）全靠它。
 
     返回 None 表示两套 API 都不可用（调用方据此降级）。
     """
     # 先试新 API（>= 4.7）
     try:
-        return cv2.aruco.DetectorParameters()          # precheck:ok-e5 双分支兜底
+        return cv2.aruco.DetectorParameters()
     except Exception:
         pass
     # 再试旧 API（<= 4.6，即 Humble 的 4.5.4）
     try:
-        return cv2.aruco.DetectorParameters_create()   # precheck:ok-e5 双分支兜底
+        return cv2.aruco.DetectorParameters_create()
     except Exception as exc:
         if logger is not None:
             logger.error('cv2.aruco 两套 API 都不可用（DetectorParameters / '
@@ -141,10 +131,10 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._t_last_detect: float = 0.0
 
         self.create_subscription(Image, str(self._params['perception.image_topic']),
-                                 self._on_image, _reliable_keep_last(1))
+                                 self._on_image, reliable_qos(1))
         self._pub = self.create_publisher(
             MarkerCorners, str(self._params['perception.marker_corners_topic']),
-            _reliable_keep_last(10))
+            reliable_qos(10))
 
         period = 1.0 / max(float(self._params['perception.detect_rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
@@ -166,7 +156,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                     self._log.error('未知字典 %r' % name)
                     return None
                 return cv2.aruco.getPredefinedDictionary(enum)
-            return cv2.aruco.Dictionary_get(getattr(cv2.aruco, name))  # precheck:ok-e5 旧API兜底分支
+            return cv2.aruco.Dictionary_get(getattr(cv2.aruco, name))
         except Exception as exc:
             self._log.error('字典构造失败: %r' % (exc,))
             return None

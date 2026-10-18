@@ -12,7 +12,7 @@
 * 只输出 optical 系下的点，world/map 换算放在 estimation（D-3）。
 * 输出保留原始图像stamp；丢失、拒绝和ID变化时显式发无效观测并清初值。
 
-⚠ 本文件依赖 ROS 2，只能在 Ubuntu 24.04 + ROS 2 Jazzy 上编译/运行验证。
+⚠ 本文件依赖 ROS 2，已在 Ubuntu 22.04 + ROS 2 Humble 容器中编译/运行验证。
 """
 
 from __future__ import annotations

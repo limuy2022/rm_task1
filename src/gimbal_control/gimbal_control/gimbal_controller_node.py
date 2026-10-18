@@ -88,7 +88,7 @@ QOS_LATCHED = latched_qos(1)
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:
-    """解析 ``virtual.yaml`` 路径（包名相对 → 绝对；缺失时返回原样由调用方兜底）。
+    """解析 ``virtual.yaml`` 路径（绝对路径 → 包 share；未命中原样返回由上层 FATAL）。
 
     与 ``gimbal_perception.marker_pnp_node`` 完全同一套约定（DESIGN §8.6：
     内参/外参唯一数据源是 ``config/virtual.yaml``）。

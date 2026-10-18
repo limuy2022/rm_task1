@@ -322,6 +322,6 @@ ls -lh "$G_OUT"
 2. 新增G专项8项：单位姿态、roll/pitch/yaw已知姿态、等价四元数、无效姿态拒绝、生产Python解码的静止比力与q一致、低头yaw/独立pitch角速度关系，以及错误翻轴反例，全部通过。
 3. 黄金帧的静止低头例：原accel与q预测相差约0.0022m/s²；仅翻accel.x而不改q，残差变为约3.895m/s²。这是软件反例，不是本机测量。
 
-复跑入口为仓库的`tools/verify_gimbal_axes_offline.py`与`tools/verify_protocol_offline.py`，使用个人电脑已有的隔离环境。此次未执行整套375项回归，不把局部复跑写成全系统重新验收。
+复跑入口为仓库的`tools/verify_gimbal_axes_offline.py`与`tools/verify_protocol_offline.py`，使用个人电脑已有的隔离环境（注：该隔离环境后来已退役，现统一在 ROS2 Humble 容器中复跑，流程见根 README）。此次未执行整套375项回归，不把局部复跑写成全系统重新验收。
 
 **仍未确认：**顶部板型号、实际芯片、NUC串口对应哪块板、现场固件版本/安装矩阵、真实G轴和原点。只读显示工具的实际ROS通信也须现场验证。无烧录、无真实设备打开、无真实电机动作。

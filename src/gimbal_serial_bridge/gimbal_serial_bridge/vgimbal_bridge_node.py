@@ -15,7 +15,7 @@
 * 所有 dt、超时、周期计算 → ``gimbal_common.time_utils.now()``（``time.monotonic()``）。
 * **不得**用 ``header.stamp`` 或外部话题时间戳做任何运算。
 
-⚠ 本文件依赖 ROS 2，**只能在 Ubuntu 24.04 + ROS 2 Jazzy 上编译/运行验证**。
+⚠ 本文件依赖 ROS 2，**已在 Ubuntu 22.04 + ROS 2 Humble 容器中编译/运行验证**。
 """
 
 from __future__ import annotations

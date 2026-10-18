@@ -108,8 +108,8 @@ def _setup(context):
         'control.bearing.geometry_verified':
             ParameterValue(LaunchConfiguration('geometry_verified'), value_type=bool),
     }
-    # 相机内参注入感知节点（与 bearing_hardware 同款）：不传时 pnp 会退回
-    # tracker_params 的 config.virtual_yaml 默认值，camera_config 参数形同虚设。
+    # 相机内参注入感知节点（与 bearing_hardware 同款）：覆盖 tracker_params
+    # 里 config.virtual_yaml 的默认值。
     vision_overrides = {'config.virtual_yaml': camera}
 
     nodes = [

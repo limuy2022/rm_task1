@@ -19,7 +19,7 @@
   M. `static_tf` 的光学系 rpy 与 `gimbal_common.frames` 单一真源一致
 
 ⚠ 只能做**静态**校验；`colcon build`、msg 编译、实际话题连通性仍需在
-Ubuntu 24.04 + ROS 2 Jazzy 上验证。
+Ubuntu 22.04 + ROS 2 Humble 容器中验证（流程见根 README）。
 """
 
 from __future__ import annotations

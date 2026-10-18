@@ -6,13 +6,13 @@ publish until measured geometry, base mounting, joint zero and IMU epoch agree.
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import UInt64
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 from gimbal_common import frames as FR
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_common.time_buffer import stamp_seconds
 from .gimbal_kinematics import GimbalKinematics, SynchronizedKinematics, quaternion_rotation
 
@@ -49,13 +49,12 @@ class GimbalKinematicsNode(Node):
                        max_age=c['max_age_s'], max_gap=c['max_gap_s'])
         self.dynamic = TransformBroadcaster(self); self.static = StaticTransformBroadcaster(self)
         self.sent_static = False; self.last_now = None
-        best = QoSProfile(depth=50, reliability=ReliabilityPolicy.BEST_EFFORT)
+        best = sensor_qos(50)
         self.pub = self.create_publisher(JointState, '/gimbal/joint_states', best)
         self.create_subscription(Odometry, '/gimbal/base_pose_raw', self.on_base, best)
         self.create_subscription(Imu, c['imu_topic'], self.on_imu, best)
         self.create_subscription(UInt64, '/task1/gimbal_reset_epoch', self.on_epoch,
-            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+                                 latched_qos(1))
         self.create_timer(.01, self.tick)
         self.get_logger().info('派生关节角并非编码器反馈；标定/安装/epoch未确认时不发布有效TF或关节')
 

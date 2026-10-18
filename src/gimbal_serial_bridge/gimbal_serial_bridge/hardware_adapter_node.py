@@ -3,12 +3,12 @@ import math
 import time
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from std_msgs.msg import UInt64
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Twist
 from gimbal_interfaces.msg import GimbalState, GimbalOmegaCmd
 from gimbal_common.frames import quat_to_mat, decompose_yaw_pitch
+from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from .command_gate import CommandGate
 
 class HardwareAdapter(Node):
@@ -24,12 +24,11 @@ class HardwareAdapter(Node):
         self.state_pub=self.create_publisher(GimbalState,'/gimbal/state',10)
         self.cmd_pub=self.create_publisher(Twist,str(self.get_parameter('cmd_topic').value),10)
         self.create_subscription(Imu,str(self.get_parameter('imu_topic').value),self.on_imu,
-                                 QoSProfile(depth=200,reliability=ReliabilityPolicy.RELIABLE))
+                                 reliable_qos(200))
         self.create_subscription(GimbalOmegaCmd,'/gimbal/cmd_omega',self.on_cmd,
-                                 QoSProfile(depth=10,reliability=ReliabilityPolicy.BEST_EFFORT))
+                                 sensor_qos(10))
         self.create_subscription(UInt64,'/task1/gimbal_reset_epoch',self.on_epoch,
-            QoSProfile(depth=1,reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+                                 latched_qos(1))
         self.create_timer(.02,self.tick)
         self.get_logger().warning('指令转发默认关闭；只适配消息，不知道固件enabled/CAN/机械关节角')
 

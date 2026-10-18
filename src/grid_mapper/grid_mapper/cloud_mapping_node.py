@@ -10,11 +10,11 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import PointCloud2
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from .cloud_grid import CloudGrid, PoseHistory, pointcloud2_xyz
 from .pgm_io import write_map
 
@@ -66,13 +66,10 @@ class CloudMappingNode(Node):
         self.last_status = {'state':'等待 Point-LIO 点云和位姿', 'frame_id':self.frame}
         self.rejected = 0
         self.last_warn = 0.
-        sensor_qos = QoSProfile(depth=5,reliability=ReliabilityPolicy.BEST_EFFORT)
-        map_qos = QoSProfile(depth=1,reliability=ReliabilityPolicy.RELIABLE,
-                             durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.map_pub = self.create_publisher(OccupancyGrid,'/team47/slam_map',map_qos)
+        self.map_pub = self.create_publisher(OccupancyGrid,'/team47/slam_map',latched_qos(1))
         self.status_pub = self.create_publisher(String,'/team47/cloud_mapping/status',10)
-        self.create_subscription(PointCloud2,str(get('cloud_topic')),self.on_cloud,sensor_qos)
-        self.create_subscription(Odometry,str(get('odom_topic')),self.on_odom,sensor_qos)
+        self.create_subscription(PointCloud2,str(get('cloud_topic')),self.on_cloud,sensor_qos(5))
+        self.create_subscription(Odometry,str(get('odom_topic')),self.on_odom,sensor_qos(5))
         self.create_service(Trigger,'/team47/save_slam_map',self.on_save)
         self.create_timer(1./hz,self.publish)
         self.get_logger().info('只建图：%s；光心由完整 body 位姿与 Point-LIO extrinsic_T 计算；不发布 TF/运动命令'%self.frame)

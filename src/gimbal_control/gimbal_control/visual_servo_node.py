@@ -11,12 +11,12 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String, UInt64
 from gimbal_interfaces.msg import MarkerCorners
 from gimbal_common.config_loader import load_yaml
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from .visual_pid import AxisPID, ErrorConditioner
 
 
@@ -67,12 +67,11 @@ class VisualServoNode(Node):
         image_error([[1, 1], [3, 1], [3, 3], [1, 3]], self.camera)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.status_pub = self.create_publisher(String, 'status', 10)
-        sensor = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+        sensor = sensor_qos(1)
         self.create_subscription(MarkerCorners, 'marker_corners', self.on_corners, sensor)
         self.create_subscription(Imu, str(self.p('imu_topic')), self.on_imu, sensor)
         self.create_subscription(UInt64, '/task1/gimbal_reset_epoch', self.on_epoch,
-            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
+                                 latched_qos(1))
         self.pid = [AxisPID(), AxisPID()]; self.settings = None
         self.error_filter = ErrorConditioner(); self.filter_settings = None
         self.filtered_error = None; self.control_error = None
