@@ -39,15 +39,12 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
-from rclpy.qos import QoSReliabilityPolicy
 from nav_msgs.msg import OccupancyGrid, Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from gimbal_common.frames import rotz2
 
@@ -90,8 +87,6 @@ DEFAULTS: Dict[str, Any] = {
     # 静态地图可锁存，0 不按年龄失效；实时建图可显式设 5.0 等超时。
     'chassis.map_timeout_s': 0.0,
 }
-
-_SENSOR_QOS_DEPTH: int = 10
 
 
 class ChassisAdvisorNode(Node):  # type: ignore[misc]
@@ -170,18 +165,18 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         self._blocked: bool = False
 
         # --- 话题 -------------------------------------------------------------
-        sensor_qos = self._sensor_qos()
+        qos = sensor_qos()
         self.create_subscription(TargetState, '/estimation/target_state',
-                                 self._on_target, sensor_qos)
+                                 self._on_target, qos)
         self.create_subscription(Odometry, '/gimbal/base_pose',
-                                 self._on_base_pose, sensor_qos)
+                                 self._on_base_pose, qos)
         self.create_subscription(OccupancyGrid, '/map/ray_grid',
-                                 self._on_ray_grid, self._latched_qos())
+                                 self._on_ray_grid, latched_qos())
         # 未膨胀三态栅格：方向项解析求解用（不可跨越地形 = 占用格 100）
         self.create_subscription(OccupancyGrid, '/map/grid',
-                                 self._on_clean_grid, self._latched_qos())
+                                 self._on_clean_grid, latched_qos())
         self._pub = self.create_publisher(ChassisAdvice, '/chassis/advice',
-                                          sensor_qos)
+                                          qos)
 
         period = 1.0 / max(float(self._params['chassis.rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
@@ -200,27 +195,6 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             return self.get_parameter(key).value
         except Exception:  # pragma: no cover
             return default
-
-    @staticmethod
-    def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS：KEEP_LAST depth=10。"""
-        try:
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                              reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH)
-
-    @staticmethod
-    def _latched_qos() -> Any:
-        """TRANSIENT_LOCAL + depth=1（锁存，等 grid_mapper 的地图）。"""
-        try:
-            return QoSProfile(depth=1,
-                              reliability=QoSReliabilityPolicy.RELIABLE,
-                              history=QoSHistoryPolicy.KEEP_LAST,
-                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=1)
 
     # -- 回调 -----------------------------------------------------------------
     def _clock_seconds(self) -> float:

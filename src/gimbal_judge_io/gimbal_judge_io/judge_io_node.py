@@ -45,8 +45,6 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
-                           QoSProfile, QoSReliabilityPolicy)
 from std_msgs.msg import Header
 from nav_msgs.msg import Odometry, OccupancyGrid
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
@@ -56,6 +54,7 @@ from .tick_csv import V_STOP, TickCsvWriter
 from .tick_sampler import TickSampler
 from gimbal_common import frames
 from gimbal_common.time_buffer import stamp_seconds
+from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
 NODE_NAME = 'judge_io_node'
 
@@ -81,30 +80,6 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'judge.map_occupied_thresh': 0.65,
     'judge.map_free_thresh': 0.196,
 }
-
-
-def _judge_tick_qos() -> Any:
-    """/judge/tick：RELIABLE + KEEP_LAST + depth 10（官方要求）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=10,
-                      durability=QoSDurabilityPolicy.VOLATILE)
-
-
-def _latched_qos(depth: int = 1) -> Any:
-    """TRANSIENT_LOCAL + RELIABLE（官方要求 replay_start 用它）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-
-
-def _sensor_qos(depth: int = 10) -> Any:
-    """内部话题：BEST_EFFORT + KEEP_LAST。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.VOLATILE)
 
 
 def _stamp_to_sec(stamp: Any) -> float:
@@ -170,22 +145,23 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._map_saved_final: bool = False
 
         # --- 订阅 -----------------------------------------------------------
+        # /judge/tick、replay_start 的 QoS 为官方要求（RELIABLE/VOLATILE 与锁存）。
         self.create_subscription(Header, '/judge/tick',
-                                 self._on_tick, _judge_tick_qos())
+                                 self._on_tick, reliable_qos())
         self.create_subscription(Header, '/judge/replay_start',
-                                 self._on_replay_start, _latched_qos(1))
+                                 self._on_replay_start, latched_qos(1))
         self.create_subscription(TargetState, '/estimation/target_state',
-                                 self._on_target, _sensor_qos(10))
+                                 self._on_target, sensor_qos(10))
         self.create_subscription(Odometry, '/gimbal/base_pose',
-                                 self._on_base_pose, _sensor_qos(10))
+                                 self._on_base_pose, sensor_qos(10))
         self.create_subscription(ChassisAdvice, '/chassis/advice',
-                                 self._on_advice, _sensor_qos(10))
+                                 self._on_advice, sensor_qos(10))
         self.create_subscription(OccupancyGrid, '/map/grid',
-                                 self._on_grid, _latched_qos(1))
+                                 self._on_grid, latched_qos(1))
 
         # --- 发布（内部话题，绝不占用 /judge/ 命名空间）---------------------
         self._pub_origin_freeze = self.create_publisher(
-            Header, '/gimbal/origin_freeze', _latched_qos(1))
+            Header, '/gimbal/origin_freeze', latched_qos(1))
 
         self.create_timer(float(self._params['judge.watchdog_period_s']),
                           self._on_watchdog)

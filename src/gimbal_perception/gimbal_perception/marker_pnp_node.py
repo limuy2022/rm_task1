@@ -22,13 +22,13 @@ import sys
 
 import numpy as np
 import rclpy
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from sensor_msgs.msg import CameraInfo
 
 from gimbal_common import config_loader as CL
 from gimbal_common import log_utils as LU
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
+from gimbal_common.qos_utils import sensor_qos
 from gimbal_interfaces.msg import MarkerCorners, MarkerObservation
 
 from .marker_source import make_marker_source
@@ -55,15 +55,6 @@ PARAM_DEFAULTS = {
     'perception.camera_info_topic': '/virtual_gimbal/camera_info',
     'config.virtual_yaml': 'virtual.yaml',
 }
-
-
-def _sensor_qos(depth: int = 10) -> QoSProfile:
-    return QoSProfile(
-        reliability=QoSReliabilityPolicy.BEST_EFFORT,
-        history=QoSHistoryPolicy.KEEP_LAST,
-        depth=depth,
-        durability=QoSDurabilityPolicy.VOLATILE,
-    )
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:
@@ -124,7 +115,7 @@ class MarkerPnpNode:
             id_filter_mode=str(p['perception.id_filter_mode']),
         )
 
-        qos = _sensor_qos(10)
+        qos = sensor_qos(10)
         self._pub = node.create_publisher(MarkerObservation, '/perception/marker_cam', qos)
         node.create_subscription(MarkerCorners,
                                  str(p['perception.marker_corners_topic']),

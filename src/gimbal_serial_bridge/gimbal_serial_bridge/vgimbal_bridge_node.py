@@ -28,7 +28,6 @@ from typing import Optional
 import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String, UInt64
 from tf2_ros import TransformBroadcaster
@@ -38,6 +37,7 @@ from gimbal_common import log_utils as LU
 from gimbal_common import node_utils as NU
 from gimbal_common import protocol as P
 from gimbal_common import time_utils as TU
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_interfaces.msg import GimbalOmegaCmd, GimbalState
 
 from .link_state_machine import (ACTIVE, FAULT_SILENT, IDLE, SHUTDOWN,
@@ -79,16 +79,6 @@ PARAM_DEFAULTS = {
     'gimbal.err_thresh': 0.5,
     'gimbal.runaway_hold_s': 0.2,
 }
-
-
-def _sensor_qos(depth: int = 10) -> QoSProfile:
-    """SENSOR_DATA 风格 QoS。"""
-    return QoSProfile(
-        reliability=QoSReliabilityPolicy.BEST_EFFORT,
-        history=QoSHistoryPolicy.KEEP_LAST,
-        depth=depth,
-        durability=QoSDurabilityPolicy.VOLATILE,
-    )
 
 
 class VgimbalBridgeNode:
@@ -142,16 +132,14 @@ class VgimbalBridgeNode:
             self._origin_xyz.append(0.0)
 
         # ---- 发布/订阅
-        qos = _sensor_qos(10)
+        qos = sensor_qos(10)
         self._pub_imu = node.create_publisher(Imu, '/offboardlink/imu_data', qos)
         self._pub_state = node.create_publisher(GimbalState, '/gimbal/state', qos)
         self._tf_broadcaster = TransformBroadcaster(node) if bool(p['serial.publish_tf']) else None
         # epoch：镜像 42 桥——启动发布一次（TRANSIENT_LOCAL 迟到订阅者可取），
         # 检测到下位机复位（stamp/seq 回退）后 +1 重发。
         self._pub_epoch = node.create_publisher(
-            UInt64, '/task1/gimbal_reset_epoch',
-            QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
-                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+            UInt64, '/task1/gimbal_reset_epoch', latched_qos(1))
         self._epoch_value = int(p['serial.sim_epoch'])
         self._publish_epoch()
         node.create_subscription(GimbalOmegaCmd, '/gimbal/cmd_omega', self._on_cmd_omega, qos)

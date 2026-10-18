@@ -51,11 +51,10 @@ from typing import Optional
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
-                           QoSProfile, QoSReliabilityPolicy)
 from std_msgs.msg import Header
 from nav_msgs.msg import Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
+from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
 
 NODE_NAME = 'judge_sim'
@@ -75,30 +74,6 @@ FAKE_TARGET0 = (1.5, 0.5)
 FAKE_BASE_SPEED = 0.20
 
 
-def _tick_qos() -> Any:
-    """与 judge_io_node 订阅端一致：RELIABLE + KEEP_LAST + depth 10。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=10,
-                      durability=QoSDurabilityPolicy.VOLATILE)
-
-
-def _latched_qos(depth: int = 1) -> Any:
-    """TRANSIENT_LOCAL + RELIABLE（replay_start 用）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-
-
-def _sensor_qos(depth: int = 10) -> Any:
-    """内部话题：BEST_EFFORT + KEEP_LAST（与真实链路一致）。"""
-    return QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                      history=QoSHistoryPolicy.KEEP_LAST,
-                      depth=depth,
-                      durability=QoSDurabilityPolicy.VOLATILE)
-
-
 class JudgeSimNode(Node):  # type: ignore[misc]
     """哑判分器：发 tick（+可选假信号）。"""
 
@@ -114,20 +89,20 @@ class JudgeSimNode(Node):  # type: ignore[misc]
         self._extra = bool(self._params['sim.extra_signals'])
         self._delay = max(float(self._params['sim.start_delay_s']), 0.0)
 
-        self._pub_tick = self.create_publisher(Header, '/judge/tick', _tick_qos())
+        self._pub_tick = self.create_publisher(Header, '/judge/tick', reliable_qos())
         self._pub_start = self.create_publisher(Header, '/judge/replay_start',
-                                                _latched_qos(1))
+                                                latched_qos(1))
 
         self._pub_base = None
         self._pub_target = None
         self._pub_advice = None
         if self._extra:
             self._pub_base = self.create_publisher(Odometry, '/gimbal/base_pose',
-                                                   _sensor_qos(10))
+                                                   sensor_qos(10))
             self._pub_target = self.create_publisher(
-                TargetState, '/estimation/target_state', _sensor_qos(10))
+                TargetState, '/estimation/target_state', sensor_qos(10))
             self._pub_advice = self.create_publisher(
-                ChassisAdvice, '/chassis/advice', _sensor_qos(10))
+                ChassisAdvice, '/chassis/advice', sensor_qos(10))
             self.create_timer(1.0 / 50.0, self._on_signal_timer)
 
         self._t0: Optional[float] = None

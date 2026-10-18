@@ -13,11 +13,11 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
 from tf2_ros import StaticTransformBroadcaster
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from gimbal_common import frames as FR
 from gimbal_common import log_utils as LU
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_common.time_buffer import PoseHistory, stamp_seconds
 
 NODE_NAME='map_frame_broadcaster_node'
@@ -35,13 +35,6 @@ PARAM_DEFAULTS={
     'localization.world_odom_xyz_rpy':[0.]*6,
     'localization.base_pose_rate_hz':50.,
 }
-
-def _sensor_qos(depth=20):
-    return QoSProfile(depth=depth,reliability=ReliabilityPolicy.BEST_EFFORT)
-
-def _latched_qos(depth=1):
-    return QoSProfile(depth=depth,reliability=ReliabilityPolicy.RELIABLE,
-                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 def _xyz_rpy_to_T(v):
     v=np.asarray(v,float).reshape(6)
@@ -63,13 +56,13 @@ class MapFrameBroadcasterNode:
         self._T_world_odom=_xyz_rpy_to_T(p['localization.world_odom_xyz_rpy'])
         self._world_confirmed=bool(p['localization.world_alignment_confirmed'])
         self._publish_map_odom=bool(p['localization.publish_map_odom'])
-        self._pub_t=node.create_publisher(TransformStamped,'/gimbal/t_map_world',_latched_qos())
-        self._pub_pose=node.create_publisher(Odometry,'/gimbal/base_pose',_sensor_qos())
+        self._pub_t=node.create_publisher(TransformStamped,'/gimbal/t_map_world',latched_qos())
+        self._pub_pose=node.create_publisher(Odometry,'/gimbal/base_pose',sensor_qos(20))
         self._static_tf=StaticTransformBroadcaster(node)
-        node.create_subscription(Odometry,'/gimbal/base_pose_raw',self._on_base_pose,_sensor_qos())
+        node.create_subscription(Odometry,'/gimbal/base_pose_raw',self._on_base_pose,sensor_qos(20))
         if self._origin_mode=='judge_replay_start':
-            node.create_subscription(Header,'/gimbal/origin_freeze',self._on_origin_freeze,_latched_qos())
-            node.create_subscription(Header,'/judge/replay_start',self._on_origin_freeze,_latched_qos())
+            node.create_subscription(Header,'/gimbal/origin_freeze',self._on_origin_freeze,latched_qos())
+            node.create_subscription(Header,'/judge/replay_start',self._on_origin_freeze,latched_qos())
         node.create_timer(1/max(1.,float(p['localization.base_pose_rate_hz'])),self._tick)
         if p['localization.publish_world_odom']:
             self._log.warning('不发布world->odom：会与map->odom形成双父节点；对齐仅走内部话题')

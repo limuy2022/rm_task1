@@ -29,13 +29,12 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
 from nav_msgs.msg import Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import sensor_qos
 
 from .csv_writer import CsvWriter
 from .run_meta import RunMeta
@@ -49,8 +48,6 @@ DEFAULTS: Dict[str, Any] = {
     'csv.flush_period_s': 1.0,
     'csv.write_after_first_estimate': True,
 }
-
-_SENSOR_QOS_DEPTH: int = 10
 
 
 class CsvWriterNode(Node):  # type: ignore[misc]
@@ -95,13 +92,13 @@ class CsvWriterNode(Node):  # type: ignore[misc]
                               10 if self._writer.extra_cols else 8,
                               self._writer.extra_cols))
 
-        sensor_qos = self._sensor_qos()
+        qos = sensor_qos()
         self.create_subscription(TargetState, '/estimation/target_state',
-                                 self._on_target, sensor_qos)
+                                 self._on_target, qos)
         self.create_subscription(Odometry, '/gimbal/base_pose',
-                                 self._on_base_pose, sensor_qos)
+                                 self._on_base_pose, qos)
         self.create_subscription(ChassisAdvice, '/chassis/advice',
-                                 self._on_advice, sensor_qos)
+                                 self._on_advice, qos)
 
         period = 1.0 / max(float(self._params['csv.rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
@@ -116,15 +113,6 @@ class CsvWriterNode(Node):  # type: ignore[misc]
             return self.get_parameter(key).value
         except Exception:  # pragma: no cover
             return default
-
-    @staticmethod
-    def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS。"""
-        try:
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH)
 
     # -- 回调 -----------------------------------------------------------------
     def _on_target(self, msg: Any) -> None:

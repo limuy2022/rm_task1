@@ -19,12 +19,12 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from tf2_ros import TransformBroadcaster
 
 from gimbal_common import log_utils as LU
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from .base_pose_source import make_base_pose_source
 from .odometry_geometry import matrix_quaternion
@@ -59,15 +59,6 @@ PARAM_DEFAULTS = {
 }
 
 
-def _sensor_qos(depth: int = 10) -> QoSProfile:
-    return QoSProfile(
-        reliability=QoSReliabilityPolicy.BEST_EFFORT,
-        history=QoSHistoryPolicy.KEEP_LAST,
-        depth=depth,
-        durability=QoSDurabilityPolicy.VOLATILE,
-    )
-
-
 class BasePoseProviderNode:
     """底盘位姿提供节点。"""
 
@@ -84,7 +75,7 @@ class BasePoseProviderNode:
         self._last_published_stamp = None
         self._last_replay_start = None
 
-        qos = _sensor_qos(10)
+        qos = sensor_qos(10)
         self._pub = node.create_publisher(Odometry, '/gimbal/base_pose_raw', qos)
         self._tf = TransformBroadcaster(node) if self._publish_tf else None
 
@@ -96,9 +87,8 @@ class BasePoseProviderNode:
 
         if self._source_name.startswith('odom'):
             from std_msgs.msg import Header
-            replay_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
-                                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-            node.create_subscription(Header, '/judge/replay_start', self._on_replay_start, replay_qos)
+            node.create_subscription(Header, '/judge/replay_start', self._on_replay_start,
+                                     latched_qos(1))
         rate = max(1.0, float(p['localization.base_pose_rate_hz']))
         node.create_timer(1.0 / rate, self._tick)
         self._log.info(f'底盘位姿源启动: {self._source_name}，发布 {rate:.0f}Hz，'

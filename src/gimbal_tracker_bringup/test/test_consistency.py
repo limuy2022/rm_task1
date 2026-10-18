@@ -169,6 +169,8 @@ def test_c_launch_references_match_entry_points(entry_points):
                 continue                      # 来自 tf2_ros / rviz2，不属于本工程
             if (pkg, exe) == ('point_lio', 'pointlio_mapping'):
                 continue  # original navigation package, not copied into core src
+            if (pkg, exe) == ('gimbal_serial_42', 'robo_bridge_node'):
+                continue  # 外部 C++ 供应商桥（仓库根 42-gimbal_serial），不在 src/ 的 entry_points 中
             if exe not in entry_points:
                 bad.append('%s: %s 不在任何 entry_points 中' % (_rel(lf), exe))
             elif entry_points[exe][0] != pkg:

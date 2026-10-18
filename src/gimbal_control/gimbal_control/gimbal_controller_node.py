@@ -20,12 +20,6 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import (
-    QoSDurabilityPolicy,
-    QoSHistoryPolicy,
-    QoSProfile,
-    QoSReliabilityPolicy,
-)
 
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
@@ -35,6 +29,7 @@ from gimbal_interfaces.msg import GimbalOmegaCmd, GimbalState, MarkerObservation
 
 from gimbal_common import frames
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_common.time_utils import now
 
 from gimbal_control.control_law import (
@@ -87,19 +82,9 @@ MODE_SEARCH = 'search'
 MODE_WIDE = 'wide'
 MODE_IDLE = 'idle'
 
-QOS_SENSOR = QoSProfile(
-    depth=10,
-    history=QoSHistoryPolicy.KEEP_LAST,
-    reliability=QoSReliabilityPolicy.BEST_EFFORT,
-    durability=QoSDurabilityPolicy.VOLATILE,
-)
+QOS_SENSOR = sensor_qos(10)
 
-QOS_LATCHED = QoSProfile(
-    depth=1,
-    history=QoSHistoryPolicy.KEEP_LAST,
-    reliability=QoSReliabilityPolicy.RELIABLE,
-    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-)
+QOS_LATCHED = latched_qos(1)
 
 
 def _resolve_virtual_yaml(name_or_path: str) -> str:

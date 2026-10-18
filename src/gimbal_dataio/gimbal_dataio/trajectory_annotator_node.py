@@ -28,14 +28,12 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
 from nav_msgs.msg import Odometry, OccupancyGrid
 from gimbal_interfaces.msg import TargetState
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, sensor_qos
 
 from grid_mapper.grid_builder import GridMap
 from grid_mapper.png_draw import downsample, draw_tracked
@@ -47,8 +45,6 @@ DEFAULTS: Dict[str, Any] = {
     'annotator.max_points': 20000,        # 每条轨迹最多缓存的点数
     'annotator.png_name': 'map_tracked.png',
 }
-
-_SENSOR_QOS_DEPTH: int = 10
 
 
 class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
@@ -70,13 +66,13 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
         self._base_cur: Optional[Tuple[float, float]] = None
         self._max_points = int(self._params['annotator.max_points'])
 
-        sensor_qos = self._sensor_qos()
+        qos = sensor_qos()
         self.create_subscription(TargetState, '/estimation/target_state',
-                                 self._on_target, sensor_qos)
+                                 self._on_target, qos)
         self.create_subscription(Odometry, '/gimbal/base_pose',
-                                 self._on_base_pose, sensor_qos)
+                                 self._on_base_pose, qos)
         self.create_subscription(OccupancyGrid, '/map/grid',
-                                 self._on_grid, self._latched_qos())
+                                 self._on_grid, latched_qos())
         self._log.info('trajectory_annotator_node 启动')
 
     # -- ROS 胶水 -------------------------------------------------------------
@@ -87,25 +83,6 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
             return self.get_parameter(key).value
         except Exception:  # pragma: no cover
             return default
-
-    @staticmethod
-    def _sensor_qos() -> Any:
-        """SENSOR_DATA 风格 QoS。"""
-        try:
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH,
-                              history=QoSHistoryPolicy.KEEP_LAST)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=_SENSOR_QOS_DEPTH)
-
-    @staticmethod
-    def _latched_qos() -> Any:
-        """TRANSIENT_LOCAL + depth=1。"""
-        try:
-            return QoSProfile(depth=1,
-                              history=QoSHistoryPolicy.KEEP_LAST,
-                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        except Exception:  # pragma: no cover
-            return QoSProfile(depth=1)
 
     # -- 回调 -----------------------------------------------------------------
     def _on_grid(self, msg: Any) -> None:

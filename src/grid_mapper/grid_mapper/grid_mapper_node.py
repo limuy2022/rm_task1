@@ -34,10 +34,6 @@ from typing import Optional
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSDurabilityPolicy
-from rclpy.qos import QoSHistoryPolicy
-from rclpy.qos import QoSProfile
-from rclpy.qos import QoSReliabilityPolicy
 from rclpy.time import Time
 from rclpy.duration import Duration
 from tf2_ros import Buffer, TransformListener
@@ -45,6 +41,7 @@ from nav_msgs.msg import OccupancyGrid
 
 from gimbal_common.time_utils import now
 from gimbal_common.log_utils import get_logger, throttled
+from gimbal_common.qos_utils import latched_qos, reliable_qos
 
 from .field_config import FieldConfig
 from .grid_builder import GridMap
@@ -124,10 +121,9 @@ class GridMapperNode(Node):  # type: ignore[misc]
         # --- 地图来源 -------------------------------------------------------
         source = str(self._params['grid.map_source']).lower()
         if source == 'topic':
-            latched = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
-                                 durability=(QoSDurabilityPolicy.TRANSIENT_LOCAL
-                                     if self._params['grid.external_map_transient_local']
-                                     else QoSDurabilityPolicy.VOLATILE))
+            latched = (latched_qos(1)
+                       if self._params['grid.external_map_transient_local']
+                       else reliable_qos(1))
             self.create_subscription(
                 OccupancyGrid, str(self._params['grid.map_topic']),
                 self._on_external_map, latched)
@@ -139,9 +135,9 @@ class GridMapperNode(Node):  # type: ignore[misc]
             self._build_from_config()
 
         self._pub_grid = self.create_publisher(OccupancyGrid, '/map/grid',
-                                               self._latched_qos())
+                                               latched_qos())
         self._pub_ray = self.create_publisher(OccupancyGrid, '/map/ray_grid',
-                                              self._latched_qos())
+                                              latched_qos())
         if self._grid_map is not None:
             self._publish_all()
 
@@ -158,19 +154,6 @@ class GridMapperNode(Node):  # type: ignore[misc]
             return self.get_parameter(key).value
         except Exception:  # pragma: no cover - 参数已声明
             return default
-
-    @staticmethod
-    def _latched_qos() -> Any:
-        """TRANSIENT_LOCAL + depth=1 的 QoS（锁存）。"""
-        try:
-            return QoSProfile(
-                depth=1,
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                history=QoSHistoryPolicy.KEEP_LAST,
-                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-            )
-        except Exception:  # pragma: no cover - 不同 rclpy 版本签名差异
-            return QoSProfile(depth=1)
 
     # -- 建图 -----------------------------------------------------------------
     def _build_from_config(self) -> None:
