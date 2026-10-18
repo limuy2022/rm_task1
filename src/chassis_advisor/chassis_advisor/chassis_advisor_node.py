@@ -108,7 +108,7 @@ DEFAULTS: Dict[str, Any] = {
     # --- 赛题一新增 ---------------------------------------------------------
     'chassis.dir_mode': 'analytic',       # analytic（连续）| quantized（旧 13 方向）
     'chassis.dir_lookahead_m': FREE_DIR_L_M,   # 官方固定 1.0 m
-    'chassis.dir_block_unknown': False,   # 评分标准方向按真值地图算，未知不算障碍
+    'chassis.dir_block_unknown': True,    # 未观测区域不等于可通行区域；只建议已知可行方向
     'chassis.dir_use_pred': False,        # False=朝目标**当前**位置（cur），True=朝预测位置
     'chassis.v_floor': 0.30,              # 远离目标时的最小建议速度（>0.02 停车线）
     'chassis.stop_radius_m': 0.45,
@@ -118,7 +118,8 @@ DEFAULTS: Dict[str, Any] = {
     'chassis.target_timeout_s': 0.20,
     'chassis.last_observation_timeout_s': 0.50,
     'chassis.future_tolerance_s': 0.05,
-        # 与官方 0.5 m 判据留 0.05 m 余量
+    # 静态地图可锁存，0 不按年龄失效；实时建图可显式设 5.0 等超时。
+    'chassis.map_timeout_s': 0.0,
 }
 
 _SENSOR_QOS_DEPTH: int = 10
@@ -163,6 +164,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         self._base_stamp = self._target_stamp = -math.inf
         self._base_received = self._target_received = -math.inf
         self._observation_stamp = -math.inf
+        self._map_stamps = {'analytic': -math.inf, 'quantized': -math.inf}
+        self._map_received = {'analytic': -math.inf, 'quantized': -math.inf}
         self._clean_adapter = None
         self._ray_adapter = None
         self._map_frame = str(self._params['chassis.frame_id'])
@@ -174,6 +177,18 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
                     'chassis.last_observation_timeout_s'):
             if not math.isfinite(float(self._params[key])) or float(self._params[key]) <= 0:
                 raise ValueError(key+' must be positive and finite')
+        if (not math.isfinite(float(self._params['chassis.map_timeout_s']))
+                or float(self._params['chassis.map_timeout_s']) < 0):
+            raise ValueError('chassis.map_timeout_s must be nonnegative and finite')
+        for key in ('chassis.v_max', 'chassis.d_slow'):
+            if not math.isfinite(float(self._params[key])) or float(self._params[key]) <= 0:
+                raise ValueError(key+' must be positive and finite')
+        if (not math.isfinite(float(self._params['chassis.stop_radius_m']))
+                or not 0 <= float(self._params['chassis.stop_radius_m']) < float(self._params['chassis.d_slow'])):
+            raise ValueError('chassis.stop_radius_m must be nonnegative and below d_slow')
+        if (not math.isfinite(float(self._params['chassis.v_floor']))
+                or float(self._params['chassis.v_floor']) < 0):
+            raise ValueError('chassis.v_floor must be nonnegative and finite')
         self._base_xy = np.zeros(2, dtype=float)
         self._base_yaw: float = 0.0
         self._has_clean_grid: bool = False
@@ -285,6 +300,12 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     def _on_ray_grid(self, msg: Any) -> None:
         try:
             adapter = self._parse_grid(msg)
+            stamp = self._source_stamp(msg.header)
+            if stamp < self._map_stamps['quantized']:
+                return
+            if stamp > self._map_stamps['quantized']:
+                self._map_received['quantized'] = now()
+            self._map_stamps['quantized'] = stamp
             self._ray.set_grid(adapter)
             self._ray_adapter = adapter
             self._has_grid = True
@@ -295,6 +316,12 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
     def _on_clean_grid(self, msg: Any) -> None:
         try:
             adapter = self._parse_grid(msg)
+            stamp = self._source_stamp(msg.header)
+            if stamp < self._map_stamps['analytic']:
+                return
+            if stamp > self._map_stamps['analytic']:
+                self._map_received['analytic'] = now()
+            self._map_stamps['analytic'] = stamp
             self._free.set_grid(adapter.arr, adapter.origin_xy, adapter.resolution, adapter.origin_yaw)
             self._clean_adapter = adapter
             self._has_clean_grid = True
@@ -381,13 +408,26 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._law.reset()
             self._publish(np.zeros(2), 0., 0., True, valid=False)
             return
+        map_timeout = float(self._params['chassis.map_timeout_s'])
+        map_age = self._clock_seconds()-self._map_stamps[mode]
+        if (map_age < -float(self._params['chassis.future_tolerance_s'])
+                or (map_timeout > 0 and (map_age > map_timeout
+                    or t_now-self._map_received[mode] > map_timeout))):
+            self._law.reset()
+            self._publish(np.zeros(2), 0., 0., True, valid=False)
+            return
         cell = adapter.world_to_cell(self._base_xy)
         if not adapter.in_bounds(cell) or adapter.at(cell) < 0:
             self._law.reset()
             self._publish(np.zeros(2), 0., 0., True, valid=False)
             return
+        # 停车判据与速度始终依据“当前距离”。预测位置只可改变建议方向，
+        # 否则目标预测穿过底盘时会在仍相距很远的情况下误报停车。
+        current_u, distance = VelocityLaw.unit_direction(self._base_xy, self._cur_xy)
         reference = self._goal_xy if bool(self._params['chassis.dir_use_pred']) else self._cur_xy
-        u, distance = VelocityLaw.unit_direction(self._base_xy, reference)
+        u, reference_distance = VelocityLaw.unit_direction(self._base_xy, reference)
+        if reference_distance < 1e-6:
+            u = current_u
         if distance < float(self._params['chassis.stop_radius_m']):
             self._law.reset()
             self._publish(np.zeros(2), distance, 0., False, valid=True)
@@ -411,7 +451,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._law.reset()
             cmd = np.zeros(2)
         else:
-            result = self._law.step(self._base_xy, reference, dt, u_safe=direction,
+            result = self._law.step(self._base_xy, self._cur_xy, dt, u_safe=direction,
                                     blocked=False, track_status=self._track_status,
                                     t_now=t_now, t_lost=None)
             # This is a scored direction recommendation, not an actuator command.
@@ -436,9 +476,16 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         distance = float(np.linalg.norm(self._cur_xy-self._base_xy))
         if distance < float(self._params['chassis.stop_radius_m']):
             return np.zeros(2)
-        floor = min(float(self._params['chassis.v_max']),
-                    max(float(self._params['chassis.v_floor']),V_STOP_OFFICIAL*2))
-        speed = min(float(self._params['chassis.v_max']),max(floor,float(np.linalg.norm(v))))
+        vmax = float(self._params['chassis.v_max'])
+        # .30 m/s 的远处速度下限不能把近处减速全部抹掉。接近停止半径时
+        # 线性降低上限；仍在停止带之外时保留 .04 m/s，避免误触官方停车线。
+        stop = float(self._params['chassis.stop_radius_m'])
+        slow = float(self._params['chassis.d_slow'])
+        approach_cap = min(vmax, max(V_STOP_OFFICIAL*2,
+                                    vmax*(distance-stop)/max(slow-stop, 1e-9)))
+        floor = min(approach_cap, max(float(self._params['chassis.v_floor']),
+                                     V_STOP_OFFICIAL*2))
+        speed = min(approach_cap, max(floor, float(np.linalg.norm(v))))
         return u/norm*speed
 
     def _publish(self, cmd: np.ndarray, dist: float, theta: float,

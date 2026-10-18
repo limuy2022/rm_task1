@@ -1,0 +1,26 @@
+# 独立图像跟踪的默认值，gain/频率/滤波/死区/限幅支持 ros2 param set。
+# motion_enabled 由 launch 强制 false，参数文件不能自动放行电机。
+/**:
+  ros__parameters:
+    kp_yaw: 2.0
+    kp_pitch: 2.0
+    ki_yaw: 0.0
+    ki_pitch: 0.0
+    kd_yaw: 0.0
+    kd_pitch: 0.0
+    control_hz: 50.0
+    filter_tau: 0.04
+    deadband_px: 2.0
+    max_omega: 0.25
+    slew: 1.0
+    integral_limit: 0.1
+    derivative_tau: 0.05
+    loss_grace_s: 0.08
+    loss_grace_frames: 2
+    image_timeout: 0.15
+    imu_timeout: 0.15
+    run_seconds: 15.0
+    max_rotation: 0.35
+    axes: both
+    yaw_sign: 1.0
+    pitch_sign: 1.0

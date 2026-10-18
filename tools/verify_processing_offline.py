@@ -13,6 +13,25 @@ for pkg in ('gimbal_tracker_bringup','gimbal_localization','gimbal_common'):
 from gimbal_tracker_bringup.deployment_config import load_vehicle_config
 
 
+class TypedParameter:
+    """Retain an explicit launch type without importing or starting ROS."""
+    def __init__(self, value, *, value_type):
+        self.value = value
+        self.value_type = value_type
+
+
+def evaluated_parameter(value):
+    """Model the relevant launch behavior: untyped strings use YAML inference.
+
+    This intentionally makes a bare numeric team ID become an integer, so the
+    regression check would fail if the production factory dropped its type.
+    It does not replace an actual Humble launch/lifecycle verification.
+    """
+    if isinstance(value, TypedParameter):
+        return value.value_type(value.value)
+    return yaml.safe_load(value) if isinstance(value, str) else value
+
+
 class ProcessingTests(unittest.TestCase):
     def test_unmounted_template_cannot_become_vehicle_identity_calibration(self):
         with self.assertRaisesRegex(ValueError, '未确认'):
@@ -33,6 +52,7 @@ class ProcessingTests(unittest.TestCase):
             env = load_ast('src/gimbal_tracker_bringup/launch/processing.launch.py', {'_setup'},
                 dict(os=os,load_vehicle_config=load_vehicle_config,
                      LaunchConfiguration=lambda name:NS(perform=lambda context:args[name]),
+                     ParameterValue=TypedParameter,
                      Node=lambda **kw:kw, LogInfo=lambda **kw:kw))
             actions = env['_setup'](None)
             executables = [a.get('executable') for a in actions]
@@ -40,10 +60,15 @@ class ProcessingTests(unittest.TestCase):
             self.assertNotIn('judge_io_node',executables)
             self.assertFalse(any(x and ('bridge' in x or 'controller' in x or 'driver' in x) for x in executables))
             args['submission']='true'
-            actions = env['_setup'](None)
-            judge = next(a for a in actions if a.get('executable')=='judge_io_node')
-            self.assertEqual(judge['parameters'][-1]['judge.team_id'],'47')
-            self.assertFalse(judge['parameters'][-1]['judge.fresh_run'])
+            for team_id in ('47', '0047', 'true'):
+                with self.subTest(team_id=team_id):
+                    args['team_id'] = team_id
+                    actions = env['_setup'](None)
+                    judge = next(a for a in actions if a.get('executable')=='judge_io_node')
+                    evaluated = evaluated_parameter(judge['parameters'][-1]['judge.team_id'])
+                    self.assertIsInstance(evaluated, str)
+                    self.assertEqual(evaluated, team_id)
+                    self.assertFalse(judge['parameters'][-1]['judge.fresh_run'])
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)
