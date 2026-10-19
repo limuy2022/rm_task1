@@ -43,7 +43,7 @@ install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
-  # 黄金向量在仓库根的 protocol/ 下（git submodule gimbal-edu-protocol），包内不放副本，避免两份数据漂移。
+  # 黄金向量在仓库根的 protocol/ 下（由本仓库直接跟踪），包内不放副本，避免两份数据漂移。
   # 按顺序查找：环境变量 GOLDEN_FRAMES_DIR；本包所在仓库根的 protocol/（包目录的 ../../protocol）。
   set(_golden_dirs $ENV{GOLDEN_FRAMES_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../protocol)
