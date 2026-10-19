@@ -42,7 +42,9 @@ constexpr int kExitDeviceAbsent = 3;
 class BridgeNode : public rclcpp::Node
 {
 public:
-  explicit BridgeNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  explicit BridgeNode(
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions(),
+    UartCounterReader counter_reader = {});
   ~BridgeNode() override;
 
 private:
@@ -50,6 +52,7 @@ private:
   void onFrame(const std::uint8_t * frame, std::size_t n);
   void onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg);
   void onDiagTimer();
+  void checkUartErrors();
   proto::AxisSign readAxisSign();
   double readSign(const std::string & name);
 
@@ -94,6 +97,13 @@ private:
   std::uint64_t last_reported_[7] = {0, 0, 0, 0, 0, 0, 0};
   std::chrono::steady_clock::time_point start_;
   bool warned_no_imu_ = false;
+
+  // 构造函数建立基线后只由读线程访问；析构先 join 再关闭串口。
+  bool uart_counters_unsupported_ = false;
+  bool have_uart_baseline_ = false;
+  UartErrorCounters last_uart_counters_{};
+  bool uart_query_failed_ = false;
+  std::chrono::steady_clock::time_point last_uart_query_warning_{};
 };
 
 }  // namespace gimbal_serial

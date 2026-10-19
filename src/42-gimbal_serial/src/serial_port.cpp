@@ -10,9 +10,14 @@
 #include <termios.h>
 #include <unistd.h>
 
+#ifdef __linux__
+#include <linux/serial.h>
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <utility>
 
 namespace gimbal_serial
 {
@@ -100,6 +105,11 @@ std::string lowercased(std::string s)
 
 }  // namespace
 
+SerialPort::SerialPort(UartCounterReader counter_reader)
+: counter_reader_(std::move(counter_reader))
+{
+}
+
 bool SerialPort::baudSupported(int baud)
 {
   speed_t s;
@@ -145,6 +155,10 @@ bool SerialPort::open(const std::string & path, int baud, std::string & err)
     return false;
   }
   cfmakeraw(&tio);                    // 关闭回显、行缓冲、软件流控，8 位
+  // CP210x 等驱动只有 INPCK 开启时才上报错误事件；PARENB 仍关闭，线路保持 8N1。
+  // 不启用 PARMRK/IGNPAR：合法字节不转义，驱动标记的坏字节由内核转 NUL。
+  tio.c_iflag |= INPCK;
+  tio.c_iflag &= ~(IGNPAR | PARMRK | ISTRIP);
   tio.c_cflag |= (CLOCAL | CREAD);
   tio.c_cflag &= ~(CSTOPB | PARENB | CRTSCTS);  // 8N1，无流控
   tio.c_cc[VMIN] = 0;
@@ -198,6 +212,30 @@ ssize_t SerialPort::readSome(std::uint8_t * buf, std::size_t cap, int timeout_ms
     return -1;  // 0（对端关闭）或其他错误
   }
   return -1;  // POLLHUP、POLLERR、POLLNVAL
+}
+
+UartCounterResult SerialPort::readErrorCounters() const
+{
+  if (fd_ < 0) {return {UartCounterStatus::Error, {}, EBADF};}
+  if (counter_reader_) {return counter_reader_(fd_);}
+#if defined(__linux__) && defined(TIOCGICOUNT)
+  serial_icounter_struct count{};
+  int rc;
+  do {
+    rc = ioctl(fd_, TIOCGICOUNT, &count);
+  } while (rc < 0 && errno == EINTR);
+  if (rc < 0) {
+    const int e = errno;
+    const bool unsupported = e == ENOTTY || e == EINVAL || e == EOPNOTSUPP || e == ENOSYS;
+    return {unsupported ? UartCounterStatus::Unsupported : UartCounterStatus::Error, {}, e};
+  }
+  return {UartCounterStatus::Ok,
+    {static_cast<std::uint32_t>(count.frame), static_cast<std::uint32_t>(count.parity),
+      static_cast<std::uint32_t>(count.overrun), static_cast<std::uint32_t>(count.brk),
+      static_cast<std::uint32_t>(count.buf_overrun)}, 0};
+#else
+  return {UartCounterStatus::Unsupported, {}, ENOSYS};
+#endif
 }
 
 bool SerialPort::writeAll(const std::uint8_t * data, std::size_t size)

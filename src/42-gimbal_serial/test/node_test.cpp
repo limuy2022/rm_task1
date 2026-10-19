@@ -3,6 +3,7 @@
 // cmd_vel_gimbal 转发（每条一帧，不保活）、yaw_sign、imu_axis_sign、独占打开、退出补零指令。
 #include <gtest/gtest.h>
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,8 +12,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdarg>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <regex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -420,15 +423,22 @@ namespace
 {
 std::mutex g_log_mu;
 std::vector<std::string> * g_logs = nullptr;
+struct CapturedLog
+{
+  int severity;
+  std::string message;
+};
+std::vector<CapturedLog> * g_log_entries = nullptr;
 
 void capturingLogHandler(
-  const rcutils_log_location_t * /*location*/, int /*severity*/, const char * /*name*/,
+  const rcutils_log_location_t * /*location*/, int severity, const char * /*name*/,
   rcutils_time_point_value_t /*timestamp*/, const char * format, va_list * args)
 {
   char buf[2048];
   if (vsnprintf(buf, sizeof buf, format, *args) < 0) {return;}
   std::lock_guard<std::mutex> l(g_log_mu);
   if (g_logs) {g_logs->emplace_back(buf);}
+  if (g_log_entries) {g_log_entries->push_back({severity, buf});}
 }
 
 bool logsContain(const std::vector<std::string> & logs, const char * needle)
@@ -437,6 +447,106 @@ bool logsContain(const std::vector<std::string> & logs, const char * needle)
     if (s.find(needle) != std::string::npos) {return true;}
   }
   return false;
+}
+
+// 日志由 ROS 定时器和串口读线程共同写入；只在持锁快照中检查，析构恢复原 handler。
+class LogCapture
+{
+public:
+  LogCapture() : original_(rcutils_logging_get_output_handler())
+  {
+    {
+      std::lock_guard<std::mutex> l(g_log_mu);
+      g_log_entries = &entries_;
+    }
+    rcutils_logging_set_output_handler(capturingLogHandler);
+  }
+  ~LogCapture()
+  {
+    rcutils_logging_set_output_handler(original_);
+    std::lock_guard<std::mutex> l(g_log_mu);
+    g_log_entries = nullptr;
+  }
+
+  std::vector<std::string> matching(int severity, const char * needle)
+  {
+    std::lock_guard<std::mutex> l(g_log_mu);
+    std::vector<std::string> messages;
+    for (const auto & entry : entries_) {
+      if (entry.severity == severity && entry.message.find(needle) != std::string::npos) {
+        messages.push_back(entry.message);
+      }
+    }
+    return messages;
+  }
+
+  bool waitMatching(int severity, const char * needle, std::size_t count)
+  {
+    const auto end = std::chrono::steady_clock::now() + 1500ms;
+    while (std::chrono::steady_clock::now() < end) {
+      if (matching(severity, needle).size() >= count) {return true;}
+      std::this_thread::sleep_for(5ms);
+    }
+    return false;
+  }
+
+private:
+  rcutils_logging_output_handler_t original_;
+  std::vector<CapturedLog> entries_;
+};
+
+// 通过公开的 reader 注入驱动查询结果，不触碰真实 UART，也不绕过节点后台轮询。
+class UartCounterSource
+{
+public:
+  explicit UartCounterSource(UartCounterResult result) : result_(result) {}
+  UartCounterReader reader()
+  {
+    return [this](int /*fd*/) {
+      std::lock_guard<std::mutex> l(mu_);
+      ++calls_;
+      return result_;
+    };
+  }
+  void set(UartCounterResult result)
+  {
+    std::lock_guard<std::mutex> l(mu_);
+    result_ = result;
+  }
+  std::size_t calls()
+  {
+    std::lock_guard<std::mutex> l(mu_);
+    return calls_;
+  }
+
+private:
+  std::mutex mu_;
+  UartCounterResult result_;
+  std::size_t calls_ = 0;
+};
+
+bool waitCounterCalls(UartCounterSource & source, std::size_t calls)
+{
+  const auto end = std::chrono::steady_clock::now() + 4s;
+  while (std::chrono::steady_clock::now() < end) {
+    if (source.calls() >= calls) {return true;}
+    std::this_thread::sleep_for(5ms);
+  }
+  return false;
+}
+
+void expectUartDeltas(const std::string & message, const UartErrorCounters & expected)
+{
+  // 完整数值与单词边界：overrun 不能误匹配 buf_overrun，4 不能误匹配 400。
+  const auto field = [&message](const char * name, std::uint32_t value) {
+    const std::regex pattern("\\b" + std::string(name) + "=" + std::to_string(value) + "\\b");
+    EXPECT_TRUE(std::regex_search(message, pattern)) << message;
+  };
+  field("frame", expected.frame);
+  field("parity", expected.parity);
+  field("overrun", expected.overrun);
+  field("brk", expected.brk);
+  field("buf_overrun", expected.buf_overrun);
 }
 }  // namespace
 
@@ -495,6 +605,94 @@ TEST(BridgeNode, NoImuWarningBranches)
   }
   EXPECT_TRUE(zero_byte_branch);
   EXPECT_TRUE(bytes_branch);
+}
+
+TEST(BridgeNode, UartCountersIgnoreHistoricalErrorsAndHandleWraparound)
+{
+  LogCapture logs;
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  const auto near_wrap = std::numeric_limits<std::uint32_t>::max() - 2;
+  UartCounterSource source({
+    UartCounterStatus::Ok, {near_wrap, near_wrap, near_wrap, near_wrap, near_wrap}, 0});
+  auto bridge = std::make_shared<BridgeNode>(
+    bridgeOptions(pty.slave, {}), source.reader());
+  ASSERT_EQ(source.calls(), 1u);  // 启动即读取驱动已有计数作为基线
+  ASSERT_TRUE(waitCounterCalls(source, 2));
+  EXPECT_TRUE(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量").empty());
+
+  // 模拟驱动 uint32 计数回绕；五种错误分别增加 4/5/6/7/8，不能报负值或巨量。
+  source.set({UartCounterStatus::Ok, {1, 2, 3, 4, 5}, 0});
+  ASSERT_TRUE(waitCounterCalls(source, 3));
+  ASSERT_TRUE(logs.waitMatching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量", 1));
+  auto warnings = logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量");
+  ASSERT_EQ(warnings.size(), 1u);
+  expectUartDeltas(warnings.front(), {4, 5, 6, 7, 8});
+
+  // 同一计数下一拍不重复报警，证明每次成功查询都推进基线。
+  ASSERT_TRUE(waitCounterCalls(source, 4));
+  bridge.reset();  // 等读线程完成该次检查，避免日志断言与后台回调竞争
+  EXPECT_EQ(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量").size(), 1u);
+}
+
+TEST(BridgeNode, UnsupportedUartCountersAreReportedOnceAndDoNotStopImu)
+{
+  LogCapture logs;
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  UartCounterSource source({UartCounterStatus::Unsupported, {}, ENOTTY});
+  auto bridge = std::make_shared<BridgeNode>(
+    bridgeOptions(pty.slave, {}), source.reader());
+  Probe probe("probe_unsupported_uart_counters");
+  FreshImuFeed feed(pty);
+  {
+    Spinner spinner;
+    spinner.add(bridge);
+    spinner.add(probe.node);
+    spinner.start();
+    // 持续超过诊断周期，计数器停查后仍应原样发布有效 IMU。
+    ASSERT_TRUE(probe.waitImus(70, 4s));
+  }
+  EXPECT_EQ(source.calls(), 1u);
+  const auto info = logs.matching(RCUTILS_LOG_SEVERITY_INFO, "UART");
+  ASSERT_EQ(info.size(), 1u);
+  EXPECT_NE(info.front().find("不支持"), std::string::npos);
+  EXPECT_TRUE(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART").empty());
+}
+
+TEST(BridgeNode, UartCounterQueryErrorsRecoverWithoutFalseHistoricalDelta)
+{
+  LogCapture logs;
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  UartCounterSource source({UartCounterStatus::Error, {}, EIO});
+  auto bridge = std::make_shared<BridgeNode>(
+    bridgeOptions(pty.slave, {}), source.reader());
+  ASSERT_EQ(source.calls(), 1u);
+  EXPECT_EQ(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "查询失败").size(), 1u);
+
+  // 连续两次失败仍只告警一次，且失败不能导致放弃后续轮询。
+  ASSERT_TRUE(waitCounterCalls(source, 2));
+
+  // 首次成功恢复只能建基线，不能将设备开机以来的旧错误报成本次新增。
+  source.set({UartCounterStatus::Ok, {1000000, 2000000, 3000000, 4000000, 5000000}, 0});
+  ASSERT_TRUE(waitCounterCalls(source, 3));
+  EXPECT_EQ(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "查询失败").size(), 1u);
+  EXPECT_TRUE(logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量").empty());
+
+  // 成功恢复后再次出现失败应再次提示，但保留最后一次成功的计数基线。
+  source.set({UartCounterStatus::Error, {}, EIO});
+  ASSERT_TRUE(waitCounterCalls(source, 4));
+  ASSERT_TRUE(logs.waitMatching(RCUTILS_LOG_SEVERITY_WARN, "查询失败", 2));
+
+  // 失败不能清空已有基线；再次恢复后仅报距最后一次成功查询的真实增量。
+  source.set({UartCounterStatus::Ok, {1000001, 2000002, 3000003, 4000004, 5000005}, 0});
+  ASSERT_TRUE(waitCounterCalls(source, 5));
+  ASSERT_TRUE(logs.waitMatching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量", 1));
+  bridge.reset();
+  const auto warnings = logs.matching(RCUTILS_LOG_SEVERITY_WARN, "UART 错误增量");
+  ASSERT_EQ(warnings.size(), 1u);
+  expectUartDeltas(warnings.front(), {1, 2, 3, 4, 5});
 }
 
 int main(int argc, char ** argv)

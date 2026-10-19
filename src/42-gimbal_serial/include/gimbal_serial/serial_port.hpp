@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -14,15 +15,40 @@
 namespace gimbal_serial
 {
 
+// Linux TIOCGICOUNT 返回驱动累计值；查询成功也不代表每个字段都被驱动上报。
+// 使用无符号 32 位保存内核 int 的位模式，允许以模 2^32 差值处理计数回绕。
+struct UartErrorCounters
+{
+  std::uint32_t frame = 0;
+  std::uint32_t parity = 0;
+  std::uint32_t overrun = 0;
+  std::uint32_t brk = 0;
+  std::uint32_t buf_overrun = 0;
+};
+
+enum class UartCounterStatus { Ok, Unsupported, Error };
+
+struct UartCounterResult
+{
+  UartCounterStatus status = UartCounterStatus::Error;
+  UartErrorCounters counters{};
+  int error_number = 0;
+};
+
+// 默认使用真实 ioctl；测试可注入驱动快照，不需要接触真实串口。
+using UartCounterReader = std::function<UartCounterResult(int)>;
+
 class SerialPort
 {
 public:
-  SerialPort() = default;
+  explicit SerialPort(UartCounterReader counter_reader = {});
   ~SerialPort() {close();}
   SerialPort(const SerialPort &) = delete;
   SerialPort & operator=(const SerialPort &) = delete;
 
-  // 打开并配置为 baud、8N1、无流控、raw。任何一步失败都返回 false，err 写明是哪一步，不重试。
+  // 打开并配置为 baud、8N1、无流控、raw，并开启 INPCK 以接收驱动错误事件。
+  // 不启用 PARMRK：合法字节原样接收，驱动标记的坏字节由内核转 NUL 后交协议校验。
+  // 任何一步失败都返回 false，err 写明是哪一步，不重试。
   // 步骤：open(O_RDWR|O_NOCTTY|O_NONBLOCK) -> ioctl(TIOCEXCL) -> flock(LOCK_EX|LOCK_NB) -> termios。
   bool open(const std::string & path, int baud, std::string & err);
   void close();
@@ -40,6 +66,9 @@ public:
   // 写完全部字节（缓冲满时等待），成功返回 true。线程安全（内部有互斥锁）。
   bool writeAll(const std::uint8_t * data, std::size_t size);
 
+  // 只查询驱动错误计数，不读取/清空串口缓冲区；失败不影响串口收发。
+  UartCounterResult readErrorCounters() const;
+
   static bool baudSupported(int baud);
 
 private:
@@ -47,6 +76,7 @@ private:
   int last_errno_ = 0;
   std::string path_;
   std::mutex write_mutex_;
+  UartCounterReader counter_reader_;
 };
 
 // 串口选择（纯函数，便于测试）。

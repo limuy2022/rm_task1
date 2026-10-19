@@ -6,7 +6,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "gimbal_serial/imu_convert.hpp"
@@ -48,8 +50,8 @@ rcl_interfaces::msg::ParameterDescriptor dynamicDescriptor(const std::string & t
 
 }  // namespace
 
-BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
-: rclcpp::Node("robo_bridge", options)
+BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader counter_reader)
+: rclcpp::Node("robo_bridge", options), serial_(std::move(counter_reader))
 {
   const std::string port_param = declare_parameter<std::string>("port", "auto");
   const int baud = static_cast<int>(declare_parameter<int>("baudrate", 921600));
@@ -84,6 +86,8 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options)
     throw SerialOpenError(
             "打开串口失败：" + err, SerialPort::isDeviceAbsentErrno(serial_.lastErrno()));
   }
+  // 打开后立即建立本次会话基线，不把驱动保存的历史错误当作新错误。
+  checkUartErrors();
   // 身份只用于日志：/dev/gimbal 指向错误适配器时，打开成功不会有任何异常。
   const PortIdentity identity = inspectPortIdentity(choice.path);
   const std::string identity_note = identity.by_id.empty()
@@ -194,6 +198,7 @@ double BridgeNode::readSign(const std::string & name)
 void BridgeNode::readLoop()
 {
   std::uint8_t buf[4096];
+  auto next_uart_check = std::chrono::steady_clock::now() + 1s;
   while (running_ && rclcpp::ok()) {
     const ssize_t n = serial_.readSome(buf, sizeof buf, 100);
     if (n < 0) {
@@ -218,6 +223,11 @@ void BridgeNode::readLoop()
       n_bad_addr_ = stats.bad_addr;
       n_bad_func_ = stats.bad_func;
       n_bad_len_ = stats.bad_len;
+    }
+    const auto check_time = std::chrono::steady_clock::now();
+    if (check_time >= next_uart_check) {
+      checkUartErrors();
+      next_uart_check = check_time + 1s;
     }
   }
 }
@@ -333,6 +343,59 @@ void BridgeNode::onDiagTimer()
           static_cast<unsigned long>(n_bad_app_.load()));
       }
     }
+  }
+}
+
+void BridgeNode::checkUartErrors()
+{
+  if (uart_counters_unsupported_) {return;}
+  const auto result = serial_.readErrorCounters();
+  if (result.status == UartCounterStatus::Unsupported) {
+    uart_counters_unsupported_ = true;
+    RCLCPP_INFO(
+      get_logger(), "UART 驱动不支持错误计数查询（errno=%d），继续收发并保留协议帧校验；"
+      "底层错误计数不可用，不代表没有错误。", result.error_number);
+    return;
+  }
+  if (result.status == UartCounterStatus::Error) {
+    const auto query_time = std::chrono::steady_clock::now();
+    // 使用单调时钟限频，仿真 ROS 时钟暂停也不会导致重复刷屏。
+    if (!uart_query_failed_ || query_time - last_uart_query_warning_ >= 5s) {
+      RCLCPP_WARN(
+        get_logger(), "UART 错误计数查询失败（errno=%d: %s），继续收发，下次诊断重试。",
+        result.error_number, std::strerror(result.error_number));
+      last_uart_query_warning_ = query_time;
+    }
+    uart_query_failed_ = true;
+    return;
+  }
+  if (uart_query_failed_) {
+    RCLCPP_INFO(get_logger(), "UART 错误计数查询已恢复。");
+    uart_query_failed_ = false;
+  }
+  if (!have_uart_baseline_) {
+    last_uart_counters_ = result.counters;
+    have_uart_baseline_ = true;
+    RCLCPP_INFO(
+      get_logger(), "UART 驱动错误计数可读取，已建立会话基线；每秒检查增量。"
+      "各字段是否上报取决于驱动，零计数不保证没有底层错误（8N1 不启用线路奇偶校验）。");
+    return;
+  }
+  const auto & current = result.counters;
+  const UartErrorCounters delta{
+    current.frame - last_uart_counters_.frame,
+    current.parity - last_uart_counters_.parity,
+    current.overrun - last_uart_counters_.overrun,
+    current.brk - last_uart_counters_.brk,
+    current.buf_overrun - last_uart_counters_.buf_overrun};
+  last_uart_counters_ = current;
+  if (delta.frame || delta.parity || delta.overrun || delta.brk || delta.buf_overrun) {
+    RCLCPP_WARN(
+      get_logger(), "UART 错误增量：frame=%u parity=%u overrun=%u brk=%u buf_overrun=%u"
+      "（驱动计数，不是完整坏协议帧数）",
+      static_cast<unsigned>(delta.frame), static_cast<unsigned>(delta.parity),
+      static_cast<unsigned>(delta.overrun), static_cast<unsigned>(delta.brk),
+      static_cast<unsigned>(delta.buf_overrun));
   }
 }
 

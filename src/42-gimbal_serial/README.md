@@ -40,10 +40,27 @@ launch 参数留空就沿用 `config/bridge.yaml`。串口打不开时节点直�
 2. 机器上出现 ≥2 颗 CP210x/CH340 类适配器时告警一次，列出全部 by-id 名，并提醒用 `port:=/dev/serial/by-id/<名字>` 显式指定。
 3. 超过 `imu_wait_warn_s` 仍无 0x01 时按累计字节数分支：**0 字节**提示"指向错误适配器或物理无数据（供电/TX-RX 未交叉/未共地），也可能刚上电在温和标定"；**有字节无帧**提示"优先核对波特率 921600 与 TX/RX 接线"。实机排查命令：`lsusb`、`ls -l /dev/serial/by-id/`、`ls -l /dev/gimbal`。
 
+## UART 硬件错误诊断
+
+桥通过 Linux `TIOCGICOUNT` 每秒查询驱动的 UART 错误计数。端口打开后，第一次成功查询只建立基线，不把设备先前累计的错误算作本次运行的错误；之后只有非零增量才输出 WARN：
+
+```text
+UART 错误增量：frame=... parity=... overrun=... brk=... buf_overrun=...
+```
+
+- `frame`：停止位等 UART 帧格式错误；`parity`：奇偶校验错误（当前仍为 8N1，无奇偶校验）。
+- `overrun`：硬件接收溢出；`brk`：break 条件；`buf_overrun`：驱动接收缓冲区溢出。
+
+这些是驱动报告的事件计数，不是完整坏协议帧的数量，也不能与协议校验错或丢帧数一一对应。部分驱动直接不支持查询；另有部分驱动虽可查询，但未实现某些字段，部分 CP210x 兼容芯片也可能不提供错误事件。没有此告警不能证明链路健康。原有帧头、地址、功能号、长度和双校验检测继续生效。
+
+串口以 raw 配置为基础启用 `INPCK` 输入错误检查，让部分 CP210x 驱动能上报错误，仍为 8N1、原波特率，不增加线路奇偶校验位。合法字节保持不变；驱动标记为 framing/parity 错误的字节由 Linux N_TTY 转为 NUL，再交给协议解析器处理，不保证保留坏字节原值。实现依据见 Linux v5.15 的 [CP210x 输入错误事件设置](https://github.com/torvalds/linux/blob/v5.15/drivers/usb/serial/cp210x.c#L1338)和 [N_TTY 错误字节处理](https://github.com/torvalds/linux/blob/v5.15/drivers/tty/n_tty.c#L1148)。
+
+PTY 或驱动不支持该 ioctl 时只输出一次 INFO，继续串口收发；其他查询失败输出限频 WARN，后续仍重试，查询恢复后继续诊断。现场在启动桥的终端查看上述日志：出现非零增量时保存完整日志、端口和波特率，并结合协议错误、IMU 是否持续更新及物理接线排查。软件测试使用 PTY 和查询结果注入，只覆盖诊断与收发的软件行为；真实停止位错误、硬件及驱动缓冲区溢出尚未上机验证。
+
 ## 参数
 
 - `port`（默认 `auto`）：显式写路径时原样使用，此时 `RM_SIM_SERIAL` 被忽略，日志里会提醒。实机建议直接写 `/dev/serial/by-id/<云台适配器的名字>`，见上面的“选口诊断”。
-- `baudrate`（921600）：8N1，无流控，raw 模式。
+- `baudrate`（921600）：8N1，无流控，以 raw 配置为基础启用输入错误检查，见“UART 硬件错误诊断”。
 - `imu_topic`（`/red_standard_robot1/gimbal`）：IMU 发布话题，赛题一要求的名字。
 - `imu_axis_sign`（`[1, 1, 1]`）：只作用于 accel 和 gyro，不作用于 q。每项必须是 1 或 -1。
 - `publish_tf`（true）：TF 只能由 IMU 一方发布。
@@ -178,7 +195,7 @@ MVS SDK library: /opt/MVS/lib/64/libMvCameraControl.so (-> /opt/MVS/lib/64/libMv
 - IMU 话题：从硬编码 `/offboardlink/imu_data` 改为参数 `imu_topic`，默认 `/red_standard_robot1/gimbal`（赛题一要求）。
 - 不包含海康相机驱动源码（`hik_camera_node.cpp`、`hik_sdk_test.cpp`），`WITH_HIK_CAMERA` 默认 `OFF`，AUTO 模式下源码缺失也会跳过；赛题一相机由主办方启动。
 - launch 文件名为 `gimbal_serial.launch.py`。
-- 协议层（帧解析、IMU 换算、TF、串口封装）与原版逐行一致，未做任何改动。
+- 帧解析、IMU 换算和 TF 沿用原协议；串口封装增加 UART 硬件错误计数查询，桥增加相应诊断日志，见“UART 硬件错误诊断”。
 
 ## 测试
 

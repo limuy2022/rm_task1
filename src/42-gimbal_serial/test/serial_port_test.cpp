@@ -16,6 +16,8 @@
 #include "gimbal_serial/serial_port.hpp"
 
 using gimbal_serial::SerialPort;
+using gimbal_serial::UartCounterResult;
+using gimbal_serial::UartCounterStatus;
 
 namespace
 {
@@ -39,6 +41,21 @@ struct Pty
   {
     if (master >= 0) {::close(master);}
   }
+
+  bool seedDirtyTermios()
+  {
+    const int fd = ::open(slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {return false;}
+    termios tio{};
+    bool ok = tcgetattr(fd, &tio) == 0;
+    if (ok) {
+      tio.c_iflag |= IGNPAR | PARMRK | ISTRIP;
+      tio.c_iflag &= ~INPCK;
+      ok = tcsetattr(fd, TCSANOW, &tio) == 0;
+    }
+    ::close(fd);
+    return ok;
+  }
 };
 
 }  // namespace
@@ -47,13 +64,21 @@ TEST(SerialPort, OpenReadWrite)
 {
   Pty pty;
   ASSERT_FALSE(pty.slave.empty());
+  ASSERT_TRUE(pty.seedDirtyTermios());  // 上次打开遗留的输入标志不能污染本次 raw 配置
   SerialPort sp;
   std::string err;
   ASSERT_TRUE(sp.open(pty.slave, 921600, err)) << err;
   EXPECT_TRUE(sp.isOpen());
 
+  // PTY 不实现硬件错误计数；查询不能改变 raw 字节流或妨碍后续收发。
+  const auto counters = sp.readErrorCounters();
+  EXPECT_EQ(counters.status, UartCounterStatus::Unsupported);
+  EXPECT_EQ(counters.error_number, ENOTTY);
+
   // raw 模式：0x0D、0x0A 不能被改写，也不回显
-  const std::vector<std::uint8_t> tx = {0xAA, 0xFF, 0x0D, 0x0A, 0x03, 0x11, 0x13, 0x00, 0x80};
+  const std::vector<std::uint8_t> tx = {
+    0xAA, 0xFF, 0x0D, 0x0A, 0x03, 0x11, 0x13, 0x00, 0x80,
+    0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xEC};
   ASSERT_EQ(write(pty.master, tx.data(), tx.size()), static_cast<ssize_t>(tx.size()));
   std::uint8_t buf[64];
   std::vector<std::uint8_t> rx;
@@ -68,7 +93,8 @@ TEST(SerialPort, OpenReadWrite)
   EXPECT_EQ(sp.readSome(buf, sizeof buf, 20), 0);
 
   // 写：字节原样到达 master
-  const std::vector<std::uint8_t> out = {0xAA, 0xEE, 0x30, 0x08, 0x0A, 0x0D, 0x13};
+  const std::vector<std::uint8_t> out = {
+    0xAA, 0xEE, 0x30, 0x08, 0x0A, 0x0D, 0x13, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xEC};
   ASSERT_TRUE(sp.writeAll(out.data(), out.size()));
   std::vector<std::uint8_t> got;
   for (int i = 0; i < 20 && got.size() < out.size(); ++i) {
@@ -76,6 +102,63 @@ TEST(SerialPort, OpenReadWrite)
     if (n > 0) {got.insert(got.end(), buf, buf + n);} else {usleep(10000);}
   }
   EXPECT_EQ(got, out);
+}
+
+TEST(SerialPort, ErrorCountersRequireOpenPort)
+{
+  SerialPort sp;
+  const auto before_open = sp.readErrorCounters();
+  EXPECT_EQ(before_open.status, UartCounterStatus::Error);
+  EXPECT_EQ(before_open.error_number, EBADF);
+
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  std::string err;
+  ASSERT_TRUE(sp.open(pty.slave, 921600, err)) << err;
+  sp.close();
+  const auto after_close = sp.readErrorCounters();
+  EXPECT_EQ(after_close.status, UartCounterStatus::Error);
+  EXPECT_EQ(after_close.error_number, EBADF);
+}
+
+TEST(SerialPort, InjectedErrorCounterReaderGetsOpenDescriptor)
+{
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  ASSERT_TRUE(pty.seedDirtyTermios());
+  int calls = 0;
+  SerialPort sp([&calls](int fd) {
+    ++calls;
+    EXPECT_GE(fcntl(fd, F_GETFD), 0);
+    termios tio{};
+    const int termios_result = tcgetattr(fd, &tio);
+    EXPECT_EQ(termios_result, 0);
+    if (termios_result == 0) {
+      // 接收错误检测开启，但仍为 8N1；正常 FF 字节不会受 PARMRK 转义影响。
+      EXPECT_NE(tio.c_iflag & INPCK, 0u);
+      EXPECT_EQ(tio.c_iflag & (PARMRK | IGNPAR | ISTRIP), 0u);
+      EXPECT_EQ(tio.c_cflag & PARENB, 0u);
+    }
+    return UartCounterResult{UartCounterStatus::Ok, {11, 22, 33, 44, 55}, 0};
+  });
+  EXPECT_EQ(sp.readErrorCounters().error_number, EBADF);
+  EXPECT_EQ(calls, 0);
+
+  std::string err;
+  ASSERT_TRUE(sp.open(pty.slave, 921600, err)) << err;
+  const auto result = sp.readErrorCounters();
+  EXPECT_EQ(result.status, UartCounterStatus::Ok);
+  EXPECT_EQ(result.error_number, 0);
+  EXPECT_EQ(result.counters.frame, 11u);
+  EXPECT_EQ(result.counters.parity, 22u);
+  EXPECT_EQ(result.counters.overrun, 33u);
+  EXPECT_EQ(result.counters.brk, 44u);
+  EXPECT_EQ(result.counters.buf_overrun, 55u);
+  EXPECT_EQ(calls, 1);
+
+  sp.close();
+  EXPECT_EQ(sp.readErrorCounters().error_number, EBADF);
+  EXPECT_EQ(calls, 1);
 }
 
 TEST(SerialPort, SecondOpenFails)
