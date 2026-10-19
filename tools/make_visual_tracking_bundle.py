@@ -12,7 +12,7 @@ PACKAGES = {**{f'src/{p}': f'src/47-{p}' for p in (
     'gimbal_common', 'gimbal_interfaces', 'gimbal_perception',
     'gimbal_control', 'gimbal_tracker_bringup', 'gimbal_judge_io', 'grid_mapper',
     'gimbal_localization', 'gimbal_estimation', 'chassis_advisor')},
-    '42-gimbal_serial': 'src/47-gimbal_serial'}
+    'src/42-gimbal_serial': 'src/47-gimbal_serial'}
 
 
 def build(output):
@@ -26,7 +26,10 @@ def build(output):
     files['protocol/PROTOCOL.md'] = (ROOT/'protocol/PROTOCOL.md').read_bytes()
     def source_link(match):
         label, package, path = match.groups()
-        target = f'src/47-{package}/{path}' if f'src/{package}' in PACKAGES else f'https://github.com/limuy2022/rm_task1/blob/main/src/{package}/{path}'
+        if f'src/{package}' in PACKAGES:
+            target = PACKAGES[f'src/{package}'] + f'/{path}'
+        else:
+            target = f'https://github.com/limuy2022/rm_task1/blob/main/src/{package}/{path}'
         if not target.startswith('https:'):
             target = '../../' + target
         return f'[{label}]({target})'
@@ -36,7 +39,6 @@ def build(output):
             data = path.read_bytes()
             if path.suffix == '.md':
                 doc = re.sub(r'\[([^\]]+)\]\(../../src/([^/]+)/([^)]+)\)', source_link, data.decode())
-                doc = doc.replace('(../../42-gimbal_serial/', '(../../src/47-gimbal_serial/')
                 doc = doc.replace('(../../gimbal-edu-tools/', '(https://github.com/limuy2022/rm_task1/blob/main/gimbal-edu-tools/')
                 data = doc.encode()
             files[path.relative_to(ROOT).as_posix()] = data

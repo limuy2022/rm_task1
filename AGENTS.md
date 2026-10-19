@@ -4,8 +4,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 
 ## 目录结构
 
-- `src/` — 13 个 Python ROS2 包（ament setup.py 布局）：感知、估计、控制、串口桥、定位、建图、评分、bringup 等。
-- `42-gimbal_serial/` — C++ 串口协议包，colcon 包名为 `gimbal_serial_42`（gtest）。
+- `src/` — 14 个 ROS2 包：12 个 Python 包（ament setup.py 布局，感知/估计/控制/串口桥/定位/建图/评分/bringup 等）+ `gimbal_interfaces`、`42-gimbal_serial` 两个 ament_cmake 包；`42-gimbal_serial` 为 C++ 串口协议包，colcon 包名 `gimbal_serial_42`（gtest）。
 - `tools/` — 离线验证与评分脚本；`verify_all_offline.py` 是全量离线核验编排入口。
 - `docs/` — `教程/`（含测试、标定、上机步骤）、`原理/`、`记录/`；改动相关模块前先读对应教程。
 - `gimbal-edu-tools/` — git 子模块，`test_consistency` 校验其中 `virtual_gimbal` 的 entry_points，克隆后必须检出（`git submodule update --init --recursive`）。

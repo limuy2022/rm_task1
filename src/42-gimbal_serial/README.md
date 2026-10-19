@@ -6,7 +6,7 @@
 
 - 从串口收 0x01 帧（IMU，500Hz），发布 `/red_standard_robot1/gimbal`（`sensor_msgs/Imu`，赛题一要求的话题名，可用 `imu_topic` 参数改）和 TF `world -> gimbal_link`。
 - 可选：订阅 `/offboardlink/cmd_vel_gimbal`（`geometry_msgs/Twist`，可用 `cmd_vel_topic` 参数改），把 `angular.z`（yaw）和 `angular.y`（pitch）当作关节角速度，每收到一条消息转发一帧 0x30。不做保活，持续跟踪要自己持续发布话题。
-- 本副本供赛题一使用，是从 `gimbal-edu-tools/robo_bridge_edu` 复制后改名（包名 `gimbal_serial_42`，目录 `42-gimbal_serial`），**不包含**海康相机驱动源码（`hik_camera_node`），相机由主办方启动，见下面的“海康相机（可选）”。
+- 本副本供赛题一使用，是从 `gimbal-edu-tools/robo_bridge_edu` 复制后改名（包名 `gimbal_serial_42`，目录 `42-gimbal_serial`，位于仓库 `src/` 下），**不包含**海康相机驱动源码（`hik_camera_node`），相机由主办方启动，见下面的“海康相机（可选）”。
 - 同一时刻只能有一个进程打开串口。
 
 ## 使用
@@ -174,7 +174,7 @@ MVS SDK library: /opt/MVS/lib/64/libMvCameraControl.so (-> /opt/MVS/lib/64/libMv
 
 ## 与 gimbal-edu-tools/robo_bridge_edu 的差别
 
-- 目录与包名：`42-gimbal_serial` / `gimbal_serial_42`（赛题要求 `~/ws_championship/src/<队伍编号>-<名称>`），命名空间 `gimbal_serial`，可执行文件仍为 `robo_bridge_node`。
+- 目录与包名：`src/42-gimbal_serial` / `gimbal_serial_42`（赛题要求 `~/ws_championship/src/<队伍编号>-<名称>`），命名空间 `gimbal_serial`，可执行文件仍为 `robo_bridge_node`。
 - IMU 话题：从硬编码 `/offboardlink/imu_data` 改为参数 `imu_topic`，默认 `/red_standard_robot1/gimbal`（赛题一要求）。
 - 不包含海康相机驱动源码（`hik_camera_node.cpp`、`hik_sdk_test.cpp`），`WITH_HIK_CAMERA` 默认 `OFF`，AUTO 模式下源码缺失也会跳过；赛题一相机由主办方启动。
 - launch 文件名为 `gimbal_serial.launch.py`。

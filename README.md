@@ -12,7 +12,7 @@ bash "$HOME/ws_championship/src/47-visual-tracking-20261018-r3/run_here.bash" ta
 
 默认只看不动；真实串口模式加 `with_bridge:=true port:=/dev/ttyUSB0`，由人在参数终端开启 motion_enabled。停止在启动终端 Ctrl+C，或设置 motion_enabled=false。先做 3 秒单轴方向试验，再做两轴。参数默认值、调整现象和保存方法见[调参检查清单](docs/教程/上机调参检查清单.md)。
 
-代码保留在 src 与既有 42-gimbal_serial；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
+代码统一保留在 src（含 C++ 串口包 42-gimbal_serial）；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
 
 本机完成实际写出器 180 秒/1800 行基线：漏拍 0，读者可见延迟平均 1.73ms、最大 31.62ms；没有 ROS/DDS，也不代表 NUC 验收。点云地图、预测对比与其它离线结果见 docs/验证 的 JSON；原始实验产物不提交 Git。
 

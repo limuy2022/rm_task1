@@ -170,7 +170,7 @@ def test_c_launch_references_match_entry_points(entry_points):
             if (pkg, exe) == ('point_lio', 'pointlio_mapping'):
                 continue  # original navigation package, not copied into core src
             if (pkg, exe) == ('gimbal_serial_42', 'robo_bridge_node'):
-                bridge = os.path.join(SRC_DIR, '..', '42-gimbal_serial')
+                bridge = os.path.join(SRC_DIR, '42-gimbal_serial')
                 with open(os.path.join(bridge, 'CMakeLists.txt'), encoding='utf-8') as f:
                     cmake = f.read()
                 assert 'add_executable(robo_bridge_node src/robo_bridge_node_main.cpp)' in cmake
@@ -239,7 +239,7 @@ def test_d_included_launch_files_exist():
                 os.path.join(os.path.dirname(lf), name),
                 os.path.join(PKG_DIR, 'launch', name),
                 os.path.join(PKG_DIR, 'launch', 'include', name),
-                os.path.join(SRC_DIR, '..', '42-gimbal_serial', 'launch', name),
+                os.path.join(SRC_DIR, '42-gimbal_serial', 'launch', name),
             ]
             if not any(os.path.isfile(c) for c in candidates):
                 bad.append('%s 引用了不存在的 %s' % (_rel(lf), name))

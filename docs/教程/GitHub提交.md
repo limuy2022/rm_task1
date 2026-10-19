@@ -5,7 +5,7 @@
 ## A 在 Mac 上提交
 
 1. 打开 GitHub Desktop，左上选择 rm_task1。菜单 Repository → Show in Finder，确认打开的是上面的 rm_task1-repo。
-2. 点 Changes。代码和教程都要提交：src、42-gimbal_serial、tools、docs、README、.gitignore 中本次实际出现的变更。没有改动的目录不会显示，正常。
+2. 点 Changes。代码和教程都要提交：src、tools、docs、README、.gitignore 中本次实际出现的变更。没有改动的目录不会显示，正常。
 3. 这次会出现很多红色删除：旧 docs/vision 中整份源码副本、旧 docs/当前任务 和阶段一旧教程已清理；新的独立教程在 docs/教程。**这些删除也要勾上**，否则 GitHub 仍留着重复旧文件。G 历史记录保留了你的本地修改。
 4. 不选 .venv、build、install、log、ZIP、实验 bag/CSV/地图或现场原始照片。它们不是本次源码提交；正常会被 .gitignore 排除。
 5. Summary 填 `接通跟踪与点云建图，整理调参和上机教程`，点 Commit to 当前分支。Commit 只是存到本机，还没有上传。

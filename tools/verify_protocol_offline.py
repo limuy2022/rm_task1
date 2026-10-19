@@ -32,9 +32,9 @@ def main():
     executable = build / 'verify_protocol_offline'
     command = compiler + ['-std=c++17', '-Wall', '-Wextra', '-Werror', '-O1', '-g',
                '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-pthread',
-               '-I', str(root / '42-gimbal_serial/include'),
+               '-I', str(root / 'src/42-gimbal_serial/include'),
                str(root / 'tools/verify_protocol_offline.cpp'),
-               str(root / '42-gimbal_serial/src/serial_port.cpp'), '-o', str(executable)]
+               str(root / 'src/42-gimbal_serial/src/serial_port.cpp'), '-o', str(executable)]
     subprocess.run(command, check=True, timeout=90)
     master, slave = os.openpty()  # OS allocates a fresh virtual terminal only.
     process = None
