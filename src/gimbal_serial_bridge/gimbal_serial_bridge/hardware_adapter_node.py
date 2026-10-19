@@ -6,6 +6,7 @@ from rclpy.node import Node
 from std_msgs.msg import UInt64
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Twist
+from gimbal_common.log_utils import get_logger
 from gimbal_interfaces.msg import GimbalState, GimbalOmegaCmd
 from gimbal_common.frames import quat_to_mat, decompose_yaw_pitch
 from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
@@ -30,12 +31,12 @@ class HardwareAdapter(Node):
         self.create_subscription(UInt64,'/task1/gimbal_reset_epoch',self.on_epoch,
                                  latched_qos(1))
         self.create_timer(.02,self.tick)
-        self.get_logger().warning('指令转发默认关闭；只适配消息，不知道固件enabled/CAN/机械关节角')
+        self._log=get_logger(self,'hw_adapter'); self._log.warning('指令转发默认关闭；只适配消息，不知道固件enabled/CAN/机械关节角')
 
     def on_epoch(self,msg):
         if self.epoch is not None and msg.data != self.epoch:
             self.gate.reset()
-            self.get_logger().error('MCU已复位：停止转发；原world对齐失效，重新标定后方可重新启用')
+            self._log.error('MCU已复位：停止转发；原world对齐失效，重新标定后方可重新启用')
         self.epoch=msg.data
 
     def on_imu(self,msg):
@@ -83,7 +84,7 @@ class HardwareAdapter(Node):
         before=self.gate.fault
         value=self.gate.output(now)
         if self.gate.fault and not before:
-            self.get_logger().error('IMU/指令过期，停止转发；恢复后需先禁用再显式启用')
+            self._log.error('IMU/指令过期，停止转发；恢复后需先禁用再显式启用')
         if value is None:
             return
         cmd=Twist();cmd.angular.z=float(value[0]);cmd.angular.y=float(value[1])

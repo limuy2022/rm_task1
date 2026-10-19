@@ -229,13 +229,13 @@ class TickCsvWriter:
             t = float('nan')
         if not math.isfinite(t):
             self._n_dropped += 1
-            self._emit('warn', 't_tick 非有限，本拍不写（累计 %d）' % self._n_dropped)
+            self._emit('warning', 't_tick 非有限，本拍不写（累计 %d）' % self._n_dropped)
             return False
         serialized_tick = '%.6f' % t
         key = _tick_key(serialized_tick)
         if self._last_tick is not None and key <= self._last_tick:
             self._n_dropped += 1
-            self._emit('warn', '重复或倒序tick %s，本拍不重复追加' % serialized_tick)
+            self._emit('warning', '重复或倒序tick %s，本拍不重复追加' % serialized_tick)
             return False
 
         raw = [self._f(pred, 0), self._f(pred, 1),
@@ -251,7 +251,7 @@ class TickCsvWriter:
                 bad = True
         if bad:
             self._n_guarded += 1
-            self._emit('warn', '出现非有限值，已用上一次有效值兜底（累计 %d）'
+            self._emit('warning', '出现非有限值，已用上一次有效值兜底（累计 %d）'
                        % self._n_guarded)
 
         line = format_row(out[0:2], out[2:4], out[4:6], out[6:8], t)

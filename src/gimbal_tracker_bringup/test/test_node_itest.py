@@ -147,19 +147,7 @@ class _FakeNode(object):
     def get_logger(self) -> Any:
         import logging
 
-        class _Proxy(object):
-            """让 `warn()` 走 `warning()`（对齐 rclpy 语义，消除 DeprecationWarning）。"""
-
-            def __init__(self, inner: Any) -> None:
-                self._inner = inner
-
-            def warn(self, *a: Any, **kw: Any) -> Any:
-                return self._inner.warning(*a, **kw)
-
-            def __getattr__(self, item: str) -> Any:
-                return getattr(self._inner, item)
-
-        return _Proxy(logging.getLogger('gt_error_monitor_node'))
+        return logging.getLogger('gt_error_monitor_node')
 
     # -- 便捷
     @property

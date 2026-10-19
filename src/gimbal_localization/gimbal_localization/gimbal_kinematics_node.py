@@ -12,6 +12,7 @@ from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import UInt64
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 from gimbal_common import frames as FR
+from gimbal_common.log_utils import get_logger
 from gimbal_common.qos_utils import latched_qos, sensor_qos
 from gimbal_common.time_buffer import stamp_seconds
 from .gimbal_kinematics import GimbalKinematics, SynchronizedKinematics, quaternion_rotation
@@ -56,13 +57,13 @@ class GimbalKinematicsNode(Node):
         self.create_subscription(UInt64, '/task1/gimbal_reset_epoch', self.on_epoch,
                                  latched_qos(1))
         self.create_timer(.01, self.tick)
-        self.get_logger().info('派生关节角并非编码器反馈；标定/安装/epoch未确认时不发布有效TF或关节')
+        self._log = get_logger(self, 'kinematics'); self._log.info('派生关节角并非编码器反馈；标定/安装/epoch未确认时不发布有效TF或关节')
 
     def now_sec(self): return self.get_clock().now().nanoseconds*1e-9
 
     def on_epoch(self, msg):
         self.sync.observe_epoch(msg.data)
-        if self.sync.fault: self.get_logger().error(self.sync.last_error)
+        if self.sync.fault: self._log.error(self.sync.last_error)
 
     def on_base(self, msg):
         try:

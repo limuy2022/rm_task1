@@ -212,7 +212,7 @@ def ros_adapter_check(tmp):
         def create_service(self,*a):return None
         def create_timer(self,*a):return None
         def get_clock(self):return NS(now=lambda:NS(nanoseconds=int(self.ros_time*1e9)))
-        def get_logger(self):return NS(info=lambda _:None,warn=lambda _:None)
+        def get_name(self):return 'cloud_mapping'
     mod=ast.parse((ROOT/'src/grid_mapper/grid_mapper/cloud_mapping_node.py').read_text())
     nodes=[n for n in mod.body if isinstance(n,(ast.FunctionDef,ast.ClassDef)) and n.name in ['stamp_seconds','CloudMappingNode']]
     from collections import deque
@@ -221,7 +221,8 @@ def ros_adapter_check(tmp):
            'ReliabilityPolicy':NS(BEST_EFFORT=1,RELIABLE=2),'DurabilityPolicy':NS(TRANSIENT_LOCAL=3),
            'CloudGrid':CloudGrid,'PoseHistory':PoseHistory,'pointcloud2_xyz':pointcloud2_xyz,
            'OccupancyGrid':Msg,'String':Msg,'PointCloud2':Msg,'Odometry':Msg,'Trigger':Msg,
-           'deque':deque,'json':json,'os':os,'re':re,'math':math,'tempfile':tempfile,'time':time,'write_map':write_map}
+           'deque':deque,'json':json,'os':os,'re':re,'math':math,'tempfile':tempfile,'time':time,'write_map':write_map,
+           'get_logger':lambda node,name:NS(info=lambda *_:None,warning=lambda *_:None)}
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'cloud_mapping_node.py','exec'),scope)
     n=scope['CloudMappingNode']()
     n.origin_model_confirmed=True;n.parameters['floor_confirmed']=True;n.parameters['floor_z']=-.78;n.output=str(tmp/'adapter')

@@ -243,7 +243,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         except (ValueError, TypeError, OverflowError) as exc:
             # 外部坏地图不能继续用于方向建议；下一条有效地图可恢复。
             self._has_grid = False
-            throttled(self._log, 'warning', f'ray_grid 拒绝: {exc!r}', 'ray_grid', 1.)
+            throttled(self._log, 'warning', f'ray_grid 拒绝: {exc!r}', 'ray_grid')
 
     def _on_clean_grid(self, msg: Any) -> None:
         try:
@@ -260,7 +260,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         except (ValueError, TypeError, OverflowError) as exc:
             # 外部坏地图不能继续用于方向建议；下一条有效地图可恢复。
             self._has_clean_grid = False
-            throttled(self._log, 'warning', f'grid 拒绝: {exc!r}', 'clean_grid', 1.)
+            throttled(self._log, 'warning', f'grid 拒绝: {exc!r}', 'clean_grid')
 
     def _on_base_pose(self, msg: Any) -> None:
         try:
@@ -283,7 +283,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         except (ValueError, TypeError, OverflowError) as exc:
             # 错坐标/无效姿态属于输入故障，清除有效标志而非使用旧位置。
             self._has_base = False
-            throttled(self._log, 'warning', f'base_pose 拒绝: {exc!r}', 'base_pose', 1.)
+            throttled(self._log, 'warning', f'base_pose 拒绝: {exc!r}', 'base_pose')
 
     def _on_target(self, msg: Any) -> None:
         try:
@@ -307,7 +307,7 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         except (ValueError, TypeError, OverflowError) as exc:
             # 丢失或损坏的目标观测不能产生建议速度。
             self._mark_lost()
-            throttled(self._log, 'warning', f'target 拒绝: {exc!r}', 'target', 1.)
+            throttled(self._log, 'warning', f'target 拒绝: {exc!r}', 'target')
 
     def _mark_lost(self) -> None:
         self._has_target = False
@@ -439,9 +439,9 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         msg.valid = bool(valid)
         self._pub.publish(msg)
         if blocked:
-            throttled(self._log, 'warn',
+            throttled(self._log, 'warning',
                       '没有得到可验证的可行方向，保持零建议；不会强造朝目标速度',
-                      'chassis_advisor.blocked', 1.0)
+                      'chassis_advisor.blocked')
 
     def shutdown(self) -> None:
         """退出日志摘要。"""

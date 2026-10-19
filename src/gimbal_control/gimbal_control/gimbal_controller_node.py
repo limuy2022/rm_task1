@@ -476,7 +476,7 @@ class GimbalControllerNode(Node):
             self._log.info('收到 T_map←world：theta=%.4f rad', math.atan2(R[1, 0], R[0, 0]))
         except (TypeError, ValueError, OverflowError) as exc:
             # 外部 TF 数值非法时不能建立 world/map 对齐；保持未对齐、停止输出。
-            throttled(self._log, 'error', 'on_t_map_world 异常: %s' % exc, 'tmw_exc', 1.0)
+            throttled(self._log, 'error', 'on_t_map_world 异常: %s' % exc, 'tmw_exc')
 
     def on_target_state(self, msg: TargetState) -> None:
         """Estimator publication must not renew the last real observation."""
@@ -535,7 +535,7 @@ class GimbalControllerNode(Node):
             self._t_last_marker = now() - self._source_age(marker_time)
         except (TypeError, ValueError, OverflowError) as exc:
             # 外部观测或姿态数组非法时不更新高度，时效门禁会停止控制。
-            throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc', 1.0)
+            throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc')
 
     # ------------------------------------------------------------------ 计算
     def gimbal_origin_world(self) -> np.ndarray:
@@ -624,7 +624,7 @@ class GimbalControllerNode(Node):
                 msg.pitch_omega = 0.0
                 msg.valid = False
                 self._stop(msg)
-                throttled(self._log, 'warn', '云台姿态缺失或过期，输出无效零指令', 'no_state', 1.0)
+                throttled(self._log, 'warning', '云台姿态缺失或过期，输出无效零指令', 'no_state')
                 return
 
             age = self._target_age(t)
@@ -634,7 +634,7 @@ class GimbalControllerNode(Node):
             quat = np.asarray(self._gimbal_state.quat, dtype=np.float64).reshape(4)
             qn = float(np.linalg.norm(quat))
             if not np.all(np.isfinite(quat)) or qn < 0.5:
-                throttled(self._log, 'warn', '云台四元数异常，发零指令保活', 'bad_quat', 1.0)
+                throttled(self._log, 'warning', '云台四元数异常，发零指令保活', 'bad_quat')
                 msg.yaw_omega = 0.0
                 msg.pitch_omega = 0.0
                 msg.valid = False
@@ -713,7 +713,7 @@ class GimbalControllerNode(Node):
                 return
 
             if mode != self._last_mode:
-                self._log.warn('控制模式切换: %s → %s（age=%.3fs）', self._last_mode, mode, age)
+                self._log.warning('控制模式切换: %s → %s（age=%.3fs）', self._last_mode, mode, age)
                 self._last_mode = mode
 
             msg.yaw_omega = float(w_yaw)
@@ -723,7 +723,7 @@ class GimbalControllerNode(Node):
         except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError) as exc:
             # 动态参数/外部观测导致数值失败时，先清斜坡并发停止，不沿用上一拍输出。
             self._law.reset()
-            throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc', 1.0)
+            throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc')
             self.publish_stop()
 
     # ------------------------------------------------------------------ 收尾

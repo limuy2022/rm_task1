@@ -137,7 +137,7 @@ def test_emit_mixed_severities_keep_levels():
     raw = _SeverityContextLogger()
     w = TickCsvWriter('unused.csv', logger=raw)
     w._emit('info', 'a')
-    w._emit('warn', 'b')
+    w._emit('warning', 'b')
     w._emit('error', 'c')
     assert [c[0] for c in raw.calls] == [20, 30, 40]
 

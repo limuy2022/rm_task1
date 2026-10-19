@@ -66,7 +66,7 @@ def test_throttled_mixed_severities_do_not_collide():
     raw = SeverityContextLogger()
     from gimbal_common import log_utils
     log_utils.reset_throttle()
-    throttled(raw, 'warn', 'w1', 'k1', 0.0)
+    throttled(raw, 'warning', 'w1', 'k1', 0.0)
     throttled(raw, 'error', 'e1', 'k2', 0.0)
     throttled(raw, 'info', 'i1', 'k3', 0.0)
     assert [c[0] for c in raw.calls] == [30, 40, 20]

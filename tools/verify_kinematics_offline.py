@@ -42,7 +42,7 @@ class KinematicsTests(unittest.TestCase):
                 kinematics_node_module.GimbalKinematicsNode)
             clock = NS(now=1000.04)
             node.get_clock = lambda: NS(now=lambda: NS(nanoseconds=round(clock.now*1e9)))
-            node.get_logger = lambda: logger
+            node._log = logger
             merged = dict(kinematics_node_module.DEFAULTS); merged.update(overrides)
             node.cfg = {k.removeprefix('kinematics.'): v for k, v in merged.items()}
             model = GimbalKinematics(node.cfg) if node.cfg['calibration_confirmed'] else None

@@ -1,5 +1,7 @@
 # RoboMaster 赛题一
 
+[![CI](https://github.com/limuy2022/rm_task1/actions/workflows/ci.yml/badge.svg)](https://github.com/limuy2022/rm_task1/actions/workflows/ci.yml)
+
 当前已有独立图像跟踪程序：ArUco → 图像偏差 → P/PI/PD/PID → 两轴角速度 → C++ 串口桥。它不等待地图或底盘定位；默认运动关闭。云台通信已确认 ttyUSB0、IMU 轴 [1,1,1]；新相机 K/D 已更新。真实转动效果仍待 NUC 试验。
 
 按[云台跟踪教程](docs/教程/云台跟踪.md)将源码包装到自己的独立 NUC 目录后运行：

@@ -1,10 +1,10 @@
 """统一日志封装：前缀 ``[<node>.<name>]`` + 基于单调时钟的节流。
 
-* ``get_logger(node, name)`` 返回 rclpy logger（名为 ``<node_name>.<name>``，
-  rclpy 输出已自带 ``[node_name]`` 前缀）。
+* ``get_logger(node, name)`` 返回包装后的 rclpy logger（名为
+  ``<node_name>.<name>``，rclpy 输出已自带 ``[node_name]`` 前缀）。
 * ``throttled(...)`` 用 :func:`gimbal_common.time_utils.now` 做节流，
   **不用** 墙上时钟，避免系统时钟跳变导致节流失效。
-* 状态迁移 / 首次冻结 / reinit / 丢失重捕获等必打日志用 WARN 或 INFO。
+* 状态迁移 / 首次冻结 / reinit / 丢失重捕获等必打日志用 WARNING 或 INFO。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from . import time_utils
 
 __all__ = ['emit', 'get_logger', 'throttled', 'reset_throttle', 'LEVELS']
 
-LEVELS = ('debug', 'info', 'warn', 'error', 'fatal')
+LEVELS = ('debug', 'info', 'warning', 'error', 'fatal')
 
 _LAST_EMIT: Dict[str, float] = {}
 
@@ -54,9 +54,9 @@ def _log_fatal(logger: Any, message: str) -> None:
 _EMIT_BY_LEVEL = {
     'debug': _log_debug, 10: _log_debug,
     'info': _log_info, 20: _log_info,
-    'warn': _log_warning, 'warning': _log_warning, 30: _log_warning,
+    'warning': _log_warning, 30: _log_warning,
     'error': _log_error, 40: _log_error,
-    'fatal': _log_fatal, 'critical': _log_fatal, 50: _log_fatal,
+    'fatal': _log_fatal, 50: _log_fatal,
 }
 
 
@@ -71,21 +71,35 @@ def emit(logger: Any, level: Union[str, int], msg: str) -> None:
 
 
 class _FormatLogger:
-    """把既有logging风格的格式参数转成rclpy要求的单个消息字符串。"""
-    def __init__(self, logger):
+    """把 logging 风格的 ``%``-style 参数转成单条消息字符串。
+
+    只暴露标准等级方法（``warning`` 而非 ``warn``）；每个方法都经
+    模块级 ``_log_*`` 函数分发，保持 rclpy 按调用点帧缓存严重级的约束。
+    """
+
+    def __init__(self, logger: Any) -> None:
         self._logger = logger
 
-    def __getattr__(self, name):
-        if name not in _EMIT_BY_LEVEL:
-            return getattr(self._logger, name)
-        emit_fn = _EMIT_BY_LEVEL[name]
-        logger = self._logger
-        def emit(message, *args):
-            return emit_fn(logger, message % args if args else message)
-        return emit
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._logger, name)
+
+    def debug(self, message: str, *args: Any) -> None:
+        _log_debug(self._logger, message % args if args else message)
+
+    def info(self, message: str, *args: Any) -> None:
+        _log_info(self._logger, message % args if args else message)
+
+    def warning(self, message: str, *args: Any) -> None:
+        _log_warning(self._logger, message % args if args else message)
+
+    def error(self, message: str, *args: Any) -> None:
+        _log_error(self._logger, message % args if args else message)
+
+    def fatal(self, message: str, *args: Any) -> None:
+        _log_fatal(self._logger, message % args if args else message)
 
 
-def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
+def get_logger(node: Any = None, name: str = 'gimbal') -> _FormatLogger:
     """取得带节点前缀的 logger。
 
     Args:
@@ -93,7 +107,7 @@ def get_logger(node: Any = None, name: str = 'gimbal') -> Any:
         name: 子节点/模块名，用于日志定位。
 
     Returns:
-        rclpy logger。
+        包装后的 rclpy logger。
     """
     base = node.get_name() if node is not None else 'gimbal'
     return _FormatLogger(rclpy.logging.get_logger(f'{base}.{name}'))
@@ -105,7 +119,7 @@ def throttled(logger: Any, level: Union[str, int], msg: str, key: str,
 
     Args:
         logger: 日志对象。
-        level: ``'debug'/'info'/'warn'/'error'/'fatal'``。
+        level: ``'debug'/'info'/'warning'/'error'/'fatal'``。
         msg: 日志内容。
         key: 节流键（全局唯一，建议带上节点/模块名）。
         period_s: 节流周期（秒）。

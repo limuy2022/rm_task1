@@ -15,6 +15,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String, UInt64
 from gimbal_interfaces.msg import MarkerCorners
+from gimbal_common.log_utils import get_logger
 from gimbal_common.config_loader import load_yaml
 from gimbal_common.qos_utils import latched_qos, sensor_qos
 from .visual_pid import AxisPID, ErrorConditioner
@@ -85,7 +86,7 @@ class VisualServoNode(Node):
         self.last_tick = time.monotonic(); self.last_status = 0.
         self.control_hz = 50.
         self.timer = self.create_timer(1./self.control_hz, self.tick)
-        self.get_logger().info('图像PID就绪：motion_enabled=false时不发串口速度；不需要地图/底盘TF')
+        self._log = get_logger(self, 'visual_servo'); self._log.info('图像PID就绪：motion_enabled=false时不发串口速度；不需要地图/底盘TF')
 
     def p(self, name): return self.get_parameter(name).value
 
@@ -286,7 +287,7 @@ class VisualServoNode(Node):
         except (TypeError, ValueError, OverflowError) as exc:
             # 运行时参数来自ROS服务；非法值锁故障并停止，不沿用旧输出。
             self.fault = str(exc); self.stop()
-            self.get_logger().error('图像PID已停止：'+str(exc))
+            self._log.error('图像PID已停止：'+str(exc))
 
     def shutdown_stop(self):
         if self.sent_motion or self.stop_frames:

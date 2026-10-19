@@ -144,7 +144,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         origin_xyz, warn = resolve_map_origin(self._grid_map,
                                               self._params['grid.origin_xyz'])
         if warn:
-            self._log.warn(warn)
+            self._log.warning(warn)
         try:
             stem = str(self._params['grid.output_basename'])
             paths = write_map(out_dir, self._grid_map, image_name=stem+'.pgm',
@@ -160,7 +160,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
                 draw_preview(self._grid_map, png_path, boundary=boundary)
                 self._log.info('预览图已落盘: %s' % png_path)
             except (ImportError, OSError) as exc:  # 可选 PNG 导出调用失败不影响 PGM/YAML；模块导入错误直接暴露。
-                self._log.warn('预览图绘制失败: %r' % (exc,))
+                self._log.warning('预览图绘制失败: %r' % (exc,))
         st = self._grid_map.stats()
         self._log.info('建图完成: %dx%d @ %.3fm/cell, origin=(%.2f,%.2f), '
                        'occ=%d free=%d unk=%d ray_occ=%d'
@@ -212,7 +212,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         except (TransformException, ValueError, TypeError, OverflowError) as exc:
             # 外部坏地图不替换有效地图；对应时刻的 TF 尚未产生时保留消息重试。
             throttled(self._log, 'warning', f'地图暂未接入（等待有效地图/对应时刻TF）: {exc!r}',
-                      'grid_mapper.ext_map_err', 1.0)
+                      'grid_mapper.ext_map_err')
 
     def _on_republish(self) -> None:
         """周期性重发锁存话题（默认关闭）。"""

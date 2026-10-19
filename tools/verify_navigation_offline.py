@@ -21,6 +21,7 @@ for package in ('gimbal_common', 'gimbal_localization', 'grid_mapper'):
     sys.path.insert(0, str(ROOT/'src'/package))
 from builtin_interfaces.msg import Time as Stamp
 from nav_msgs.msg import Odometry, OccupancyGrid
+from tf2_ros import TransformException
 
 from gimbal_localization import base_pose_provider_node as provider_module
 from gimbal_localization.base_pose_source import OdomTopicSource
@@ -212,14 +213,16 @@ class RosAdapterTests(unittest.TestCase):
         saved=[];outputs=[]
         available=[False]
         def lookup(*args,**kwargs):
-            if not available[0]:raise RuntimeError('origin TF not yet available')
+            # 真实 lookup_transform 找不到 TF 时抛 TransformException 族（节点
+            # 据此保留消息重试）；裸 RuntimeError 不在节点捕获范围内。
+            if not available[0]:raise TransformException('origin TF not yet available')
             return NS(transform=NS(translation=NS(x=3.,y=4.,z=0.),
                                   rotation=NS(x=0.,y=0.,z=math.sqrt(.5),w=math.sqrt(.5))))
         app=adapter.GridMapperNode.__new__(adapter.GridMapperNode)
         app._params={'grid.source_frame':'lio_map','grid.inflation_radius_m':0.}
         app._output_frame='map';app._pending_external=None;app._grid_map=None
         app._tf_buffer=NS(lookup_transform=lookup)
-        app._log=NS(warning=lambda text:None,warn=lambda *a:None,
+        app._log=NS(warning=lambda text:None,
                     error=lambda *a:None,info=lambda *a:None)
         app._save_outputs=lambda:saved.append(True)
         app._pub_grid=NS(publish=outputs.append);app._pub_ray=NS(publish=outputs.append)

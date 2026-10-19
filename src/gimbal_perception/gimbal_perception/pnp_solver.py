@@ -109,7 +109,6 @@ class PnpSolver:
             self.set_intrinsics(fx, fy, cx, cy, dist)
         self._rvec_prev: Optional[np.ndarray] = None
         self._tvec_prev: Optional[np.ndarray] = None
-        self._has_ippe: bool = hasattr(cv2, 'SOLVEPNP_IPPE_SQUARE')
 
     @classmethod
     def from_camera_config(cls, cam_cfg: dict, **kwargs) -> 'PnpSolver':
@@ -212,17 +211,10 @@ class PnpSolver:
 
         candidates = []
         try:
-            if self._has_ippe:
-                if hasattr(cv2, 'solvePnPGeneric'):
-                    result = cv2.solvePnPGeneric(self._obj, obs, self._K, self._D,
-                                                flags=cv2.SOLVEPNP_IPPE_SQUARE)
-                    if result[0]:
-                        candidates.extend(zip(result[1], result[2]))
-                else:
-                    ok, r, t = cv2.solvePnP(self._obj, obs, self._K, self._D,
-                                           flags=cv2.SOLVEPNP_IPPE_SQUARE)
-                    if ok:
-                        candidates.append((r, t))
+            result = cv2.solvePnPGeneric(self._obj, obs, self._K, self._D,
+                                         flags=cv2.SOLVEPNP_IPPE_SQUARE)
+            if result[0]:
+                candidates.extend(zip(result[1], result[2]))
         except cv2.error:
             # IPPE 对部分平面观测会拒绝求解；保留实际 ITERATIVE 候选比较。
             pass
@@ -234,16 +226,15 @@ class PnpSolver:
                 evaluated.append(result)
             # LM fixes the near-fronto-parallel IPPE degeneracy present in older
             # OpenCV builds. Keep the original candidate if refinement worsens it.
-            if hasattr(cv2, 'solvePnPRefineLM'):
-                try:
-                    rr, tt = cv2.solvePnPRefineLM(self._obj, obs, self._K, self._D,
-                                                 np.asarray(r).copy(), np.asarray(t).copy())
-                    refined = self._evaluate(rr, tt, obs)
-                    if refined is not None:
-                        evaluated.append(refined)
-                except cv2.error:
-                    # 观测可能无法完成 LM 精化，仍可评估本次未精化的候选。
-                    pass
+            try:
+                rr, tt = cv2.solvePnPRefineLM(self._obj, obs, self._K, self._D,
+                                             np.asarray(r).copy(), np.asarray(t).copy())
+                refined = self._evaluate(rr, tt, obs)
+                if refined is not None:
+                    evaluated.append(refined)
+            except cv2.error:
+                # 观测可能无法完成 LM 精化，仍可评估本次未精化的候选。
+                pass
 
         # Compare a fresh planar ITERATIVE initialization even if an IPPE branch
         # is below the rejection threshold: fronto-parallel IPPE failures can

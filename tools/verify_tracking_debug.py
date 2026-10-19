@@ -67,9 +67,6 @@ class HarnessNode:
     def get_clock(self):
         return SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=round(self.clock*1e9)))
 
-    def get_logger(self):
-        return SimpleNamespace(warning=self.warns.append)
-
     def create_publisher(self, message_type, topic, qos):
         assert message_type is Image and topic == 'debug_image'
         return SimpleNamespace(publish=lambda message: self.published.append(copy.deepcopy(message)))
@@ -92,7 +89,8 @@ def load_actual_definitions():
         QoSProfile=lambda **kwargs: kwargs,
         ReliabilityPolicy=SimpleNamespace(BEST_EFFORT='best_effort'),
         sensor_qos=lambda depth=10: SimpleNamespace(depth=depth),
-        load_yaml=lambda path: {'camera': copy.deepcopy(CAMERA)})
+        load_yaml=lambda path: {'camera': copy.deepcopy(CAMERA)},
+        get_logger=lambda node, name: SimpleNamespace(warning=node.warns.append))
     exec(compile(ast.Module(body=declarations, type_ignores=[]), str(SOURCE), 'exec'), environment)
     return environment
 

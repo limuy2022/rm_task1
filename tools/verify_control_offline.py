@@ -88,7 +88,8 @@ def node_harness():
     node._joint_angles = None
     sent = []
     node._pub = NS(publish=lambda msg: sent.append(msg))
-    node._log = NS(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
+    node._log = NS(info=lambda *a: None, warning=lambda *a: None,
+                   error=lambda *a: None)
     return node, clock, parameters, sent
 
 
@@ -408,7 +409,8 @@ def bearing_node_harness():
     node._prev_enabled = False
     sent = []
     node._pub = NS(publish=lambda msg: sent.append(msg))
-    node._log = NS(info=lambda *a: None, warn=lambda *a: None, error=lambda *a: None)
+    node._log = NS(info=lambda *a: None, warning=lambda *a: None,
+                   error=lambda *a: None)
     return node, clock, parameters, sent
 
 

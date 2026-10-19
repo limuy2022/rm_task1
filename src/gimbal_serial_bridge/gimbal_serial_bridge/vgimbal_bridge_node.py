@@ -33,7 +33,7 @@ from std_msgs.msg import String, UInt64
 from tf2_ros import TransformBroadcaster
 
 from gimbal_common import frames as FR
-from gimbal_common import log_utils as LU
+from gimbal_common.log_utils import get_logger, throttled
 from gimbal_common import node_utils as NU
 from gimbal_common import protocol as P
 from gimbal_common import time_utils as TU
@@ -86,7 +86,7 @@ class VgimbalBridgeNode:
 
     def __init__(self, node) -> None:
         self._node = node
-        self._log = LU.get_logger(node, 'bridge')
+        self._log = get_logger(node, 'bridge')
         self._params = NU.declare_params(node, PARAM_DEFAULTS)
         p = self._params
 
@@ -211,7 +211,7 @@ class VgimbalBridgeNode:
                     self._handle_frame(frame)
         except SerialPortError as exc:
             # Physical read failures leave the watchdog active; programming errors surface.
-            LU.throttled(self._log, 'error', f'串口读取失败: {exc!r}', 'rx_tick', 1.0)
+            throttled(self._log, 'error', f'串口读取失败: {exc!r}', 'rx_tick')
         finally:
             self._lsm.tick()
             self._log_state_change()
@@ -225,8 +225,8 @@ class VgimbalBridgeNode:
         imu = P.decode_imu(frame, t_mono=t_mono)
         if not imu.valid:
             self._imu_bad += 1
-            LU.throttled(self._log, 'warn',
-                         f'IMU 帧解码失败: {imu.reject_reason}', f'imu_bad_{imu.reject_reason}', 1.0)
+            throttled(self._log, 'warning',
+                         f'IMU 帧解码失败: {imu.reject_reason}', f'imu_bad_{imu.reject_reason}')
             return
         self._imu_frames += 1
         self._t_last_imu_mono = t_mono
@@ -237,13 +237,13 @@ class VgimbalBridgeNode:
 
         evt = self._imu_monitor.update(imu.seq, imu.stamp_us)
         if evt['reset']:
-            LU.throttled(self._log, 'warn', '下位机复位：重置 IMU 基准', 'imu_reset', 1.0)
+            throttled(self._log, 'warning', '下位机复位：重置 IMU 基准', 'imu_reset')
             self._epoch_value += 1
             self._publish_epoch()
         if evt['lost']:
-            LU.throttled(self._log, 'warn',
+            throttled(self._log, 'warning',
                          f"IMU 丢帧 {evt['lost']} 帧（累计 {self._imu_monitor.stats()['lost_frames']}）",
-                         'imu_lost', 1.0)
+                         'imu_lost')
 
         self._publish_imu(imu)
         self._publish_state(imu)
@@ -340,7 +340,7 @@ class VgimbalBridgeNode:
         try:
             self._port.write(frame)
         except SerialPortError as exc:  # 真实串口故障需进入静默停止状态，避免继续下发旧速度。
-            LU.throttled(self._log, 'error', str(exc), 'write_fail', 1.0)
+            throttled(self._log, 'error', str(exc), 'write_fail')
             self._lsm.on_write_failure()
 
     # ------------------------------------------------------------------ 订阅
@@ -369,24 +369,24 @@ class VgimbalBridgeNode:
             data = json.loads(msg.data)
         except json.JSONDecodeError:
             # The simulator publishes external JSON; malformed status is discarded.
-            LU.throttled(self._log, 'warn', f'status 非 JSON: {msg.data[:64]!r}', 'status_json', 1.0)
+            throttled(self._log, 'warning', f'status 非 JSON: {msg.data[:64]!r}', 'status_json')
             return
         if not isinstance(data, dict):
-            LU.throttled(self._log, 'warn', 'status 必须是JSON对象', 'status_type', 1.0)
+            throttled(self._log, 'warning', 'status 必须是JSON对象', 'status_type')
             return
         state = str(data.get('state', ''))
         if 'fault' in state.lower() or 'relax' in state.lower():
-            LU.throttled(self._log, 'warn', f'下位机状态异常: {state}', 'status_state', 1.0)
+            throttled(self._log, 'warning', f'下位机状态异常: {state}', 'status_state')
         try:
             skips = int(data.get('sim_skips', 0))
         except (TypeError, ValueError):
             # An invalid external counter is unknown, not proof of zero skipped frames.
-            LU.throttled(self._log, 'warn', 'status的sim_skips不是有效整数', 'status_skips', 1.0)
+            throttled(self._log, 'warning', 'status的sim_skips不是有效整数', 'status_skips')
             return
         if skips != 0:
             self._log.error(f'sim_skips={skips} ≠ 0 —— 本次评估不可信（仿真跳帧）')
-            LU.throttled(self._log, 'error', f'sim_skips={skips} ≠ 0，本次评估不可信',
-                         'sim_skips', 1.0)
+            throttled(self._log, 'error', f'sim_skips={skips} ≠ 0，本次评估不可信',
+                         'sim_skips')
 
     # ------------------------------------------------------------------ 辅助
     def _absorb_bad_frames(self) -> None:
@@ -405,8 +405,8 @@ class VgimbalBridgeNode:
             return
         age = TU.now() - self._t_last_imu_mono
         if age > float(self._params['serial.imu_timeout_s']):
-            LU.throttled(self._log, 'warn',
-                         f'已 {age:.2f}s 未收到 0x01（下位机可能停止发帧）', 'imu_timeout', 1.0)
+            throttled(self._log, 'warning',
+                         f'已 {age:.2f}s 未收到 0x01（下位机可能停止发帧）', 'imu_timeout')
 
     def _log_state_change(self) -> None:
         """状态迁移必打日志（WARN for fault，INFO for 恢复）。"""

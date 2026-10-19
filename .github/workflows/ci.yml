@@ -1,0 +1,51 @@
+# 全量验证流水线：把 README「容器内验证」一条龙原样搬进 CI。
+# 环境定义单一来源是仓库根 Dockerfile（osrf/ros:humble-desktop-full + pytest），
+# 本文件不引入 pip、不重复环境，本地能全绿 CI 即全绿。
+# 子模块 gimbal-edu-tools 不拉取：验证流程不依赖它，且其托管在私有
+# git 服务器上 runner 无权访问；colcon 对空目录（无 package.xml）自动忽略。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout（不拉子模块）
+        uses: actions/checkout@v4
+
+      - name: Build test image（复用根 Dockerfile）
+        run: docker build -t rm-task1-humble-test .
+
+      # 四层验证（与 README 容器命令逐字一致）：
+      # colcon 全量构建（含 gimbal_interfaces 消息生成）→ C++ gtest →
+      # pytest src → tools/verify_all_offline.py 22 项离线核验。
+      # colcon 产物放 /tmp；verify 日志写 build/offline/（已 gitignore）。
+      - name: Full verification（colcon build + gtest + pytest + tools 离线核验）
+        run: |
+          docker run --rm -v "$PWD":/workspace -w /workspace \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp rm-task1-humble-test bash -c '
+              source /opt/ros/humble/setup.bash &&
+              colcon --log-base /tmp/clog build --build-base /tmp/cb \
+                     --install-base /tmp/ci --symlink-install &&
+              source /tmp/ci/setup.bash &&
+              colcon --log-base /tmp/clog test --build-base /tmp/cb \
+                     --install-base /tmp/ci --packages-select gimbal_serial_42 &&
+              colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
+              python3 -B -m pytest -q src --import-mode=importlib &&
+              python3 -B tools/verify_all_offline.py'
+
+      # 失败排查用：verify_all_offline.py 的逐项日志与 result.json。
+      # 容器以 runner 同 uid 运行，产物属主与 runner 一致可直接读取。
+      - name: Upload offline verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-verification
+          path: build/offline/
+          retention-days: 3

@@ -200,7 +200,7 @@ class GimbalBearingNode(Node):
                                 t_msg, marker_id=marker_id)
         except (TypeError, ValueError, OverflowError) as exc:
             # 外部目标观测非法时清除有效观测，下一拍输出停止。
-            throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc', 1.0)
+            throttled(self._log, 'error', 'on_marker 异常: %s' % exc, 'mk_exc')
             self._sup.on_marker(0.0, 0.0, 0.0, False, None)
 
     def on_joint_state(self, msg: JointState) -> None:
@@ -249,14 +249,14 @@ class GimbalBearingNode(Node):
             msg.valid = decision.valid
             self._pub.publish(msg)
             if not decision.valid:
-                throttled(self._log, 'warn',
+                throttled(self._log, 'warning',
                           '闭环停止: %s（marker_age=%.3fs）'
                           % (decision.reason, decision.marker_age_s),
-                          'bearing_stop_' + decision.reason, 1.0)
+                          'bearing_stop_' + decision.reason)
         except (TypeError, ValueError, OverflowError, np.linalg.LinAlgError) as exc:
             # 外部数值/运行参数失败必须清斜坡并停止，不能复用上一拍角速度。
             self._sup.law.reset()
-            throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc', 1.0)
+            throttled(self._log, 'error', 'tick 异常: %s' % exc, 'tick_exc')
             self.publish_stop()
 
     # ------------------------------------------------------------------ 收尾

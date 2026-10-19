@@ -14,6 +14,7 @@ from sensor_msgs.msg import PointCloud2
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from gimbal_common.log_utils import get_logger
 from gimbal_common.qos_utils import latched_qos, sensor_qos
 from .cloud_grid import CloudGrid, PoseHistory, pointcloud2_xyz
 from .pgm_io import write_map
@@ -72,13 +73,13 @@ class CloudMappingNode(Node):
         self.create_subscription(Odometry,str(get('odom_topic')),self.on_odom,sensor_qos(5))
         self.create_service(Trigger,'/team47/save_slam_map',self.on_save)
         self.create_timer(1./hz,self.publish)
-        self.get_logger().info('只建图：%s；光心由完整 body 位姿与 Point-LIO extrinsic_T 计算；不发布 TF/运动命令'%self.frame)
+        self._log = get_logger(self, 'cloud_mapping'); self._log.info('只建图：%s；光心由完整 body 位姿与 Point-LIO extrinsic_T 计算；不发布 TF/运动命令'%self.frame)
 
     def reject(self, reason):
         self.rejected += 1
         self.last_status = {'state':str(reason),'frame_id':self.frame,'rejected':self.rejected}
         if time.monotonic()-self.last_warn > 2:
-            self.get_logger().warn(str(reason)); self.last_warn = time.monotonic()
+            self._log.warning(str(reason)); self.last_warn = time.monotonic()
 
     def on_odom(self,msg):
         try:

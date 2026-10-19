@@ -61,10 +61,7 @@ PARAM_DEFAULTS: Dict[str, Any] = {
 }
 
 
-def _make_detector_params(logger: Any = None) -> Any:
-    """Humble OpenCV 4.5 与离线 OpenCV 4.10 的确采用不同参数构造 API。"""
-    if hasattr(cv2.aruco, 'DetectorParameters'):
-        return cv2.aruco.DetectorParameters()
+def _make_detector_params() -> Any:
     return cv2.aruco.DetectorParameters_create()
 
 
@@ -79,9 +76,6 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._bridge = CvBridge()
         self._dict = self._make_dict(str(self._params['perception.aruco_dict']))
         self._detector = _make_detector_params()
-        # Detector class changed between the two OpenCV versions we use.
-        self._aruco_det = (cv2.aruco.ArucoDetector(self._dict, self._detector)
-                           if hasattr(cv2.aruco, 'ArucoDetector') else None)
 
         self._target_digit = int(self._params['perception.target_digit'])
         self._latest: Optional[Any] = None
@@ -110,7 +104,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
 
     # -- 参数 -----------------------------------------------------------------
     def _make_dict(self, name: str) -> Any:
-        """4.5 与 4.10 都支持 getPredefinedDictionary；配置错误直接报错。"""
+        """配置名非法直接报错。"""
         return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, name))
 
     # -- 回调 -----------------------------------------------------------------
@@ -142,7 +136,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
                     and not self._loss_announced:
                 self._publish(None, self.get_clock().now().to_msg())
                 self._loss_announced = True
-            throttled(self._log, 'warn', '还没有收到 /image_raw',
+            throttled(self._log, 'warning', '还没有收到 /image_raw',
                        'aruco.no_image', 2.0)
             return
         self._latest = None                 # 只处理最新帧，旧的直接丢
@@ -150,7 +144,7 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             gray = self._bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
         except (CvBridgeError, TypeError, ValueError, cv2.error) as exc:
             throttled(self._log, 'error', '图像转换失败: %r' % (exc,),
-                       'aruco.conv_err', 1.0)
+                       'aruco.conv_err')
             self._publish(None, msg.header.stamp)
             return
         self._n_frame += 1
@@ -171,16 +165,13 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
     def _detect(self, gray: np.ndarray):
         """返回 (corners, ids)；无检测时 ids is None。"""
         try:
-            if self._aruco_det is not None:
-                corners, ids, _ = self._aruco_det.detectMarkers(gray)
-            else:
-                corners, ids, _ = cv2.aruco.detectMarkers(   # 旧 API 兜底分支
-                    gray, self._dict, parameters=self._detector)
+            corners, ids, _ = cv2.aruco.detectMarkers(
+                gray, self._dict, parameters=self._detector)
             return corners, ids
         except cv2.error as exc:
             # 坏图像可能令 OpenCV 拒绝检测；按无观测处理，而非沿用旧目标。
             throttled(self._log, 'error', 'detectMarkers 异常: %r' % (exc,),
-                       'aruco.detect_err', 1.0)
+                       'aruco.detect_err')
             return [], None
 
     def _pick(self, corners: Any, ids: Any) -> Optional[np.ndarray]:

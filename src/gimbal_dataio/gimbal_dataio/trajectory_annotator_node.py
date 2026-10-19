@@ -90,7 +90,7 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
                               float(info.resolution)))
         except ValueError as exc:  # 外部地图可能有错误尺寸/数据长度，拒绝这帧并报告。
             throttled(self._log, 'error', '/map/grid 解析失败: %r' % (exc,),
-                      'annotator.grid_err', 1.0)
+                      'annotator.grid_err')
 
     def _on_target(self, msg: Any) -> None:
         """缓存目标当前/预测位置与轨迹。"""
@@ -131,7 +131,7 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
                                str(self._params['csv.run_id']))
         png_path = os.path.join(run_dir, str(self._params['annotator.png_name']))
         if self._grid is None:
-            self._log.warn('未收到 /map/grid，跳过 map_tracked.png')
+            self._log.warning('未收到 /map/grid，跳过 map_tracked.png')
             return
         try:
             draw_tracked(self._grid,

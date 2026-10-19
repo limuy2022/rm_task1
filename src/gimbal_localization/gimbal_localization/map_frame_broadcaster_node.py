@@ -14,7 +14,7 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
 from tf2_ros import StaticTransformBroadcaster
 from gimbal_common import frames as FR
-from gimbal_common import log_utils as LU
+from gimbal_common.log_utils import get_logger, throttled
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
 from gimbal_common.qos_utils import latched_qos, sensor_qos
@@ -44,7 +44,7 @@ def _xyz_rpy_to_T(v):
 
 class MapFrameBroadcasterNode:
     def __init__(self,node):
-        self._node=node;self._log=LU.get_logger(node,'map_frame')
+        self._node=node;self._log=get_logger(node,'map_frame')
         self._params=NU.declare_params(node,PARAM_DEFAULTS);p=self._params
         self._origin_mode=str(p['localization.origin_mode'])
         if self._origin_mode not in ('judge_replay_start','base_init'):
@@ -90,7 +90,7 @@ class MapFrameBroadcasterNode:
             self._try_freeze()
         except (TypeError,ValueError) as exc:
             # Bad external pose/stamp must not freeze an invented origin.
-            LU.throttled(self._log,'warning',f'底盘源拒绝: {exc}','base_invalid',1.)
+            throttled(self._log,'warning',f'底盘源拒绝: {exc}','base_invalid')
 
     def _on_origin_freeze(self,msg):
         try:stamp=stamp_seconds(msg.stamp)
@@ -107,7 +107,7 @@ class MapFrameBroadcasterNode:
         if self._frozen or self._origin_stamp is None:return
         T=self._history.sample(self._origin_stamp,float(self._params['localization.origin_max_gap_s']))
         if T is None:
-            LU.throttled(self._log,'warning','等待覆盖回放起点stamp的底盘位姿，禁止拿最新位置替代','origin',2.)
+            throttled(self._log,'warning','等待覆盖回放起点stamp的底盘位姿，禁止拿最新位置替代','origin',2.)
             return
         yaw=FR.yaw_of_mat(T[:3,:3])
         R=FR.rotz(-yaw)

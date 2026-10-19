@@ -64,10 +64,7 @@ def _dictionary():
 
 def _marker_image(marker_id: int) -> np.ndarray:
     """生成带白边（quiet zone）的码图。"""
-    if hasattr(cv2.aruco, 'generateImageMarker'):
-        marker = cv2.aruco.generateImageMarker(_dictionary(), marker_id, _MARKER_SRC)
-    else:
-        marker = cv2.aruco.drawMarker(_dictionary(), marker_id, _MARKER_SRC)
+    marker = cv2.aruco.drawMarker(_dictionary(), marker_id, _MARKER_SRC)
     side = _MARKER_SRC + 2 * _MARKER_PAD
     padded = np.full((side, side), 255, np.uint8)
     padded[_MARKER_PAD:_MARKER_PAD + _MARKER_SRC,

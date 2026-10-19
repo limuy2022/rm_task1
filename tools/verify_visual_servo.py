@@ -81,10 +81,6 @@ def create_harness(camera):
             return SimpleNamespace(now=lambda: SimpleNamespace(
                 nanoseconds=round(clock.ros * 1e9)))
 
-        def get_logger(self):
-            return SimpleNamespace(info=lambda message: None,
-                                   error=self.log_errors.append)
-
         def create_publisher(self, message_type, topic, qos):
             destination = published if message_type is Twist else self.status_messages
             return SimpleNamespace(publish=lambda message:
@@ -113,7 +109,9 @@ def create_harness(camera):
         # 节点 __init__ 经 gimbal_common.qos_utils 构造 QoS；harness 的发布/订阅
         # 忽略 qos 实参，这里给出可调用的桩即可。
         sensor_qos=lambda depth=10: SimpleNamespace(depth=depth),
-        latched_qos=lambda depth=1: SimpleNamespace(depth=depth))
+        latched_qos=lambda depth=1: SimpleNamespace(depth=depth),
+        get_logger=lambda node, name: SimpleNamespace(info=lambda message: None,
+                                                      error=node.log_errors.append))
     exec(compile(module, 'production_visual_servo_node.py', 'exec'), namespace)
     node = namespace['VisualServoNode']()
     return node, clock, node._params, published

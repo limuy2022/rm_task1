@@ -52,6 +52,7 @@ from gimbal_interfaces.msg import ChassisAdvice, TargetState
 
 from .tick_csv import V_STOP, TickCsvWriter
 from .tick_sampler import TickSampler
+from gimbal_common.log_utils import get_logger
 from gimbal_common import frames
 from gimbal_common.node_utils import declare_params
 from gimbal_common.time_buffer import stamp_seconds
@@ -95,7 +96,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
 
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
-        self._log = self.get_logger()
+        self._log = get_logger(self, 'judge_io')
         self._params: Dict[str, Any] = declare_params(self, PARAM_DEFAULTS)
 
         # --- 输出路径 -------------------------------------------------------

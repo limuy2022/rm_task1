@@ -250,10 +250,10 @@ class GtErrorMonitorNode:
         if (self._gt_xyz is None or self._quat is None
                 or (t_now - self._t_gt) > stale or (t_now - self._t_state) > stale):
             self._n_skipped += 1
-            throttled(self._log, 'warn',
+            throttled(self._log, 'warning',
                       '尚未收到/已超时（%.2fs）真值或云台姿态，跳过本次采样'
                       % stale,
-                      'gimbal_debug.waiting', 1.0)
+                      'gimbal_debug.waiting')
             return
 
         e_deg = M.angle_error_deg(self._gt_xyz, self._gimbal_origin, self._quat,
@@ -264,7 +264,7 @@ class GtErrorMonitorNode:
             if self._T_world_map is None:
                 if not self._warned_no_tf:
                     self._warned_no_tf = True
-                    self._log.warn('未收到 %s，估计 vs 真值比对暂不可用（不影响 e_ang）'
+                    self._log.warning('未收到 %s，估计 vs 真值比对暂不可用（不影响 e_ang）'
                                    % TOPIC_T_MAP_WORLD)
             else:
                 p_est_world = (self._T_world_map[0:3, 0:3] @ self._est_map_xyz
@@ -378,7 +378,7 @@ class GtErrorMonitorNode:
                           else '%.3fs' % res.convergence_time_s,
                           'PASS' if res.passed else 'FAIL', report_path))
         if not res.passed:
-            self._log.warn('未达标：%s' % (res.reason or 'RMS/max/收敛之一超限'))
+            self._log.warning('未达标：%s' % (res.reason or 'RMS/max/收敛之一超限'))
 
     def _write_text(self, path: str, text: str) -> None:
         """写文本文件（失败只报错，不影响退出）。"""

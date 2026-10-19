@@ -46,8 +46,10 @@ def test_state_subscriptions_accept_best_effort_publishers(ros):
     try:
         subscriptions = {sub.topic_name: sub.qos_profile for sub in node.subscriptions}
         for topic in ('/estimation/target_state', '/gimbal/base_pose'):
-            result = qos_check_compatible(sensor_qos(), subscriptions[topic])
-            assert result.compatibility == QoSCompatibility.OK, result.reason
+            # liveliness 两侧均为 SYSTEM_DEFAULT 时 rclpy 必然给 WARNING（取决于
+            # RMW 默认）；要拦的是 RELIABLE 订阅拒配 BEST_EFFORT 发布的 ERROR。
+            compatibility, reason = qos_check_compatible(sensor_qos(), subscriptions[topic])
+            assert compatibility != QoSCompatibility.ERROR, reason
     finally:
         node.destroy_node()
 

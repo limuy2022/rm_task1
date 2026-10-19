@@ -21,7 +21,7 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 
-from gimbal_common import log_utils as LU
+from gimbal_common.log_utils import get_logger, throttled
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
 from gimbal_common.qos_utils import latched_qos, sensor_qos
@@ -64,7 +64,7 @@ class BasePoseProviderNode:
 
     def __init__(self, node) -> None:
         self._node = node
-        self._log = LU.get_logger(node, 'base_pose')
+        self._log = get_logger(node, 'base_pose')
         self._params = NU.declare_params(node, PARAM_DEFAULTS)
         p = self._params
 
@@ -101,7 +101,7 @@ class BasePoseProviderNode:
             self._source.on_odom(msg, t_mono=TU.now())
         except (TypeError, ValueError) as exc:
             # Reject invalid source pose/stamps; do not publish a fabricated pose.
-            LU.throttled(self._log, 'error', f'odom 数据无效: {exc!r}', 'odom_cb', 1.0)
+            throttled(self._log, 'error', f'odom 数据无效: {exc!r}', 'odom_cb')
 
     def _on_replay_start(self, msg) -> None:
         key = (int(msg.stamp.sec), int(msg.stamp.nanosec))
@@ -114,8 +114,8 @@ class BasePoseProviderNode:
         """Publish each source sample once, at the source measurement time."""
         pose = self._source.poll(TU.now())
         if not pose.valid:
-            LU.throttled(self._log, 'warn',
-                         f'底盘位姿无效（源={self._source_name}）', 'base_invalid', 1.0)
+            throttled(self._log, 'warning',
+                         f'底盘位姿无效（源={self._source_name}）', 'base_invalid')
             return
         sample = self._source.latest
         stamp = self._node.get_clock().now().to_msg()
@@ -126,8 +126,8 @@ class BasePoseProviderNode:
                 return
             age = self._node.get_clock().now().nanoseconds * 1e-9 - sample.stamp_seconds
             if age > float(self._params['localization.odom_timeout_s']) or age < -float(self._params['localization.odom_future_tolerance_s']):
-                LU.throttled(self._log, 'warn', f'底盘源时间戳不新鲜或时钟域不同: age={age:.3f}s',
-                             'base_stamp', 1.0)
+                throttled(self._log, 'warning', f'底盘源时间戳不新鲜或时钟域不同: age={age:.3f}s',
+                             'base_stamp')
                 return
         else:
             key = None

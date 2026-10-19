@@ -25,7 +25,7 @@ import rclpy
 from sensor_msgs.msg import CameraInfo
 
 from gimbal_common import config_loader as CL
-from gimbal_common import log_utils as LU
+from gimbal_common.log_utils import get_logger, throttled
 from gimbal_common import node_utils as NU
 from gimbal_common import time_utils as TU
 from gimbal_common.qos_utils import sensor_qos
@@ -73,7 +73,7 @@ class MarkerPnpNode:
 
     def __init__(self, node) -> None:
         self._node = node
-        self._log = LU.get_logger(node, 'pnp')
+        self._log = get_logger(node, 'pnp')
         self._params = NU.declare_params(node, PARAM_DEFAULTS)
         p = self._params
 
@@ -137,7 +137,7 @@ class MarkerPnpNode:
                 self._noise.fx = fx
         except (TypeError, ValueError, OverflowError) as exc:
             # 外部 CameraInfo 数值非法时保留上一份有效标定，不写入无效内参。
-            LU.throttled(self._log, 'warning', f'camera_info 解析失败: {exc!r}', 'cam_info', 1.0)
+            throttled(self._log, 'warning', f'camera_info 解析失败: {exc!r}', 'cam_info')
 
     def _on_corners(self, msg: MarkerCorners) -> None:
         """收到角点 → 过滤 → PnP → 发布 ``MarkerObservation``。"""
@@ -168,7 +168,7 @@ class MarkerPnpNode:
             # Numeric errors change every frame. A key such as
             # pnp_reproj_2.81px bypasses throttling and floods a real NUC log.
             category = res.reason.split('_', 1)[0]
-            LU.throttled(self._log, 'info', f'PnP 拒绝：{res.reason}',
+            throttled(self._log, 'info', f'PnP 拒绝：{res.reason}',
                          f'pnp_reject_{category}', 2.0)
             return
         self._n_obs += 1

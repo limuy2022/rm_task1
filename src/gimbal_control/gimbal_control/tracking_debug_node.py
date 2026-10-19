@@ -16,6 +16,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from gimbal_interfaces.msg import MarkerCorners
+from gimbal_common.log_utils import get_logger
 from gimbal_common.config_loader import load_yaml
 from gimbal_common.qos_utils import sensor_qos
 
@@ -120,9 +121,9 @@ class StatusCSV:
                'filtered_yaw_deg', 'filtered_pitch_deg', 'control_yaw_deg',
                'control_pitch_deg', 'lost_count', 'yaw_omega', 'pitch_omega', 'state')
 
-    def __init__(self, path, warn):
+    def __init__(self, path, warn_fn):
         self.file = None
-        self.warn = warn
+        self.warn_fn = warn_fn
         if not path:
             return
         try:
@@ -135,7 +136,7 @@ class StatusCSV:
             self._failed(exc)
 
     def _failed(self, exc):
-        self.warn('Debug CSV disabled: '+str(exc))
+        self.warn_fn('Debug CSV disabled: '+str(exc))
         self.close()
 
     def write(self, status):
@@ -159,7 +160,7 @@ class StatusCSV:
                 self.file.close()
             except OSError as exc:
                 # 文件关闭也可能报告延迟写盘失败；保留明确告警，不假称保存成功。
-                self.warn('Debug CSV close failed: '+str(exc))
+                self.warn_fn('Debug CSV close failed: '+str(exc))
             self.file = None
 
 
@@ -177,7 +178,8 @@ class TrackingDebugNode(Node):
         self.status = None
         self.last_source = None
         self.last_warning = None
-        self.csv = StatusCSV(str(self.get_parameter('csv_path').value), self.get_logger().warning)
+        self._log = get_logger(self, 'tracking_debug')
+        self.csv = StatusCSV(str(self.get_parameter('csv_path').value), self._log.warning)
         sensor = sensor_qos(1)
         self.pub = self.create_publisher(Image, 'debug_image', sensor)
         self.create_subscription(Image, '/image_raw', self.on_image, sensor)
@@ -200,7 +202,7 @@ class TrackingDebugNode(Node):
             self.csv.write(status)
         except json.JSONDecodeError as exc:
             # 状态是外部JSON文本；坏消息不应污染上一次合法的调试画面。
-            self.get_logger().warning('Debug status ignored: '+str(exc))
+            self._log.warning('Debug status ignored: '+str(exc))
 
     def render(self):
         if self.image is None:
@@ -227,7 +229,7 @@ class TrackingDebugNode(Node):
             # 观测/图像是外部数据，拒绝不匹配或无法绘制的一帧；不涉及控制输出。
             text = str(exc)
             if text != self.last_warning:
-                self.get_logger().warning('Debug image skipped: '+text)
+                self._log.warning('Debug image skipped: '+text)
                 self.last_warning = text
 
     def destroy_node(self):

@@ -33,7 +33,7 @@ for package in ('gimbal_perception', 'gimbal_common'):
 
 import gimbal_perception.aruco_detector_node as detector_module
 import gimbal_perception.marker_pnp_node as pnp_module
-from gimbal_common import node_utils as NU
+from gimbal_common import log_utils, node_utils as NU
 from gimbal_perception.pnp_solver import PnpSolver, marker_object_points, rpy_to_R
 
 CAMERA_PATH = ROOT / 'src/gimbal_tracker_bringup/config/camera_team47.yaml'
@@ -103,10 +103,7 @@ def project(translation, rotation=None):
 
 def render_marker(marker_id=3, translation=(0., 0., 2.), rotation=None):
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-    if hasattr(cv2.aruco, 'generateImageMarker'):
-        marker = cv2.aruco.generateImageMarker(dictionary, marker_id, 256)
-    else:
-        marker = cv2.aruco.drawMarker(dictionary, marker_id, 256)
+    marker = cv2.aruco.drawMarker(dictionary, marker_id, 256)
     source = np.array([[0., 0.], [255., 0.], [255., 255.], [0., 255.]], np.float32)
     destination = project(translation, rotation).astype(np.float32)
     warp = cv2.getPerspectiveTransform(source, destination)
@@ -177,20 +174,11 @@ class PerceptionRegression(unittest.TestCase):
         self.assertEqual(corners.marker_id, 3)
         np.testing.assert_allclose([result.x, result.y, result.z], [.15, -.03, 2.], atol=.04)
 
-    def test_old_detect_api_returns_two_production_values(self):
+    def test_detect_returns_two_production_values(self):
         detector, _ = pipeline()
-        detector._aruco_det = None
         corners, ids = detector._detect(render_marker())
         self.assertIn(3, ids.ravel().tolist())
         self.assertEqual(len(corners), len(ids))
-
-    def test_old_parameter_api_branch(self):
-        constructor = (cv2.aruco.DetectorParameters if hasattr(cv2.aruco, 'DetectorParameters')
-                       else cv2.aruco.DetectorParameters_create)
-        with mock.patch.object(cv2.aruco, 'DetectorParameters', side_effect=AttributeError('old API'), create=True):
-            with mock.patch.object(cv2.aruco, 'DetectorParameters_create',
-                                   side_effect=constructor, create=True):
-                self.assertIsNotNone(detector_module._make_detector_params())
 
     def test_loss_clears_guess_and_reacquires(self):
         detector, pnp = pipeline()
@@ -248,12 +236,8 @@ class PerceptionRegression(unittest.TestCase):
             else:
                 self.assertTrue(result.ok, result.reason)
                 np.testing.assert_allclose(result.tvec_opt, translation, atol=1e-5)
-        solver._has_ippe = False
-        result = solver.solve(project((0., 0., 2.)))
-        self.assertTrue(result.ok, result.reason)
-        np.testing.assert_allclose(result.tvec_opt, [0., 0., 2.], atol=1e-5)
-        solver._has_ippe = True
-        with mock.patch.object(cv2, 'solvePnPGeneric', side_effect=cv2.error('simulated old failure')):
+        # IPPE 支路整体抛错（如退化观测）时 ITERATIVE 兜底仍要出解。
+        with mock.patch.object(cv2, 'solvePnPGeneric', side_effect=cv2.error('simulated solve failure')):
             result = solver.solve(project((.1, -.1, 2.)))
         self.assertTrue(result.ok, result.reason)
         np.testing.assert_allclose(result.tvec_opt, [.1, -.1, 2.], atol=1e-5)
@@ -273,8 +257,8 @@ class PerceptionRegression(unittest.TestCase):
     def test_varying_reprojection_errors_share_one_throttle_key(self):
         detector, pnp = pipeline()
         corners, _ = feed(detector, pnp, render_marker())
-        pnp_module.LU.reset_throttle()
-        with mock.patch.object(pnp_module.LU.time_utils, 'now', return_value=100.):
+        log_utils.reset_throttle()
+        with mock.patch.object(log_utils.time_utils, 'now', return_value=100.):
             with mock.patch.object(pnp._log, 'info') as log:
                 for error in (2.81, 2.53, 2.30):
                     with mock.patch.object(pnp._solver, 'solve',
@@ -283,7 +267,7 @@ class PerceptionRegression(unittest.TestCase):
                 self.assertEqual(log.call_count, 1)
         self.assertEqual(pnp._n_reject, 3)
         self.assertFalse(pnp._pub.messages[-1].valid)
-        pnp_module.LU.reset_throttle()
+        log_utils.reset_throttle()
 
 
 if __name__ == '__main__':

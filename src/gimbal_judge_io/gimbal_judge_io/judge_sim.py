@@ -55,6 +55,7 @@ from std_msgs.msg import Header
 from nav_msgs.msg import Odometry
 from gimbal_interfaces.msg import ChassisAdvice, TargetState
 from gimbal_common.node_utils import declare_params
+from gimbal_common.log_utils import get_logger
 from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
 
@@ -80,7 +81,7 @@ class JudgeSimNode(Node):  # type: ignore[misc]
 
     def __init__(self, name: str = NODE_NAME) -> None:
         super().__init__(name)
-        self._log = self.get_logger()
+        self._log = get_logger(self, 'judge_sim')
         self._params = declare_params(self, PARAM_DEFAULTS)
 
         self._rate = max(float(self._params['sim.rate_hz']), 0.1)

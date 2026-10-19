@@ -28,7 +28,6 @@ def main():
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     detector = object.__new__(ArucoDetectorNode)
     detector._dict = dictionary; detector._detector = _make_detector_params()
-    detector._aruco_det = cv2.aruco.ArucoDetector(dictionary, detector._detector) if hasattr(cv2.aruco, 'ArucoDetector') else None
     detector._target_digit = 0
     detector._log = SimpleNamespace(error=lambda s: (_ for _ in ()).throw(AssertionError(s)))
     src = np.float32([[0,0],[255,0],[255,255],[0,255]])
@@ -38,10 +37,7 @@ def main():
         square = np.array([[x-.05,y-.05,z],[x+.05,y-.05,z],
                            [x+.05,y+.05,z],[x-.05,y+.05,z]])
         dst = cv2.projectPoints(square, np.zeros(3), np.zeros(3), K, D)[0].reshape(4,2).astype(np.float32)
-        if hasattr(cv2.aruco, 'generateImageMarker'):
-            marker = cv2.aruco.generateImageMarker(dictionary, marker_id, 256)
-        else:
-            marker = cv2.aruco.drawMarker(dictionary, marker_id, 256)
+        marker = cv2.aruco.drawMarker(dictionary, marker_id, 256)
         image = cv2.warpPerspective(marker, cv2.getPerspectiveTransform(src,dst),
             (camera['width'],camera['height']), flags=cv2.INTER_NEAREST, borderValue=255)
         corners, ids = detector._detect(image)
