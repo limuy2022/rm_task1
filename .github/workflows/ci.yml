@@ -1,8 +1,9 @@
 # 全量验证流水线：把 README「容器内验证」一条龙原样搬进 CI。
 # 环境定义单一来源是仓库根 Dockerfile（osrf/ros:humble-desktop-full + pytest），
 # 本文件不引入 pip、不重复环境，本地能全绿 CI 即全绿。
-# 子模块 gimbal-edu-tools 不拉取：验证流程不依赖它，且其托管在私有
-# git 服务器上 runner 无权访问；colcon 对空目录（无 package.xml）自动忽略。
+# 子模块 gimbal-edu-tools 必须拉取：test_consistency 会校验其中 virtual_gimbal
+# 的 entry_points（bearing_sim.launch.py 引用了它的节点），且本地工作区始终
+# 检出该子模块；.gitmodules 走 HTTPS 匿名可克隆。
 name: CI
 
 on:
@@ -16,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout（不拉子模块）
+      - name: Checkout（含子模块）
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build test image（复用根 Dockerfile）
         run: docker build -t rm-task1-humble-test .
