@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""log_utils 回归：修复 rclpy(Humble)「同帧混用日志等级即抛错」的封装缺陷。
+"""log_utils 回归：rclpy(Humble)「同帧混用日志等级即抛错」约束下的分发安全。
 
-rclpy 的 rcutils_logger 按调用点帧缓存上下文；旧版 _emit/_FormatLogger.emit
-把所有等级收敛到同一个分发帧，任何 logger 混用两个等级都会抛
+rclpy 的 rcutils_logger 按调用点帧缓存上下文；旧版单帧分发（_emit）把所有
+等级收敛到同一个分发帧，任何 logger 混用两个等级都会抛
 ValueError('Logger severity cannot be changed between calls.')。
-本测试用同款检查逻辑的假 logger 复现该约束，验证修复后不再触发。
+本测试用同款检查逻辑的假 logger 复现该约束，验证 emit/throttled 的每级
+分发不再触发；并冒烟验证 get_logger 返回的 rclpy logger 可直接单串调用。
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # noqa: E402
 
-from gimbal_common.log_utils import _FormatLogger, throttled  # noqa: E402
+from gimbal_common.log_utils import get_logger, throttled  # noqa: E402
 
 
 class SeverityContextLogger:
@@ -50,18 +51,6 @@ class SeverityContextLogger:
         self._log(50, msg)
 
 
-def test_format_logger_mixed_severities_do_not_collide():
-    raw = SeverityContextLogger()
-    wrapped = _FormatLogger(raw)
-    wrapped.info('启动 rate=%.1fHz', 50.0)     # %-style 参数仍被格式化
-    wrapped.warning('丢失 %s', 'marker')
-    wrapped.error('严重')
-    wrapped.fatal('致命')
-    assert [c[0] for c in raw.calls] == [20, 30, 40, 50]
-    assert raw.calls[0][1] == '启动 rate=50.0Hz'
-    assert raw.calls[1][1] == '丢失 marker'
-
-
 def test_throttled_mixed_severities_do_not_collide():
     raw = SeverityContextLogger()
     from gimbal_common import log_utils
@@ -72,8 +61,23 @@ def test_throttled_mixed_severities_do_not_collide():
     assert [c[0] for c in raw.calls] == [30, 40, 20]
 
 
-def test_non_logging_attributes_pass_through():
-    raw = SeverityContextLogger()
-    raw.marker = 7
-    wrapped = _FormatLogger(raw)
-    assert wrapped.marker == 7
+def test_get_logger_prefixes_node_name(monkeypatch):
+    from gimbal_common import log_utils
+
+    class FakeLogger:
+        def __init__(self, name):
+            self.name = name
+
+    monkeypatch.setattr(log_utils.rclpy.logging, 'get_logger', FakeLogger)
+    node = type('Node', (), {'get_name': lambda self: 'my_node'})()
+    assert log_utils.get_logger(node, 'wheel').name == 'my_node.wheel'
+    assert log_utils.get_logger(None, 'x').name == 'gimbal.x'
+
+
+def test_get_logger_direct_calls_accept_single_string():
+    log = get_logger(None, 'smoke')
+    log.debug('单串')
+    log.info('单串')
+    log.warning('单串')
+    log.error('单串')
+    log.fatal('单串')

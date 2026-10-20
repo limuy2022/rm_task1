@@ -306,15 +306,15 @@ class GimbalControllerNode(Node):
         self.create_timer(1.0 / self._rate_hz, self.tick)
 
         self._log.info(
-            'gimbal_controller_node 启动 | rate=%.1fHz kp=(%.2f,%.2f) kd=(%.2f,%.2f) '
-            'ff=%.2f omega_max=(%.2f,%.2f) slew=%.1f aim=%s half_fov=%.4frad '
-            'small_search=%s wide_search=%s',
-            self._rate_hz, self._law.kp_yaw, self._law.kp_pitch,
-            self._law.kd_yaw, self._law.kd_pitch, self._law.ff_gain,
-            self._law.omega_max_yaw, self._law.omega_max_pitch,
-            self._law.omega_slew, self._aim_mode, self._half_fov_rad,
-            self._search_small.snapshot(), self._search_wide.snapshot(),
-        )
+            f'gimbal_controller_node 启动 | rate={self._rate_hz:.1f}Hz '
+            f'kp=({self._law.kp_yaw:.2f},{self._law.kp_pitch:.2f}) '
+            f'kd=({self._law.kd_yaw:.2f},{self._law.kd_pitch:.2f}) '
+            f'ff={self._law.ff_gain:.2f} '
+            f'omega_max=({self._law.omega_max_yaw:.2f},{self._law.omega_max_pitch:.2f}) '
+            f'slew={self._law.omega_slew:.1f} aim={self._aim_mode} '
+            f'half_fov={self._half_fov_rad:.4f}rad '
+            f'small_search={self._search_small.snapshot()} '
+            f'wide_search={self._search_wide.snapshot()}')
 
     # ------------------------------------------------------------------ 内参
     def _resolve_half_fov(self) -> float:
@@ -335,14 +335,14 @@ class GimbalControllerNode(Node):
             raise ValueError('control.camera_fx/width must be nonnegative and finite')
         if fx > 0.0 and width > 0.0:
             hf = half_fov_rad_from_intrinsics(width, fx)
-            self._log.info('水平半视场 = %.4f rad（来源：control.camera_fx/width 显式覆盖）', hf)
+            self._log.info(f'水平半视场 = {hf:.4f} rad（来源：control.camera_fx/width 显式覆盖）')
             return hf
 
         vpath = str(p('config.virtual_yaml').value)
         w, f = load_camera_intrinsics(vpath)
         hf = half_fov_rad_from_intrinsics(w, f)
-        self._log.info('水平半视场 = %.4f rad（来源：%s 的 camera.width/fx）',
-                       hf, _resolve_virtual_yaml(vpath))
+        self._log.info(f'水平半视场 = {hf:.4f} rad'
+                       f'（来源：{_resolve_virtual_yaml(vpath)} 的 camera.width/fx）')
         return hf
 
     # ------------------------------------------------------------------ 回调
@@ -473,7 +473,7 @@ class GimbalControllerNode(Node):
             T[0:3, 0:3] = R
             T[0:3, 3] = t
             self._T_map_world = T
-            self._log.info('收到 T_map←world：theta=%.4f rad', math.atan2(R[1, 0], R[0, 0]))
+            self._log.info(f'收到 T_map←world：theta={math.atan2(R[1, 0], R[0, 0]):.4f} rad')
         except (TypeError, ValueError, OverflowError) as exc:
             # 外部 TF 数值非法时不能建立 world/map 对齐；保持未对齐、停止输出。
             throttled(self._log, 'error', 'on_t_map_world 异常: %s' % exc, 'tmw_exc')
@@ -651,7 +651,7 @@ class GimbalControllerNode(Node):
                 if self._search_entry_t is not None:
                     self._search_entry_t = None
                     self._law.reset()
-                    self._log.info('重新捕获目标（age=%.3fs），退出搜索，KF 不重置', age)
+                    self._log.info(f'重新捕获目标（age={age:.3f}s），退出搜索，KF 不重置')
 
                 if (self._t_last_marker is None or t - self._t_last_marker > self._input_timeout_s
                         or self._height.z is None):
@@ -713,7 +713,7 @@ class GimbalControllerNode(Node):
                 return
 
             if mode != self._last_mode:
-                self._log.warning('控制模式切换: %s → %s（age=%.3fs）', self._last_mode, mode, age)
+                self._log.warning(f'控制模式切换: {self._last_mode} → {mode}（age={age:.3f}s）')
                 self._last_mode = mode
 
             msg.yaw_omega = float(w_yaw)
@@ -739,8 +739,8 @@ class GimbalControllerNode(Node):
 
     def shutdown_summary(self) -> None:
         """退出时打印 INFO 摘要。"""
-        self._log.info('gimbal_controller_node 退出 | 运行 %.1fs, %s',
-                       now() - self._t_start, self._law.snapshot())
+        self._log.info(f'gimbal_controller_node 退出 | 运行 {now() - self._t_start:.1f}s, '
+                       f'{self._law.snapshot()}')
 
 
 def main(args=None) -> int:

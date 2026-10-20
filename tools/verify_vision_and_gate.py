@@ -18,7 +18,6 @@ for name in ('gimbal_perception','gimbal_serial_bridge','gimbal_common'):
 import gimbal_serial_bridge.hardware_adapter_node as hw_module
 from gimbal_perception.marker_source import SingleTopicMarkerSource
 from gimbal_serial_bridge.command_gate import CommandGate
-from gimbal_common.log_utils import _FormatLogger
 from gimbal_common.protocol import encode_omega, frame_ok
 
 def bare_adapter(**fields):
@@ -126,11 +125,6 @@ class Regression(unittest.TestCase):
         g.enable(False,.02);g.enable(True,.02)
         self.assertFalse(g.fault)
         self.assertGreaterEqual(g.ready_at,.62)
-    def test_logger_native_single_argument(self):
-        messages=[]
-        native=NS(info=lambda message:messages.append(message))
-        _FormatLogger(native).info('fx=%.2f, id=%d',1778.23212,3)
-        self.assertEqual(messages,['fx=1778.23, id=3'])
     def test_pnp_output_preserves_image_stamp(self):
         from gimbal_perception.marker_pnp_node import MarkerPnpNode
         published=[]

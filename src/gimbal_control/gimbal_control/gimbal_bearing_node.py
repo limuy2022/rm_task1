@@ -159,15 +159,13 @@ class GimbalBearingNode(Node):
 
         self._t_start = now()
         self._log.info(
-            'gimbal_bearing_node 启动 | rate=%.1fHz kp=(%.2f,%.2f) ff=%.2f '
-            'omega_max=(%.2f,%.2f) slew=%.1f max_age=%.2fs joint_timeout=%.2fs '
-            'enabled=%s geometry_verified=%s',
-            self._rate_hz, law.kp_yaw, law.kp_pitch, law.ff_gain,
-            law.omega_max_yaw, law.omega_max_pitch, law.omega_slew,
-            self._sup.max_age_s, self._sup.joint_timeout_s,
-            bool(p('control.bearing.enabled').value),
-            bool(p('control.bearing.geometry_verified').value),
-        )
+            f'gimbal_bearing_node 启动 | rate={self._rate_hz:.1f}Hz '
+            f'kp=({law.kp_yaw:.2f},{law.kp_pitch:.2f}) ff={law.ff_gain:.2f} '
+            f'omega_max=({law.omega_max_yaw:.2f},{law.omega_max_pitch:.2f}) '
+            f'slew={law.omega_slew:.1f} max_age={self._sup.max_age_s:.2f}s '
+            f'joint_timeout={self._sup.joint_timeout_s:.2f}s '
+            f'enabled={bool(p("control.bearing.enabled").value)} '
+            f'geometry_verified={bool(p("control.bearing.geometry_verified").value)}')
 
     # ------------------------------------------------------------------ 时间
     def _source_time(self, msg, timeout: float) -> Optional[float]:
@@ -195,7 +193,7 @@ class GimbalBearingNode(Node):
             t_msg = None if source_t is None else self._mono_of(source_t)
             marker_id = int(msg.marker_id)
             if self._sup.last_marker_id not in (None, marker_id):
-                self._log.info('目标 ID 切换: %s → %d', self._sup.last_marker_id, marker_id)
+                self._log.info(f'目标 ID 切换: {self._sup.last_marker_id} → {marker_id}')
             self._sup.on_marker(msg.x, msg.y, msg.z, bool(msg.valid),
                                 t_msg, marker_id=marker_id)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -271,8 +269,8 @@ class GimbalBearingNode(Node):
         self._pub.publish(msg)
 
     def shutdown_summary(self) -> None:
-        self._log.info('gimbal_bearing_node 退出 | 运行 %.1fs, %s',
-                       now() - self._t_start, self._sup.law.snapshot())
+        self._log.info(f'gimbal_bearing_node 退出 | 运行 {now() - self._t_start:.1f}s, '
+                       f'{self._sup.law.snapshot()}')
 
 
 def main(args=None) -> int:

@@ -181,12 +181,11 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
 
         period = 1.0 / max(float(self._params['chassis.rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
-        self._log.info('chassis_advisor_node 启动: rate=%.1fHz cmd_frame=%s '
-                       'v_max=%.3f lookahead=%.2fm'
-                       % (float(self._params['chassis.rate_hz']),
-                          str(self._params['chassis.cmd_frame']),
-                          float(self._params['chassis.v_max']),
-                          float(self._params['chassis.lookahead_m'])))
+        self._log.info(f'chassis_advisor_node 启动: '
+                       f'rate={float(self._params["chassis.rate_hz"]):.1f}Hz '
+                       f'cmd_frame={self._params["chassis.cmd_frame"]} '
+                       f'v_max={float(self._params["chassis.v_max"]):.3f} '
+                       f'lookahead={float(self._params["chassis.lookahead_m"]):.2f}m')
 
     # -- 回调 -----------------------------------------------------------------
     def _clock_seconds(self) -> float:
@@ -445,9 +444,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
 
     def shutdown(self) -> None:
         """退出日志摘要。"""
-        self._log.info('chassis_advisor_node 退出，耗时 %.2fs，末次 d=%.3f θ=%.1f°'
-                       % (now() - self._t_start, self._dist,
-                          math.degrees(self._theta)))
+        self._log.info(f'chassis_advisor_node 退出，耗时 {now() - self._t_start:.2f}s，'
+                       f'末次 d={self._dist:.3f} θ={math.degrees(self._theta):.1f}°')
 
 
 def main(args: Optional[list] = None) -> int:

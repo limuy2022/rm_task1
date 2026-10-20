@@ -163,15 +163,14 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self.create_timer(float(self._params['judge.watchdog_period_s']),
                           self._on_watchdog)
 
-        self._log.info('judge_io_node 启动: team=%s 列数=%d csv=%s map=%s'
-                       % (team, 9, self._csv_path,
-                          self._map_pgm))
+        self._log.info(f'judge_io_node 启动: team={team} 列数=9 '
+                       f'csv={self._csv_path} map={self._map_pgm}')
 
     # -- judge 回调 -----------------------------------------------------------
     def _on_replay_start(self, msg: Any) -> None:
         """回放起点信号 → 冻结给定点（map 系原点）。"""
-        self._log.info('收到 /judge/replay_start（frame_id=%s）→ 冻结给定点'
-                       % msg.frame_id)
+        self._log.info(f'收到 /judge/replay_start（frame_id={msg.frame_id}）'
+                       '→ 冻结给定点')
         self._freeze_origin(msg)
 
     def _freeze_origin(self, src_msg: Any) -> None:
@@ -208,18 +207,19 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             snap.target_valid, snap.base_valid, snap.advice_valid)
         if not all((self._has_target, self._has_base, self._has_advice)):
             if idx % 20 == 0:
-                self._log.warning('tick状态缺失/过期：target=%s base=%s advice=%s；仍按时写行'
-                                  % (self._has_target,self._has_base,self._has_advice))
+                self._log.warning(f'tick状态缺失/过期：target={self._has_target} '
+                                  f'base={self._has_base} advice={self._has_advice}；'
+                                  '仍按时写行')
         vel = self._safe_velocity()
         ok = self._writer.write_tick(self._pred, self._cur, self._base, vel,
                                      t_tick)
         dt = time.monotonic() - t0
         if dt > float(self._params['judge.late_warn_s']):
-            self._log.warning('第 %d 拍写盘耗时 %.1f ms（>%.0f ms，逼近 80 ms 作废线）'
-                              % (idx, dt * 1e3,
-                                 float(self._params['judge.late_warn_s']) * 1e3))
+            late_ms = float(self._params['judge.late_warn_s']) * 1e3
+            self._log.warning(f'第 {idx} 拍写盘耗时 {dt * 1e3:.1f} ms'
+                              f'（>{late_ms:.0f} ms，逼近 80 ms 作废线）')
         if not ok:
-            self._log.error('第 %d 拍写盘失败' % idx)
+            self._log.error(f'第 {idx} 拍写盘失败')
 
     # -- 数据回调 -------------------------------------------------------------
     def _on_target(self, msg: Any) -> None:
@@ -230,7 +230,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                 valid=bool(msg.valid) and int(msg.track_status)!=0,
                 observation_age=float(msg.last_obs_age))
         except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
-            self._log.error('target_state解析失败: %r' % (exc,))
+            self._log.error(f'target_state解析失败: {exc!r}')
 
     def _on_base_pose(self, msg: Any) -> None:
         try:
@@ -243,7 +243,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             velocity=frames.quat_to_mat(quat)@np.array([v.x,v.y,v.z],float)
             self._sampler.put_base(stamp_seconds(msg.header.stamp),[p.x,p.y],velocity[:2])
         except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
-            self._log.error('base_pose解析失败: %r' % (exc,))
+            self._log.error(f'base_pose解析失败: {exc!r}')
 
     def _on_advice(self, msg: Any) -> None:
         try:
@@ -251,7 +251,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             self._sampler.put_advice(stamp_seconds(msg.header.stamp),[msg.cmd_vx,msg.cmd_vy],
                                     valid=bool(msg.valid))
         except (TypeError,ValueError) as exc:  # 外部状态数值/时间戳无效时拒绝该输入，由本拍有效期规则处理。
-            self._log.error('advice解析失败: %r' % (exc,))
+            self._log.error(f'advice解析失败: {exc!r}')
 
     def _on_grid(self, msg: Any) -> None:
         """缓存栅格地图（干净三态，用于落盘）。"""
@@ -285,7 +285,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         except (TypeError, ValueError) as exc:
             # Reject malformed external grid data instead of exporting a fake map.
             self._grid = None
-            self._log.error('grid 解析失败: %r' % (exc,))
+            self._log.error(f'grid 解析失败: {exc!r}')
 
     # -- 速度守卫 -------------------------------------------------------------
     def _safe_velocity(self) -> np.ndarray:
@@ -341,14 +341,13 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                                self._params['judge.map_free_thresh']))
         except OSError as exc:
             # Disk/permission failure must leave the last valid submission untouched.
-            self._log.error('地图保存失败(%s): %r' % (reason, exc))
+            self._log.error(f'地图保存失败({reason}): {exc!r}')
             return False
         if reason == 'final':
             self._map_saved_final = True
-        self._log.info('地图已保存(%s): %s / %s（%dx%d @ %.3fm/cell）'
-                       % (reason, self._map_pgm, self._map_yaml,
-                          self._grid.shape[0], self._grid.shape[1],
-                          self._grid_res))
+        self._log.info(f'地图已保存({reason}): {self._map_pgm} / {self._map_yaml}'
+                       f'（{self._grid.shape[0]}x{self._grid.shape[1]} '
+                       f'@ {self._grid_res:.3f}m/cell）')
         return True
 
     # -- 收尾 -----------------------------------------------------------------
@@ -358,10 +357,9 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             self._save_map('shutdown')
         st = self._writer.stats()
         self._writer.close()
-        self._log.info('judge_io_node 退出: ticks=%d rows=%d guarded=%d '
-                       'dropped=%d → %s'
-                       % (self._n_tick, st['rows'], st['n_guarded'],
-                          st['n_dropped'], st['path']))
+        self._log.info(f'judge_io_node 退出: ticks={self._n_tick} rows={st["rows"]} '
+                       f'guarded={st["n_guarded"]} dropped={st["n_dropped"]} '
+                       f'→ {st["path"]}')
 
 
 def main(args: Optional[list] = None) -> int:

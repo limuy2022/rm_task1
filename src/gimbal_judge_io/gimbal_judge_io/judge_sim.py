@@ -113,9 +113,9 @@ class JudgeSimNode(Node):  # type: ignore[misc]
         self._n_sent: int = 0
 
         self.create_timer(1.0 / self._rate, self._on_tick_timer)
-        self._log.info('judge_sim 启动：%.1f Hz，duration=%.1fs，n_ticks=%d，'
-                       'extra_signals=%s（⚠ 正式赛不要开这个节点）'
-                       % (self._rate, self._duration, self._n_max, self._extra))
+        self._log.info(f'judge_sim 启动：{self._rate:.1f} Hz，'
+                       f'duration={self._duration:.1f}s，n_ticks={self._n_max}，'
+                       f'extra_signals={self._extra}（⚠ 正式赛不要开这个节点）')
 
     # -- 属性 -----------------------------------------------------------------
     @property
@@ -153,9 +153,9 @@ class JudgeSimNode(Node):  # type: ignore[misc]
     def _finish(self) -> None:
         """收尾：不再发包，打印统计。"""
         self._done = True
-        self._log.info('judge_sim 发完 %d 拍（%d → %d），退出。'
-                       % (self._n_sent, int(self._params['sim.start_index']),
-                          self._index - 1))
+        self._log.info(f'judge_sim 发完 {self._n_sent} 拍'
+                       f'（{int(self._params["sim.start_index"])} → {self._index - 1}），'
+                       '退出。')
 
     def _publish_replay_start(self) -> None:
         """发一次起点信号（TRANSIENT_LOCAL，晚加入的订阅者也能收到）。"""

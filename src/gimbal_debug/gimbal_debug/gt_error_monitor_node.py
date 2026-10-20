@@ -199,11 +199,10 @@ class GtErrorMonitorNode:
         node.create_timer(self._period, self._on_timer)
 
         self._log.info(
-            'gt_error_monitor 启动: 真值话题=%s, 采样 %.1fHz, 半视场=%.2f°, '
-            'RMS≤%.2f°/max≤%.2f°/收敛≤%.2fs'
-            % (str(p['debug.gt_topic']), rate, math.degrees(self._half_fov),
-               float(p['debug.rms_max_deg']), float(p['debug.max_deg']),
-               float(p['debug.convergence_window_s'])))
+            f'gt_error_monitor 启动: 真值话题={p["debug.gt_topic"]}, 采样 {rate:.1f}Hz, '
+            f'半视场={math.degrees(self._half_fov):.2f}°, '
+            f'RMS≤{float(p["debug.rms_max_deg"]):.2f}°/max≤{float(p["debug.max_deg"]):.2f}°'
+            f'/收敛≤{float(p["debug.convergence_window_s"]):.2f}s')
 
     # -- 回调 ----------------------------------------------------------------
     def _on_gt(self, msg: Any) -> None:
@@ -264,8 +263,8 @@ class GtErrorMonitorNode:
             if self._T_world_map is None:
                 if not self._warned_no_tf:
                     self._warned_no_tf = True
-                    self._log.warning('未收到 %s，估计 vs 真值比对暂不可用（不影响 e_ang）'
-                                   % TOPIC_T_MAP_WORLD)
+                    self._log.warning(f'未收到 {TOPIC_T_MAP_WORLD}，'
+                                      '估计 vs 真值比对暂不可用（不影响 e_ang）')
             else:
                 p_est_world = (self._T_world_map[0:3, 0:3] @ self._est_map_xyz
                                + self._T_world_map[0:3, 3])
@@ -372,13 +371,13 @@ class GtErrorMonitorNode:
                                                                   'eval_metrics.json')))
         self._write_json(metrics_path, res.as_dict())
 
-        self._log.info('评估完成: RMS=%s° max=%s° 收敛=%s → %s（%s）'
-                       % (_s(res.rms_deg), _s(res.max_deg),
-                          'None' if res.convergence_time_s is None
-                          else '%.3fs' % res.convergence_time_s,
-                          'PASS' if res.passed else 'FAIL', report_path))
+        conv = ('None' if res.convergence_time_s is None
+                else f'{res.convergence_time_s:.3f}s')
+        self._log.info(f'评估完成: RMS={_s(res.rms_deg)}° max={_s(res.max_deg)}° '
+                       f'收敛={conv} → {"PASS" if res.passed else "FAIL"}'
+                       f'（{report_path}）')
         if not res.passed:
-            self._log.warning('未达标：%s' % (res.reason or 'RMS/max/收敛之一超限'))
+            self._log.warning(f'未达标：{res.reason or "RMS/max/收敛之一超限"}')
 
     def _write_text(self, path: str, text: str) -> None:
         """写文本文件（失败只报错，不影响退出）。"""
@@ -387,7 +386,7 @@ class GtErrorMonitorNode:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(text)
         except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
-            self._log.error('写 %s 失败: %r' % (path, exc))
+            self._log.error(f'写 {path} 失败: {exc!r}')
 
     def _write_curve(self, path: str) -> None:
         """写误差曲线 CSV（便于离线核对报告数字）。"""
@@ -404,7 +403,7 @@ class GtErrorMonitorNode:
                         int(s.track_status),
                         ('%.6f' % s.est_err_m) if math.isfinite(s.est_err_m) else 'nan'))
         except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
-            self._log.error('写误差曲线失败: %r' % (exc,))
+            self._log.error(f'写误差曲线失败: {exc!r}')
 
     def _write_json(self, path: str, data: Dict[str, Any]) -> None:
         """写 JSON（失败只报错）。"""
@@ -415,7 +414,7 @@ class GtErrorMonitorNode:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.write('\n')
         except OSError as exc:  # 退出时报告/曲线是可选产物；写盘失败明确报告，继续保存其余文件。
-            self._log.error('写 %s 失败: %r' % (path, exc))
+            self._log.error(f'写 {path} 失败: {exc!r}')
 
 
 def _s(v: Any) -> str:

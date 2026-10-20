@@ -85,9 +85,8 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
                 int(info.width), int(info.height), float(info.resolution),
                 [float(info.origin.position.x), float(info.origin.position.y)],
                 list(msg.data))
-            self._log.info('已接收 /map/grid: %dx%d @ %.3f'
-                           % (int(info.width), int(info.height),
-                              float(info.resolution)))
+            self._log.info(f'已接收 /map/grid: {int(info.width)}x{int(info.height)} '
+                           f'@ {float(info.resolution):.3f}')
         except ValueError as exc:  # 外部地图可能有错误尺寸/数据长度，拒绝这帧并报告。
             throttled(self._log, 'error', '/map/grid 解析失败: %r' % (exc,),
                       'annotator.grid_err')
@@ -142,12 +141,12 @@ class TrajectoryAnnotatorNode(Node):  # type: ignore[misc]
                          base_traj=downsample(self._base_traj),
                          base_cur=self._base_cur,
                          given_point=(0.0, 0.0))
-            self._log.info('map_tracked.png 已落盘: %s（target=%d 点, base=%d 点）'
-                           % (png_path, len(self._target_traj), len(self._base_traj)))
+            self._log.info(f'map_tracked.png 已落盘: {png_path} '
+                           f'（target={len(self._target_traj)} 点, '
+                           f'base={len(self._base_traj)} 点）')
         except (OSError, ImportError) as exc:  # 轨迹PNG是可选产物；缺绘图库/写盘失败只报告。
-            self._log.error('map_tracked.png 绘制失败: %r' % (exc,))
-        self._log.info('trajectory_annotator_node 退出，耗时 %.2fs'
-                       % (now() - self._t_start))
+            self._log.error(f'map_tracked.png 绘制失败: {exc!r}')
+        self._log.info(f'trajectory_annotator_node 退出，耗时 {now() - self._t_start:.2f}s')
 
 
 def main(args: Optional[list] = None) -> int:

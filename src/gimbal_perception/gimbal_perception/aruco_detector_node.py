@@ -96,12 +96,12 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
 
         period = 1.0 / max(float(self._params['perception.detect_rate_hz']), 1e-3)
         self.create_timer(period, self._on_timer)
-        self._log.info('aruco_detector_node 启动: %s → %s，dict=%s，target=%d，%.0fHz'
-                       % (str(self._params['perception.image_topic']),
-                          str(self._params['perception.marker_corners_topic']),
-                          str(self._params['perception.aruco_dict']),
-                          self._target_digit,
-                          float(self._params['perception.detect_rate_hz'])))
+        self._log.info(f'aruco_detector_node 启动: '
+                       f'{self._params["perception.image_topic"]} → '
+                       f'{self._params["perception.marker_corners_topic"]}，'
+                       f'dict={self._params["perception.aruco_dict"]}，'
+                       f'target={self._target_digit}，'
+                       f'{float(self._params["perception.detect_rate_hz"]):.0f}Hz')
 
     # -- 参数 -----------------------------------------------------------------
     def _make_dict(self, name: str) -> Any:
@@ -237,8 +237,8 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
     def shutdown(self) -> None:
         """退出日志。"""
         rate = (100.0 * self._n_det / self._n_frame) if self._n_frame else 0.0
-        self._log.info('aruco_detector_node 退出: 处理 %d 帧，命中 %d 帧（%.1f%%）'
-                       % (self._n_frame, self._n_det, rate))
+        self._log.info(f'aruco_detector_node 退出: 处理 {self._n_frame} 帧，'
+                       f'命中 {self._n_det} 帧（{rate:.1f}%）')
 
 
 def main(args: Optional[list] = None) -> int:

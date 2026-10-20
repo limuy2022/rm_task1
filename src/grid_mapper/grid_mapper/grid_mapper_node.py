@@ -105,8 +105,8 @@ class GridMapperNode(Node):  # type: ignore[misc]
             self.create_subscription(
                 OccupancyGrid, str(self._params['grid.map_topic']),
                 self._on_external_map, latched)
-            self._log.info('map_source=topic: 等待外部地图 %s'
-                           % str(self._params['grid.map_topic']))
+            self._log.info(f'map_source=topic: 等待外部地图 '
+                           f'{self._params["grid.map_topic"]}')
         else:
             if source != 'config':
                 raise ValueError('grid.map_source must be config or topic')
@@ -131,7 +131,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         if not path:
             raise ValueError('grid.map_source=config requires an explicit grid.field_yaml')
         field = FieldConfig.from_yaml(os.path.expanduser(path))
-        self._log.info('已加载 field.yaml: %s' % path)
+        self._log.info(f'已加载 field.yaml: {path}')
         self._field = field
         self._grid_map = GridMap.build(field)
         self._save_outputs()
@@ -149,25 +149,24 @@ class GridMapperNode(Node):  # type: ignore[misc]
             stem = str(self._params['grid.output_basename'])
             paths = write_map(out_dir, self._grid_map, image_name=stem+'.pgm',
                               yaml_name=stem+'.yaml', origin_xyz=origin_xyz)
-            self._log.info('地图已落盘: %s, %s' % (paths['pgm'], paths['yaml']))
+            self._log.info(f'地图已落盘: {paths["pgm"]}, {paths["yaml"]}')
         except OSError as exc:  # 磁盘/权限失败不终止地图发布，必须明确报告未成功保存。
-            self._log.error('地图落盘失败: %r' % (exc,))
+            self._log.error(f'地图落盘失败: {exc!r}')
         if bool(self._params['grid.write_preview_png']):
             from .png_draw import draw_preview
             try:
                 boundary = self._field.boundary if self._field is not None else None
                 png_path = os.path.join(out_dir, 'map_preview.png')
                 draw_preview(self._grid_map, png_path, boundary=boundary)
-                self._log.info('预览图已落盘: %s' % png_path)
+                self._log.info(f'预览图已落盘: {png_path}')
             except (ImportError, OSError) as exc:  # 可选 PNG 导出调用失败不影响 PGM/YAML；模块导入错误直接暴露。
-                self._log.warning('预览图绘制失败: %r' % (exc,))
+                self._log.warning(f'预览图绘制失败: {exc!r}')
         st = self._grid_map.stats()
-        self._log.info('建图完成: %dx%d @ %.3fm/cell, origin=(%.2f,%.2f), '
-                       'occ=%d free=%d unk=%d ray_occ=%d'
-                       % (st['width'], st['height'], st['resolution'],
-                          st['origin_xy'][0], st['origin_xy'][1],
-                          st['n_occupied'], st['n_free'], st['n_unknown'],
-                          st['n_ray_occupied']))
+        self._log.info(f'建图完成: {st["width"]}x{st["height"]} '
+                       f'@ {st["resolution"]:.3f}m/cell, '
+                       f'origin=({st["origin_xy"][0]:.2f},{st["origin_xy"][1]:.2f}), '
+                       f'occ={st["n_occupied"]} free={st["n_free"]} '
+                       f'unk={st["n_unknown"]} ray_occ={st["n_ray_occupied"]}')
 
     # -- 回调 -----------------------------------------------------------------
     def _on_external_map(self, msg: Any) -> None:
@@ -249,7 +248,7 @@ class GridMapperNode(Node):  # type: ignore[misc]
         """退出钩子（§6.14 第 5 条）：`map_source=config` 时复写一次 maps/。"""
         if str(self._params['grid.map_source']).lower() == 'config':
             self._save_outputs()
-        self._log.info('grid_mapper_node 退出，耗时 %.2fs' % (now() - self._t_start))
+        self._log.info(f'grid_mapper_node 退出，耗时 {now() - self._t_start:.2f}s')
 
 
 def main(args: Optional[list] = None) -> int:
