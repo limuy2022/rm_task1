@@ -27,7 +27,7 @@ jobs:
 
       # 四层验证（与 README 容器命令逐字一致）：
       # colcon 全量构建（含 gimbal_interfaces 消息生成）→ C++ gtest →
-      # pytest src → tools/verify_all_offline.py 22 项离线核验。
+      # pytest src → tools/verify_all_offline.py 23 项离线核验。
       # colcon 产物放 /tmp；verify 日志写 build/offline/（已 gitignore）。
       - name: Full verification（colcon build + gtest + pytest + tools 离线核验）
         run: |
@@ -52,3 +52,46 @@ jobs:
           name: offline-verification
           path: build/offline/
           retention-days: 3
+
+  simulation:
+    name: 仿真 / ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # 一个场景失败后继续收集其他场景的独立结果。
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: navigation
+            target: test
+          - scenario: gazebo_lio
+            target: gazebo-sim
+          - scenario: gazebo_vision
+            target: gazebo-sim
+    steps:
+      - name: Checkout（含子模块）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build simulation image（复用根 Dockerfile）
+        run: docker build --target "${{ matrix.target }}" -t rm-task1-simulation .
+
+      - name: Run simulation（与本地共用入口）
+        timeout-minutes: 25
+        run: |
+          docker run --rm -v "$PWD":/workspace -w /workspace \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e ROS_DOMAIN_ID=94 -e ROS_LOCALHOST_ONLY=1 \
+            -e IGN_PARTITION=rm_task1_ci_${{ matrix.scenario }} \
+            -e LIBGL_ALWAYS_SOFTWARE=1 \
+            rm-task1-simulation bash tools/run_simulation_ci.sh "${{ matrix.scenario }}"
+
+      - name: Upload simulation results（含失败日志）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulation-${{ matrix.scenario }}
+          path: build/offline/ci_simulation/${{ matrix.scenario }}/
+          if-no-files-found: warn
+          retention-days: 7
