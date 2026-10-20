@@ -11,6 +11,9 @@ import tempfile
 
 ORIGINAL_SHA256 = 'b60ab7ffa402e0eb7dc72cfaf4c5e5efe988e88883ce253f4c40fc8056f4f230'
 ESTIMATOR_SHA256 = 'ad89c28616161ec0553ce76ee8911c19f67f0669730fc4e8d6609114e58f1ddf'
+MAPPING_SHA256 = '411240dda869824b0e3cfcde8f7e2c7b7995835f0f72eff2e4ac1499ef789139'
+CMAKE_SHA256 = '4bf23880bbef94662f8cf69cc62d2966f8a39c7f2df7ba74317aec78ca4b1b5a'
+INPUT_SHA256 = '422fd636b9417b0f705803e3cef4818a024ccb72eaa8bd4ffeb2cd53b39c5398'
 
 
 def main():
@@ -52,6 +55,54 @@ def main():
         raise ValueError('Point-LIO 近邻查询结构与已审阅版本不同')
     estimator.write_text(estimator_text.replace(old_query,
         'ivox_->GetClosestPoint(point_world_j, points_near, 2 * NUM_MATCH_POINTS);'))
+    mapping = args.source/'src/laserMapping.cpp'
+    mapping_original = mapping.read_bytes()
+    if hashlib.sha256(mapping_original).hexdigest() != MAPPING_SHA256:
+        raise ValueError('Point-LIO 主循环源码与已审阅版本不同，拒绝自动修改')
+    mapping_text = mapping_original.decode()
+    audit_header = Path(__file__).with_name('point_lio_input_audit.hpp')
+    shutil.copyfile(audit_header, path.with_name(audit_header.name))
+    if mapping_text.count('rclcpp::SensorDataQoS()') != 3:
+        raise ValueError('Point-LIO 传感器订阅结构与已审阅版本不同')
+    mapping_text = mapping_text.replace('rclcpp::SensorDataQoS()', 'rm_sensor_qos')
+    marker = '  /*** ROS subscribe initialization ***/'
+    if mapping_text.count(marker) != 1:
+        raise ValueError('Point-LIO 订阅初始化结构与已审阅版本不同')
+    mapping_text = '#include "point_lio_input_audit.hpp"\n'+mapping_text.replace(marker, '''  const int rm_sensor_depth = nh->declare_parameter<int>("sensor_qos_depth", 5);
+  if (rm_sensor_depth < 1 || rm_sensor_depth > 8192)
+    throw std::invalid_argument("sensor_qos_depth 须为1至8192");
+  auto rm_sensor_qos = rclcpp::SensorDataQoS();
+  rm_sensor_qos.keep_last(rm_sensor_depth);
+  rm_task1::input_audit().configure(nh->declare_parameter<std::string>("input_audit_path", ""));
+'''+marker)
+    for name in ('crossmat_list', 'pbody_list'):
+        old = name+'.reserve(feats_down_size);'
+        if mapping_text.count(old) != 1:
+            raise ValueError('Point-LIO 向量写入结构与已审阅版本不同')
+        mapping_text = mapping_text.replace(old, name+'.resize(feats_down_size);')
+    mapping.write_text(mapping_text)
+    inputs = args.source/'src/li_initialization.cpp'
+    inputs_original = inputs.read_bytes()
+    if hashlib.sha256(inputs_original).hexdigest() != INPUT_SHA256:
+        raise ValueError('Point-LIO 输入回调源码与已审阅版本不同，拒绝自动修改')
+    inputs_text = '#include "point_lio_input_audit.hpp"\n'+inputs_original.decode()
+    for signature, name, imu in (
+        ('void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::SharedPtr & msg)', 'msg', 'false'),
+        ('void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::SharedPtr & msg)', 'msg', 'false'),
+        ('void imu_cbk(const sensor_msgs::msg::Imu::ConstSharedPtr & msg_in)', 'msg_in', 'true')):
+        marker = signature+'\n{'
+        if inputs_text.count(marker) != 1:
+            raise ValueError('Point-LIO 输入回调签名与已审阅版本不同')
+        inputs_text = inputs_text.replace(marker, marker+'\n  rm_task1::input_audit().record('
+            +imu+', rclcpp::Time('+name+'->header.stamp).seconds());')
+    inputs.write_text(inputs_text)
+    cmake = args.source/'CMakeLists.txt'
+    cmake_original = cmake.read_bytes()
+    if hashlib.sha256(cmake_original).hexdigest() != CMAKE_SHA256:
+        raise ValueError('Point-LIO 构建配置与已审阅版本不同，拒绝自动修改')
+    # 上游覆盖 CMAKE_CXX_FLAGS，不能只在命令行传 -D_GLIBCXX_ASSERTIONS。
+    cmake.write_text(cmake_original.decode()+'\n# 对实际目标启用标准库容器边界检查。\n'
+                     'target_compile_definitions(pointlio_mapping PRIVATE _GLIBCXX_ASSERTIONS)\n')
 
     # 直接编译归档的实际函数与修复函数，避免只测试一个相似的替身。
     with tempfile.TemporaryDirectory() as folder:
@@ -102,7 +153,7 @@ int main() {
 '''
         probe.write_text(code)
         executable = Path(folder)/'plane_test'
-        subprocess.run(['g++', '-std=c++17', '-O2', '-I/usr/include/eigen3',
+        subprocess.run(['g++', '-std=c++17', '-O2', '-D_GLIBCXX_ASSERTIONS', '-I/usr/include/eigen3',
                         '-I'+str(path.parent), str(probe), '-o', str(executable)], check=True)
         subprocess.run([str(executable)], check=True)
     args.manifest.write_text(json.dumps({
@@ -111,6 +162,14 @@ int main() {
         'guard_sha256': hashlib.sha256(guard.read_bytes()).hexdigest(),
         'original_estimator_sha256': hashlib.sha256(estimator_original).hexdigest(),
         'patched_estimator_sha256': hashlib.sha256(estimator.read_bytes()).hexdigest(),
+        'original_mapping_sha256': hashlib.sha256(mapping_original).hexdigest(),
+        'patched_mapping_sha256': hashlib.sha256(mapping.read_bytes()).hexdigest(),
+        'vector_bounds_assertions': True,
+        'original_cmake_sha256': hashlib.sha256(cmake_original).hexdigest(),
+        'input_audit_header_sha256': hashlib.sha256(audit_header.read_bytes()).hexdigest(),
+        'original_inputs_sha256': INPUT_SHA256,
+        'patched_inputs_sha256': hashlib.sha256(inputs.read_bytes()).hexdigest(),
+        'sensor_qos_depth_parameter': True,
         'maximum_plane_neighbors': 10,
         'minimum_second_to_largest_eigenvalue_ratio': 1e-4,
         'maximum_smallest_to_second_eigenvalue_ratio': .01,

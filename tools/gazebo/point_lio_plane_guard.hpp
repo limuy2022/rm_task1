@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef _GLIBCXX_ASSERTIONS
+#error "Point-LIO 修复版必须启用标准库容器边界检查"
+#endif
+
 #include <Eigen/Eigenvalues>
 
 namespace rm_task1 {

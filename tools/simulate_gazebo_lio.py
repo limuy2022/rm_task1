@@ -50,7 +50,34 @@ INITIAL_BODY = np.array([0., 0., .7])
 def point_lio_image_build():
     """记录镜像修复来源，避免将修复版的结果误认为归档原版结果。"""
     manifest = Path('/opt/lio_sim/plane_guard_manifest.json')
-    return json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
+    data = json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
+    knn = Path('/opt/lio_sim/knn_manifest.json')
+    if knn.exists(): data['nearest_neighbor_fix'] = json.loads(knn.read_text())
+    noise = Path('/opt/lio_sim/measurement_noise_manifest.json')
+    if noise.exists(): data['measurement_noise_fix'] = json.loads(noise.read_text())
+    return data
+
+
+def audit_received_inputs(report, output, lidar_sent, imu_observed):
+    """进程正常收尾后读取估计器的实收统计，审核丢样和时间空洞。"""
+    try:
+        with (output/'input_audit.csv').open() as stream:
+            row = next(csv.DictReader(stream))
+        data = {key: float(value) if 'gap' in key else int(value) for key, value in row.items()}
+        data.update(lidar_published=lidar_sent, imu_observed=imu_observed, sensor_qos_depth=200)
+        checks = {
+            'estimator_received_lidar': data['lidar_received'] >= .999*lidar_sent,
+            'estimator_received_imu': data['imu_received'] >= .999*imu_observed,
+            'estimator_imu_continuity': data['imu_max_gap_s'] <= .010001,
+            'estimator_lidar_continuity': data['lidar_max_gap_s'] <= .100001,
+            'estimator_input_order': data['lidar_backward'] == data['imu_backward'] == 0,
+        }
+        report['sensor_input_audit'] = data
+    except (OSError, StopIteration, ValueError, KeyError) as exc:
+        report['sensor_input_audit'] = {'error': repr(exc)}
+        checks = {'estimator_input_audit_available': False}
+    report.setdefault('checks', {}).update(checks)
+    report['passed'] = report['passed'] and all(checks.values())
 
 
 def seconds(stamp):
@@ -100,6 +127,8 @@ class GazeboLio(Node):
         params = config['/**']['ros__parameters']
         params['use_sim_time'] = True
         params['use_imu_as_input'] = imu_mode == 'input'
+        params['sensor_qos_depth'] = 200
+        params['input_audit_path'] = str(self.output/'input_audit.csv')
         params['common'].update(lid_topic=NS+'/livox/lidar', imu_topic=NS+'/imu')
         # 该版本饱和检查直接比较原始 IMU 消息；把输入从原配置单位改成
         # m/s² 时，必须同步换算饱和阈值，否则9.81的静止重力会超过3。
@@ -501,6 +530,7 @@ def main():
     report['passed'] = report['passed'] and report['clean_shutdown']
     report['Gazebo_executed'] = app.raw_scans > 0 and len(app.truth) > 0
     report['Point_LIO_executed'] = len(app.estimates) > 0
+    audit_received_inputs(report, output, app.published_frames, len(app.imus))
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), flush=True)
     return 0 if report['passed'] else 1
