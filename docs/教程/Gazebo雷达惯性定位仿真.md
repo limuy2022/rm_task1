@@ -9,7 +9,7 @@ Gazebo 真值只用于评价误差，不替代定位输入。这比[轻量接入
 
 - 环境：根 `Dockerfile` 的可选 `gazebo-sim` 目标；默认 `test` 目标仍使用原来的测试环境。
 - 仿真：Gazebo Fortress / Ogre2 / EGL 无窗口渲染，`ros_gz_bridge` 负责 ROS 2 通信。
-- 定位：`archives/robomaster_navigation.tar.gz` 中的 `point_lio` 原版源码。
+- 定位：`archives/robomaster_navigation.tar.gz` 中的 `point_lio`，在镜像构建副本上加入平面有效性修复；归档及保留的原始源码不变。见[CI 修复记录](../记录/Point-LIO稀疏场景失败归因.md#8-云端-ci-回归修复)。
 - 消息：同一压缩包中的 `livox_ros_driver2`；编译驱动以取得真实消息定义，但不启动雷达驱动。
 - 评价：`tools/simulate_gazebo_lio.py`，输出解析匹配的真值、定位轨迹、地图与 JSON。
 
@@ -133,7 +133,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
 
 ## 6 产物
 
-- `result.json`：是否真正得到 Gazebo 数据和 Point-LIO 位姿、误差、检查、来源 SHA256、局限和退出码。
+- `result.json`：是否真正得到 Gazebo 数据和 Point-LIO 位姿、误差、检查、来源 SHA256、`point_lio_image_build` 修复清单、局限和退出码。
 - `overview.png`：源地图，蓝线为真实房间边界，绿线为 Gazebo 真值，红线为 Point-LIO 输出。
 - `trajectory.csv`：按定位消息原始时间插值匹配的真值、估计、位置与 yaw 误差。
 - `gazebo_truth.csv`、`point_lio_odometry.csv`、`imu.csv`：独立记录的原始数值。

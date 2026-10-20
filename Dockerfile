@@ -46,11 +46,19 @@ RUN mkdir -p /opt/lio_sim/src \
  && tar -xzf /tmp/navigation.tar.gz -C /opt/lio_sim/src --strip-components=2 \
       src/pb2025_sentry_nav/point_lio src/pb2025_sentry_nav/livox_ros_driver2 \
  && rm /tmp/navigation.tar.gz
-RUN /bin/bash -c 'source /opt/ros/humble/setup.bash && \
-    cd /opt/lio_sim && colcon --log-base /tmp/lio_log build \
+COPY tools/gazebo/apply_point_lio_plane_guard.py tools/gazebo/point_lio_plane_guard.hpp /opt/lio_sim/patches/
+# 只修补构建副本；保留 /opt/lio_sim/src 原版供固定输入对照与诊断。
+# 构建时验证原文件哈希，并编译实际平面函数执行七项几何回归。
+RUN mkdir -p /tmp/lio_workspace \
+ && cp -a /opt/lio_sim/src /tmp/lio_workspace/src \
+ && python3 -B /opt/lio_sim/patches/apply_point_lio_plane_guard.py \
+      --source /tmp/lio_workspace/src/point_lio \
+      --manifest /opt/lio_sim/plane_guard_manifest.json \
+ && /bin/bash -c 'source /opt/ros/humble/setup.bash && \
+    cd /tmp/lio_workspace && colcon --log-base /tmp/lio_log build \
       --build-base /tmp/lio_build --install-base /opt/lio_sim/install \
       --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release' \
- && rm -rf /tmp/lio_build /tmp/lio_log
+ && rm -rf /tmp/lio_build /tmp/lio_log /tmp/lio_workspace
 COPY tools/gazebo/CMakeLists.txt tools/gazebo/force_controller.cpp /opt/gazebo_controller/
 RUN cmake -S /opt/gazebo_controller -B /tmp/gazebo_controller \
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/lio_sim \

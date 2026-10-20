@@ -6,3 +6,5 @@
 !tools/gazebo/
 !tools/gazebo/CMakeLists.txt
 !tools/gazebo/force_controller.cpp
+!tools/gazebo/apply_point_lio_plane_guard.py
+!tools/gazebo/point_lio_plane_guard.hpp

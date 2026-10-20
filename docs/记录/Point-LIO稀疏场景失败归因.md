@@ -178,6 +178,8 @@ cd /workspace
 
 python3 -B tools/replay_lio_diagnostics.py \
   --source build/offline/lio_reason_capture_01 \
+  --executable /tmp/lio_diag_install/point_lio/lib/point_lio/pointlio_mapping \
+  --variant original \
   --output-dir build/offline/lio_reason_original_01
 python3 -B tools/replay_lio_diagnostics.py \
   --source build/offline/lio_reason_capture_01 \
@@ -219,3 +221,34 @@ SHA256；临时开关为 `RM_LIO_PLANE_RANK_GUARD`、`RM_LIO_INIT_VOXEL`、
 仿真单位修正后的标准容器全量回归：pytest **475通过、1跳过**，C++ **36项无失败**，
 离线 **23项作业通过**。日志为 `build/offline/lio_diagnosis_regression.log`。该回归
 不替代上述可选Gazebo对照，也不把32线实时链路的失败转为通过。
+
+## 8 云端 CI 回归修复
+
+加入自动仿真后的云端执行再次暴露了该问题。首次运行
+[39372202690](https://github.com/limuy2022/rm_task1/actions/runs/39372202690)
+雷达位置RMSE 10.19cm，但墙外未知比例仅97.76%，未通过严格地图检查。
+后续运行
+[39386445669](https://github.com/limuy2022/rm_task1/actions/runs/39386445669)
+雷达位置RMSE 56.67cm、最大误差117.83cm、回到起点误差104.94cm，墙体覆盖率
+55.37%。同轮常规测试、定位建图及视觉联合任务均通过；雷达任务的原始测量
+物理一致性、时间戳顺序及进程退出检查通过。云端没有录bag，不能逐帧归因每次
+匹配，但这些结果再次说明单次本地通过不能保证原算法在该理想重复扫描下稳定。
+
+修复将第3节已验证的二维分布检查纳入 `gazebo-sim` 镜像实际安装版，不改变
+场景、运动轨迹、地图门槛或算法初始化。只对构建副本的 `esti_plane()` 增加
+中心化散布矩阵检查和输出有限数检查，保留原平面拟合与残差检查。判定仍为
+`λ2 >= 1e-9` 且 `λ1 >= 1e-4·λ2`；没有合并已证实无效的初始化降采样方案。
+
+`apply_point_lio_plane_guard.py` 校验原文件 SHA256 后修改副本，并编译归档中的
+实际平面函数进行7项检查：原版错误接受的共线邻域、重复点、近共线、正常平面、
+刚体变换、离群点、非有限数。任意失败会停止镜像构建。原始导航压缩包和
+`/opt/lio_sim/src/point_lio` 保留不变，原始函数版权与许可证不变。
+仿真 `result.json` 记录 `point_lio_image_build` 清单，包含修改前后哈希与门槛。
+
+本节之后的新镜像默认安装修复版。第6节的原版对照应使用从保留源码构建的
+诊断二进制并显式选择 `--variant original`；不指定二进制的回放现在标记为
+`installed`，并记录镜像清单，避免误将修复版记为原版。第1～7节均为历史实验，
+其中“安装原版”和“仅临时诊断”的描述对应修复前镜像。
+
+修复只纳入仿真镜像；没有修改实车安装、参数值或运动开关。平面检查不能代替
+32线接收吞吐、实时延迟或真实MID360验证。

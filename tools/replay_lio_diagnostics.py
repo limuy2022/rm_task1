@@ -2,7 +2,7 @@
 """同一仿真 bag 的 Point-LIO 对照回放，保留测量时间并独立对照真值。
 
 只回放 clock、Livox 和 IMU，不回放旧定位、TF、图像或目标结果。
-预编译的诊断二进制通过 --executable 指定；默认使用镜像原版。
+预编译的诊断二进制通过 --executable 指定；默认使用镜像安装版并记录构建清单。
 """
 import argparse
 import csv
@@ -124,7 +124,7 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--executable', type=Path, default=Path('/opt/lio_sim/install/point_lio/lib/point_lio/pointlio_mapping'))
-    parser.add_argument('--variant', choices=['original', 'init_voxel', 'plane_guard', 'both'], default='original')
+    parser.add_argument('--variant', choices=['installed', 'original', 'init_voxel', 'plane_guard', 'both'], default='installed')
     parser.add_argument('--rate', type=float, default=2.)
     parser.add_argument('--qos-depth', type=int, help='诊断二进制的传感器队列深度；原版默认为5')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE')
@@ -133,7 +133,7 @@ def main():
         parser.error('须设置 ROS_LOCALHOST_ONLY=1 和独立 ROS_DOMAIN_ID')
     if not .1 <= args.rate <= 4: parser.error('rate 须为0.1～4')
     if args.qos_depth is not None and not 1 <= args.qos_depth <= 8192: parser.error('qos-depth 须为1～8192')
-    if (args.variant != 'original' or args.qos_depth is not None) and args.executable == parser.get_default('executable'):
+    if (args.variant != 'installed' or args.qos_depth is not None) and args.executable == parser.get_default('executable'):
         parser.error('诊断变体必须指定已构建的诊断可执行文件')
     source, output = args.source.resolve(), args.output_dir.resolve()
     if not (source/'sensor_bag/metadata.yaml').exists(): parser.error('源目录没有完整 sensor_bag')
@@ -143,6 +143,9 @@ def main():
               'playback_rate': args.rate, 'ground_truth_used_as_estimator_input': False,
               'qos_depth_override': args.qos_depth,
               'executable': str(args.executable), 'executable_sha256': hashlib.sha256(args.executable.read_bytes()).hexdigest()}
+    manifest = Path('/opt/lio_sim/plane_guard_manifest.json')
+    if args.executable == parser.get_default('executable'):
+        report['point_lio_image_build'] = json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
     rclpy.init(); app = Replay(source, output, args.executable, overrides, args.variant, args.rate, args.qos_depth)
     try: report.update(app.run())
     except Exception as exc: report['error'] = repr(exc)

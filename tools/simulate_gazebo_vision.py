@@ -30,7 +30,7 @@ from cv_bridge import CvBridge
 from gimbal_interfaces.msg import MarkerObservation, TargetState
 from gimbal_common import frames
 from gimbal_common.qos_utils import sensor_qos
-from simulate_gazebo_lio import GazeboLio, NS, ROOT, ORIGIN, RESOLUTION, seconds, envelope
+from simulate_gazebo_lio import GazeboLio, NS, ROOT, ORIGIN, RESOLUTION, seconds, envelope, point_lio_image_build
 
 
 MARKER = np.array([2.8, 0., .9])
@@ -422,6 +422,7 @@ def main():
     app = GazeboVision(output, args.timeout, args.real_time_factor, args.record_bag, args.imu_mode,
                        args.scan_lines, args.scene, args.observation_sigma_floor)
     report = {'kind': 'gazebo_rgb_lidar_imu_target_estimation',
+              'point_lio_image_build': point_lio_image_build(),
               'ground_truth_used_as_estimator_input': False, 'hardware_accessed': False,
               'imu_mode': args.imu_mode, 'scan_lines': args.scan_lines, 'scene': args.scene,
               'observation_sigma_floor_m': args.observation_sigma_floor,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gazebo 三维雷达/IMU → 导航压缩包原版 Point-LIO → 真实点云建图。
+"""Gazebo 三维雷达/IMU → Point-LIO（镜像构建版本见报告）→ 真实点云建图。
 
 Gazebo 真值仅用于评分和运动阶段记录，不发布为定位输入。多次瞬时扫描按
 各自真实采样时间组成 Livox 消息；不伪造帧内连续扫描或 MID360 扫描模式。
@@ -45,6 +45,12 @@ NS = '/sim/gazebo'
 RESOLUTION = .05
 ORIGIN = np.array([-5., -4.])
 INITIAL_BODY = np.array([0., 0., .7])
+
+
+def point_lio_image_build():
+    """记录镜像修复来源，避免将修复版的结果误认为归档原版结果。"""
+    manifest = Path('/opt/lio_sim/plane_guard_manifest.json')
+    return json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
 
 
 def seconds(stamp):
@@ -474,6 +480,7 @@ def main():
     rclpy.init()
     app = GazeboLio(output, args.timeout, args.real_time_factor, args.record_bag, args.imu_mode, args.scan_lines)
     report = {'kind': 'gazebo_raw_lidar_imu_point_lio', 'ground_truth_used_as_odometry_input': False,
+              'point_lio_image_build': point_lio_image_build(),
               'hardware_accessed': False, 'imu_mode': args.imu_mode, 'scan_lines': args.scan_lines,
               'source_archive_sha256': hashlib.sha256((ROOT/'archives/robomaster_navigation.tar.gz').read_bytes()).hexdigest(),
               'limitations': ['悬浮刚性平台，不模拟轮胎或悬架', '规则多线雷达，不是MID360非重复扫描模式',
