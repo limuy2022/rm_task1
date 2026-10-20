@@ -55,7 +55,7 @@ class VisualServoNode(Node):
                     'kd_yaw': 0., 'kd_pitch': 0., 'max_omega': .25,
                     'slew': 1., 'yaw_sign': 1., 'pitch_sign': 1.,
                     'image_timeout': .15, 'imu_timeout': .15,
-                    'run_seconds': 15., 'max_rotation': .35,
+                    'run_seconds': 15., 'max_rotation': .35, 'continuous': False,
                     'imu_topic': '/red_standard_robot1/gimbal',
                     'control_hz': 50., 'filter_tau': .04, 'deadband_px': 2.,
                     'integral_limit': .1, 'derivative_tau': .05,
@@ -242,7 +242,9 @@ class VisualServoNode(Node):
                     if not (1. <= run_seconds <= 180. and .02 <= rotation <= 1.):
                         raise ValueError('run_seconds须1..180；max_rotation须.02..1rad')
                     moved = 2.*math.acos(min(1., abs(float(self.arm_q @ self.imu[1]))))
-                    if now-self.arm_time >= run_seconds: self.fault = '本次试转时间结束'
+                    # 持续模式只解除时间预算；位移保险丝与其余安全门照常生效。
+                    if not bool(self.p('continuous')) and now-self.arm_time >= run_seconds:
+                        self.fault = '本次试转时间结束'
                     if moved >= rotation: self.fault = '本次转动达到角度范围'
                     fresh = self.observation is not None and -.03 <= self.age(self.observation[0]) <= float(self.p('image_timeout'))
                     grace = float(self.p('loss_grace_s'))
@@ -277,6 +279,7 @@ class VisualServoNode(Node):
                           'status_stamp': self.get_clock().now().nanoseconds*1e-9,
                           'image_stamp': self.observation[0] if self.observation else None,
                           'lost_count': self.lost_count, 'control_hz': self.control_hz,
+                          'continuous': bool(self.p('continuous')),
                           'filtered_error_deg': None if self.filtered_error is None else [math.degrees(e) for e in self.filtered_error],
                           'control_error_deg': None if self.control_error is None else [math.degrees(e) for e in self.control_error]}
                 if self.observation:

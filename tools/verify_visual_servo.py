@@ -254,6 +254,23 @@ def main():
     assert node.fault == '本次试转时间结束' and _is_zero(sent[-1])
     checks.append('15_second_trial_limit_latches_stop')
 
+    node, clock, params, sent = _armed_tracking(continuous=True)
+    params['run_seconds'] = 15.
+    clock.advance(15.)
+    node.on_imu(imu_message(clock))
+    node.on_corners(corners_message(clock, 700., 520.))
+    node.tick()
+    assert not node.fault and not _is_zero(sent[-1])
+    checks.append('continuous_mode_ignores_time_budget')
+
+    node, clock, params, sent = _armed_tracking(continuous=True)
+    clock.advance(.02)
+    node.on_imu(imu_message(clock, (math.cos(.4/2), 0., 0., math.sin(.4/2))))
+    node.on_corners(corners_message(clock, 700., 520.))
+    node.tick()
+    assert node.fault == '本次转动达到角度范围' and _is_zero(sent[-1])
+    checks.append('continuous_mode_keeps_rotation_leash')
+
     node, clock, params, sent = _armed_tracking()
     clock.advance(.02)
     node.on_imu(imu_message(clock, (math.cos(.4/2), 0., 0., math.sin(.4/2))))
