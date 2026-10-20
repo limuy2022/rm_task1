@@ -87,8 +87,9 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
         self._n_frame: int = 0
         self._t_last_detect: float = 0.0
 
-        self.create_subscription(Image, str(self._params['perception.image_topic']),
-                                 self._on_image, reliable_qos(1))
+        self._image_sub = self.create_subscription(
+            Image, str(self._params['perception.image_topic']),
+            self._on_image, reliable_qos(1))
         self._pub = self.create_publisher(
             MarkerCorners, str(self._params['perception.marker_corners_topic']),
             reliable_qos(10))
@@ -130,14 +131,24 @@ class ArucoDetectorNode(Node):  # type: ignore[misc]
             return
         msg = self._latest
         if msg is None:
+            # 相机与 detect 定时器同频（如 30fps 对 30Hz）拍频下，周期性出现
+            # "本周期没有新帧"的空 tick 是正常现象，不能当成图像断流告警；
+            # 只有从未收到图、或距上一帧已超时才是真异常。
             received = self._last_image_received
             timeout = float(self._params['perception.image_timeout_s'])
-            if received is not None and time.monotonic() - received > timeout \
-                    and not self._loss_announced:
-                self._publish(None, self.get_clock().now().to_msg())
-                self._loss_announced = True
-            throttled(self._log, 'warning', '还没有收到 /image_raw',
-                       'aruco.no_image', 2.0)
+            topic = self._image_sub.topic_name
+            if received is None:
+                throttled(self._log, 'warning',
+                          '尚未收到任何图像（话题 %s）' % topic,
+                          'aruco.no_image_never', 2.0)
+            elif time.monotonic() - received > timeout:
+                if not self._loss_announced:
+                    self._publish(None, self.get_clock().now().to_msg())
+                    self._loss_announced = True
+                throttled(self._log, 'warning',
+                          '%.1fs 未收到新图像（话题 %s）'
+                          % (time.monotonic() - received, topic),
+                          'aruco.no_image_stale', 2.0)
             return
         self._latest = None                 # 只处理最新帧，旧的直接丢
         try:
