@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.executors import ExternalShutdownException
 
 __all__ = ['create_node', 'declare_params', 'spin_with_finally', 'shutdown']
 
@@ -77,6 +78,15 @@ def spin_with_finally(node: Node,
         rclpy.spin(node)
     except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行写盘或发零。
         pass
+    except ExternalShutdownException:
+        # Humble 的信号处理可能先关闭 context，再唤醒 executor。
+        if rclpy.ok():
+            raise
+    except RuntimeError:
+        # context 关闭时恰逢 take_message，Humble 也可能抛消息转换错误。
+        # 只容忍已确认关闭后的竞态，运行期间的异常必须继续暴露。
+        if rclpy.ok():
+            raise
     finally:
         if on_shutdown is not None:
             on_shutdown()

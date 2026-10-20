@@ -241,7 +241,8 @@ def main(args: Optional[list] = None) -> int:
     finally:
         node.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 

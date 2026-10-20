@@ -265,7 +265,9 @@ def main(args: Optional[list] = None) -> int:
             node.shutdown()
         finally:
             node.destroy_node()
-            rclpy.shutdown()
+            # Humble 的 SIGINT 处理器可能已经关闭 context。
+            if rclpy.ok():
+                rclpy.shutdown()
     return 0
 
 

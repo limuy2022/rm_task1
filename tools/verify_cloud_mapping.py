@@ -217,8 +217,9 @@ def ros_adapter_check(tmp):
     nodes=[n for n in mod.body if isinstance(n,(ast.FunctionDef,ast.ClassDef)) and n.name in ['stamp_seconds','CloudMappingNode']]
     from collections import deque
     import os,re
-    scope={'Node':FakeNode,'QoSProfile':lambda **kw:NS(**kw),
-           'ReliabilityPolicy':NS(BEST_EFFORT=1,RELIABLE=2),'DurabilityPolicy':NS(TRANSIENT_LOCAL=3),
+    scope={'Node':FakeNode,
+           'latched_qos':lambda depth=1:NS(depth=depth),
+           'sensor_qos':lambda depth=10:NS(depth=depth),
            'CloudGrid':CloudGrid,'PoseHistory':PoseHistory,'pointcloud2_xyz':pointcloud2_xyz,
            'OccupancyGrid':Msg,'String':Msg,'PointCloud2':Msg,'Odometry':Msg,'Trigger':Msg,
            'deque':deque,'json':json,'os':os,'re':re,'math':math,'tempfile':tempfile,'time':time,'write_map':write_map,

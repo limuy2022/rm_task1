@@ -200,4 +200,6 @@ def main(args=None):
         try:
             if node.mapper.accepted_scans: node.save()
         finally:
-            node.destroy_node(); rclpy.shutdown()
+            node.destroy_node()
+            # SIGINT 可能已关闭 context；避免正常停机被二次 shutdown 报错。
+            if rclpy.ok(): rclpy.shutdown()

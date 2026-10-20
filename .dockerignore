@@ -1,2 +1,8 @@
-# 本镜像不 COPY 仓库任何内容（纯 apt 层），忽略全部构建上下文以加速 docker build
+# 默认测试目标只用 apt；可选 Gazebo 目标需要导航源码和仿真控制插件。
 *
+!archives/
+!archives/robomaster_navigation.tar.gz
+!tools/
+!tools/gazebo/
+!tools/gazebo/CMakeLists.txt
+!tools/gazebo/force_controller.cpp

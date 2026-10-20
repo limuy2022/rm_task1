@@ -1,0 +1,221 @@
+# Point-LIO 稀疏场景失败归因（2026-10-20）
+
+本记录针对[视觉定位联合仿真](../教程/Gazebo视觉定位联合仿真.md)发现的往返路径
+失败，检查仓库导航压缩包内所带的 ROS 2 / iVox 版本 Point-LIO。所有实验仍在根
+Dockerfile 的 `gazebo-sim` 容器内运行，不修改导航压缩包、安装版算法、实车参数值
+或运动开关。诊断源码仅复制到容器 `/tmp`，输出放 `build/offline/`。
+排查确认了局部平面有效性、处理阻塞导致接收丢样，以及仿真饱和阈值单位遗漏三层问题。
+其中仿真参数遗漏已修复；算法和接收队列的变体仍属于临时诊断。
+
+## 1 已确认的局部平面检查缺口
+
+第一项触发链已得到源码、独立几何探针、固定 bag 对照及完整 Gazebo 试验支持：
+
+1. 理想无噪声雷达在静止时重复扫描相同位置，四次快照组成一条 Livox 消息。
+2. `laserMapping.cpp` 初始化地图时直接加入未降采样的 `feats_undistort`，重复坐标
+   可以进入 iVox。最近5个回波可能只对应两个不同位置。
+3. `common_lib.h::esti_plane()` 解线性方程并检查残差，没有检查邻域是否具有足够
+   二维空间分布。重复点或共线点可得到低残差，却无法确定唯一平面。
+4. 不可靠法向进入位置/姿态更新，形成错误约束；运动之后地图继续吸收受影响的位姿。
+
+这里发现的是**局部匹配邻域退化**。独立审计中，真实表面法向覆盖 x/y/z 三个方向，
+理想对应关系的六维位姿信息矩阵最小特征值约0.176、满秩。不能仅凭“两箱体房间”
+就断定整间房间没有定位约束。上游的[平面拟合代码](https://github.com/hku-mars/Point-LIO/blob/master/include/common_lib.h)
+也采用相同的残差检查逻辑，但本次归因与结果只针对仓库所用版本及本次输入。
+
+## 2 输入与几何审计
+
+固定输入为 `build/offline/lio_diagnosis_capture01/sensor_bag/`；不是把真值作为里程计。
+该次完整原版 Gazebo 运行的位置 RMSE 为35.89cm，首次超过10cm约在 t=6.676秒，
+早于第一段视觉观测故障开始的 t≈13.296秒。回放只发布 clock、Livox、IMU，
+不发布记录中的旧定位、TF、图像或目标结果。
+
+`tools/audit_lio_recording.py` 的审计结果：
+
+| 项目 | 实际结果 |
+|---|---:|
+| Livox / IMU记录数 | 404 / 8077 |
+| Livox头时间戳最大间隔 | 0.1秒 |
+| IMU头时间戳最大间隔 | 0.006秒 |
+| timebase与header不一致、帧内时间倒序 | 均为0 |
+| 四次快照的实际跨度 | 72～76ms |
+| 静止IMU均值 | `(0,0,9.81)m/s²` |
+| 首帧原始回波 / 不同坐标 | 11520 / 2880 |
+| 按原预处理索引筛选后 / 不同坐标 | 5759 / 1440 |
+| 独立抽取的同一真实表面5点邻域 | 1251组 |
+| 这些邻域中近似共线比例 | 100% |
+| 原版平面函数接受比例 | 100% |
+| 已接受且法向偏离真实表面超过10° | 52.28% |
+| 法向误差P95 | 90° |
+
+审计输出为 `build/offline/lio_diagnosis_audit02/`，包括原函数的 Eigen C++ 探针、
+逐邻域结果和 bag SHA256。输入bag数据库 SHA256 为
+`ab52575cc7e5fd4bba1ade9ab4efe8c6b1df11a85dcdead013e242e859e59c63`。
+
+邻域提取用独立 numpy 体素中心近似 PCL 查询，再用空间最近邻取5点，不是运行中
+每一次 iVox 调用的完整还原；探针直接编译所用版本的原 Eigen 平面函数，没有以
+numpy 最小二乘替代它。真实表面标签和真值轨迹仅用于离线评价。
+
+## 3 固定16线 input记录的对照
+
+候选平面检查对中心化邻域的散布矩阵求特征值 `λ0≤λ1≤λ2`。`λ2` 过小或
+`λ1 < 1e-4·λ2` 时拒绝该邻域，避免把近似直线当成稳定平面。此门槛用于本次
+诊断，不是经过实车标定的通用推荐值。
+
+| 变体 | 位置RMSE | 最大位置误差 | 目录 `build/offline/` 下 |
+|---|---:|---:|---|
+| 镜像安装原版 | 40.81cm | 60.47cm | `lio_replay_original01` |
+| 仅加诊断计数，保持原逻辑 | 37.62cm | 60.43cm | `lio_replay_instrumented_original01` |
+| 仅初始化地图体素降采样 | 60.04cm | 86.50cm | `lio_replay_init_voxel01` |
+| 仅拒绝共线邻域，第1次 | 3.65cm | 10.96cm | `lio_replay_plane_guard01` |
+| 仅拒绝共线邻域，第2次 | 6.02cm | 17.16cm | `lio_replay_plane_guard02` |
+| 初始化体素降采样+拒绝共线邻域 | 96.85cm | 127.92cm | `lio_replay_both01` |
+
+所有行使用同一bag、相同配置及2倍录制墙钟速度回放，源时间戳不变；各得到401条
+定位输出。固定输入没有消除 DDS 与线程调度差异，不应声称逐位确定性。
+加入计数会增加计算开销，因此保留了“有诊断但关闭检查”的控制组。
+
+结果支持拒绝无效局部平面是有效方向，也明确否定了“单独初始化降采样就能修好”
+的假设。两个改动叠加后仍失败，不能把该组合合并为修复；地图初始化、邻域分布
+和后续地图更新仍需更广的测试。
+
+## 4 回到原失败房间，验证完整链路
+
+`lio_guard_live_room01` 使用 `/tmp` 中只启用平面检查的诊断版本，仍为两箱体房间、
+原运动路径、16线input、3cm组合观测噪声下限；没有增加场景结构或放宽误差门槛。
+
+| 完整 Gazebo 联合检查 | 结果 |
+|---|---:|
+| 定位RMSE / 最大误差 | 4.46 / 12.90cm |
+| 目标坐标RMSE / 最大误差 | 6.67 / 16.72cm |
+| 墙体覆盖率 | 94.26% |
+| 墙外未知比例 | 100% |
+| 延迟、断流、旧帧重放的失效/恢复 | 全部通过 |
+| 32项功能检查及10个进程正常退出 | 全部通过 |
+
+该目录的 `diagnostic_manifest.json` 记录了临时诊断二进制与变体，避免把结果
+误认为安装版算法已修复。正式镜像、归档源码及实车配置仍未改变。
+
+## 5 32线 output的额外排查
+
+原版本次32线output复现位于 `lio_diagnosis_output32_capture01`。它没有每次都复现
+之前18.72m的严重发散：本轮定位RMSE9.25cm，但地图外部未知、目标有效率、目标
+最大误差与重放后的恢复仍失败。对相同记录进行2倍速回放时，安装原版再次严重
+发散，位置RMSE20.16m、仅321条定位输出。
+
+源码还有一个独立线索：`executor.spin_some()` 与整帧处理位于同一循环，雷达与
+IMU均使用默认 `SensorDataQoS`。该策略的深度为5、可靠性为best effort，参见
+[ROS 2 Humble源码](https://github.com/ros2/rclcpp/blob/humble/rclcpp/include/rclcpp/qos.hpp)。
+必须统计估计器回调实际接收量，不能用bag或桥接端的完整样本数证明算法收齐。
+
+进一步发现，早期仿真只将 `acc_norm` 从1换成9.81，却沿用了 `satu_acc=3`。
+`h_model_IMU_output()` 使用原始 `acc_avr` 判断饱和，再在测量残差中进行单位换算。
+因此静止重力9.81会被阈值3误判为饱和，垂直加速度测量被屏蔽。原3g量程在
+m/s²输入中应为29.43。此前32线output的结果不能作为完整IMU约束验收。
+
+以下各行使用同一32线记录、同一个带计数的诊断二进制、相同2倍回放速度：
+
+| 原始饱和阈值 | 平面检查 | 队列深度 | 实收雷达/IMU（记录为404/8083） | 位置RMSE | 最大误差 |
+|---:|---|---:|---:|---:|---:|
+| 3 | 关闭 | 5 | 363 / 3774 | 52.62m | 169.54m |
+| 3 | 关闭 | 8192 | 404 / 8083 | 3.03m | 12.05m |
+| 3 | 开启 | 5 | 331 / 3057 | 85.64m | 352.46m |
+| 3 | 开启 | 8192 | 404 / 8083 | 6.67m | 24.42m |
+| 29.43 | 关闭 | 8192 | 404 / 8083 | 7.88cm | 21.99cm |
+| 29.43 | 开启 | 8192 | 404 / 8083 | 7.71cm | 21.57cm |
+| 29.43 | 开启 | 5 | 289 / 1570 | 16.80cm | 50.83cm |
+
+目录均在 `build/offline/lio_replay_output32_*`，其中修正单位的目录名包含 `units`。
+原阈值、深度5、关闭平面检查时，实际接收的IMU最大时间空洞达0.27秒，尽管
+记录的最大间隔只有0.006秒；深度8192则收齐了全部输入。这直接证实接收丢样，
+也解释了调度和计算负载为何会改变结果。
+
+诊断工具支持 `--qos-depth`。超大队列会积累延迟，本次只用来区分丢样与其他问题，
+不是实时部署建议。回放等待估计输出覆盖记录末尾再评分，`input_drained_to_end`
+标记该条件；完整回放精度通过不代表实时吞吐或目标新鲜度通过。
+
+仿真现通过 `tools/gazebo/sensor_config.py` 同时换算 `acc_norm` 与 `satu_acc`，并
+在启动前拒绝会把静止重力判为饱和的配置。新增7项回归检查覆盖g与SI的等价
+饱和判定、错误SI量程及非法单位尺度。实车配置数值保留原状，只更正误导性的
+单位注释；真实量程仍须测量。
+
+最后用正确SI阈值、平面检查及200条接收队列回到完整32线Gazebo场景，输出为
+`lio_guard_live_output32_si01`。本轮收到404条雷达、8084条IMU，与记录一致；定位
+RMSE5.87cm、最大14.29cm，目标有效时的坐标RMSE6.44cm。但正常窗口目标有效率
+仅69.23%，重放后的恢复有效率15.33%，整体仍失败。
+
+`audit_lio_recording.py` 按bag到达顺序，用最近的 `/clock` 减定位原始stamp估算
+消费者可用时延：该32线轮次定位到达时延P95为0.530秒、最大0.612秒，约15.46%
+超过0.3秒；16线平面检查通过轮次的P95为0.046秒、最大0.080秒，没有超过0.3秒。
+这与图像观测只等待0.3秒历史TF、32线目标有效率下降相符。该数是记录端近似值，
+尚未逐条还原每个无效状态的全部原因，不能用它精确分摊每种拒绝原因。
+
+这也证实接收完整、最终位置准确与实时可用是三项不同条件；扩大队列没有完成
+实时架构修复。仍需处理订阅/计算调度、处理负载和下游定位质量传播。
+
+## 6 复现方法
+
+使用[联合仿真教程](../教程/Gazebo视觉定位联合仿真.md)的同一可选镜像与独立ROS域。
+在容器中先source ROS、`/opt/lio_sim/install/setup.bash`，构建并source自己的工作区。
+输出目录必须不存在；以下编号供新复现使用。
+
+```bash
+# 原版场景预期可能返回失败码1，但仍保存bag、误差和日志。
+python3 -B tools/simulate_gazebo_vision.py --scene room --record-bag \
+  --output-dir build/offline/lio_reason_capture_01
+
+python3 -B tools/audit_lio_recording.py \
+  --source build/offline/lio_reason_capture_01 \
+  --output-dir build/offline/lio_reason_audit_01
+
+python3 -B tools/prepare_lio_diagnostics.py \
+  --manifest build/offline/lio_reason_build.json
+cd /tmp/lio_diagnostics
+colcon --log-base /tmp/lio_diag_log build --build-base /tmp/lio_diag_build \
+  --install-base /tmp/lio_diag_install --packages-select point_lio --parallel-workers 1 \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+cd /workspace
+
+python3 -B tools/replay_lio_diagnostics.py \
+  --source build/offline/lio_reason_capture_01 \
+  --output-dir build/offline/lio_reason_original_01
+python3 -B tools/replay_lio_diagnostics.py \
+  --source build/offline/lio_reason_capture_01 \
+  --executable /tmp/lio_diag_install/point_lio/lib/point_lio/pointlio_mapping \
+  --variant plane_guard --output-dir build/offline/lio_reason_guard_01
+
+# 对早期32线output记录做单位和队列对照；新捕获配置已经自动修正阈值。
+# 使用独立新目录，并在 --source 指定实际32线记录目录。
+python3 -B tools/replay_lio_diagnostics.py \
+  --source build/offline/lio_diagnosis_output32_capture01 \
+  --executable /tmp/lio_diag_install/point_lio/lib/point_lio/pointlio_mapping \
+  --qos-depth 8192 --set mapping.satu_acc=29.43 \
+  --output-dir build/offline/lio_reason_output32_units_01
+```
+
+`prepare_lio_diagnostics.py` 逐项校验原源码结构，保留版权/许可证，输出修改前后
+SHA256；临时开关为 `RM_LIO_PLANE_RANK_GUARD`、`RM_LIO_INIT_VOXEL`、
+`RM_LIO_QOS_DEPTH`，另有平面和输入计数日志。默认不启用算法变体。
+`replay_lio_diagnostics.py` 的 `completed` 表示流程完成，`accuracy_passed` 才表示
+本段位置RMSE<15cm且最大误差<35cm；不等于地图或目标链的完整验收。
+
+## 7 当前结论的边界
+
+- 已有明确证据支持16线场景的局部平面有效性缺口，候选检查在原失败房间通过。
+- 32线output另有饱和阈值单位错误及处理阻塞时的接收丢样，不能统一归咎于平面退化；
+  本次对照识别了重要机制，没有对历史每一轮发散做逐帧唯一归因。
+- 没有真实MID360输入；理想重复扫描强化了触发条件，不能推断实车发生概率。
+- 需要将几何检查、接收/处理能力、定位质量到下游的失效传播分别设计并回归，
+  不能只凭本次厘米级误差就宣布正式算法已修复。
+
+本机汇总为 `build/offline/lio_diagnosis_summary/summary.json`，记录14个回放对照及
+4个完整仿真；同目录 `comparison.png/pdf` 比较位置误差、32线单位/队列对照和
+定位到达时延。诊断源码、二进制及构建日志保存在 `build/offline/lio_diagnosis_bundle/`，
+供审阅与复现，不安装到实车。输出均已被gitignore。
+
+另在源码审阅中看到两处 `vector.reserve()` 后直接按下标写入且未找到 `resize()`，
+属于需要独立检查的源码风险；本轮没有把它认定为已证实的漂移根因，也没有修改它。
+
+仿真单位修正后的标准容器全量回归：pytest **475通过、1跳过**，C++ **36项无失败**，
+离线 **23项作业通过**。日志为 `build/offline/lio_diagnosis_regression.log`。该回归
+不替代上述可选Gazebo对照，也不把32线实时链路的失败转为通过。

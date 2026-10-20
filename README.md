@@ -24,6 +24,9 @@ bash "$HOME/ws_championship/src/47-visual-tracking-20261018-r3/run_here.bash" ta
 - **[云台台架试转步骤](docs/教程/云台台架试转步骤.md)**：bearing_bench / bearing_hardware 台架与整车试转手册。
 - **[相机标定](docs/教程/相机标定.md)**与**[坐标外参与整车接入](docs/教程/坐标外参与整车接入.md)**：内参标定、外参测量与整车接入。
 - **[底盘定位与点云建图](docs/教程/底盘定位与点云建图.md)**：Point-LIO + cloud_mapping 建图流程。
+- **[定位建图仿真](docs/教程/定位建图仿真.md)**：已知房间与轨迹，经真实 ROS 2 进程验证建图、底盘中心转换和比赛地图导出；尚不覆盖 Point-LIO 原始输入。
+- **[Gazebo 雷达惯性定位仿真](docs/教程/Gazebo雷达惯性定位仿真.md)**：三维模拟雷达与 IMU 驱动真实 Point-LIO，按独立 Gazebo 真值评价定位与地图。
+- **[Gazebo 视觉定位联合仿真](docs/教程/Gazebo视觉定位联合仿真.md)**：真实渲染 ArUco，经 PnP、Point-LIO 和 TF 验证目标坐标，测试观测延迟、断流及旧帧重放。
 - **[评分接口测试](docs/教程/评分接口测试.md)**：180 秒提交链三终端测试。
 - **[测试运行指南](docs/教程/测试运行指南.md)**：验证体系分层、容器内运行命令、新增测试清单与换标定影响。
 - **[云台控制与串口原理](docs/原理/云台控制与串口.md)**：识别→PD→0x30→下位机全链路原理与源码索引。
