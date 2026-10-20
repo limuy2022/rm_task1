@@ -48,7 +48,7 @@ RUN mkdir -p /opt/lio_sim/src \
  && rm /tmp/navigation.tar.gz
 COPY tools/gazebo/apply_point_lio_plane_guard.py tools/gazebo/point_lio_plane_guard.hpp /opt/lio_sim/patches/
 # 只修补构建副本；保留 /opt/lio_sim/src 原版供固定输入对照与诊断。
-# 构建时验证原文件哈希，并编译实际平面函数执行七项几何回归。
+# 构建时验证原文件哈希，并编译实际平面函数执行十项几何回归。
 RUN mkdir -p /tmp/lio_workspace \
  && cp -a /opt/lio_sim/src /tmp/lio_workspace/src \
  && python3 -B /opt/lio_sim/patches/apply_point_lio_plane_guard.py \
