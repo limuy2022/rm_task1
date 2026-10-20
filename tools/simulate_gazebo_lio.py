@@ -39,6 +39,7 @@ from gimbal_common.qos_utils import latched_qos, sensor_qos
 from grid_mapper.cloud_grid import pointcloud2_xyz
 from grid_mapper.pgm_io import read_pgm
 from gazebo.sensor_config import use_si_acceleration
+from gazebo.input_audit import audit_received_inputs
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -56,28 +57,6 @@ def point_lio_image_build():
     noise = Path('/opt/lio_sim/measurement_noise_manifest.json')
     if noise.exists(): data['measurement_noise_fix'] = json.loads(noise.read_text())
     return data
-
-
-def audit_received_inputs(report, output, lidar_sent, imu_observed):
-    """进程正常收尾后读取估计器的实收统计，审核丢样和时间空洞。"""
-    try:
-        with (output/'input_audit.csv').open() as stream:
-            row = next(csv.DictReader(stream))
-        data = {key: float(value) if 'gap' in key else int(value) for key, value in row.items()}
-        data.update(lidar_published=lidar_sent, imu_observed=imu_observed, sensor_qos_depth=200)
-        checks = {
-            'estimator_received_lidar': data['lidar_received'] >= .999*lidar_sent,
-            'estimator_received_imu': data['imu_received'] >= .999*imu_observed,
-            'estimator_imu_continuity': data['imu_max_gap_s'] <= .010001,
-            'estimator_lidar_continuity': data['lidar_max_gap_s'] <= .100001,
-            'estimator_input_order': data['lidar_backward'] == data['imu_backward'] == 0,
-        }
-        report['sensor_input_audit'] = data
-    except (OSError, StopIteration, ValueError, KeyError) as exc:
-        report['sensor_input_audit'] = {'error': repr(exc)}
-        checks = {'estimator_input_audit_available': False}
-    report.setdefault('checks', {}).update(checks)
-    report['passed'] = report['passed'] and all(checks.values())
 
 
 def seconds(stamp):
@@ -108,6 +87,7 @@ class GazeboLio(Node):
         self.measurement_samples = []
         self.scan_lines = scan_lines
         self.published_frames, self.published_points = 0, 0
+        self.published_lidar_stamps = []
         self.raw_scans, self.raw_bad, self.offset_spans = 0, 0, []
         self.latest_map = None
         self.motion_start, self.last_command = None, -1.
@@ -222,6 +202,7 @@ class GazeboLio(Node):
                 points.append(point)
         out.point_num, out.points = len(points), points
         self.lidar_pub.publish(out)
+        self.published_lidar_stamps.append(base*1e-9)
         self.offset_spans.append(self.batch_stamps[-1]-base)
         self.published_frames += 1
         self.published_points += len(points)
@@ -530,7 +511,7 @@ def main():
     report['passed'] = report['passed'] and report['clean_shutdown']
     report['Gazebo_executed'] = app.raw_scans > 0 and len(app.truth) > 0
     report['Point_LIO_executed'] = len(app.estimates) > 0
-    audit_received_inputs(report, output, app.published_frames, len(app.imus))
+    audit_received_inputs(report, output, app.published_lidar_stamps, [row[0] for row in app.imus])
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), flush=True)
     return 0 if report['passed'] else 1

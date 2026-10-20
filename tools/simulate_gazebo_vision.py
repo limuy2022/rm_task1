@@ -445,7 +445,7 @@ def main():
     report['clean_shutdown'] = all(code == 0 for code in report['node_exit_codes'].values())
     report['Gazebo_executed'] = bool(app.images) and bool(app.raw_scans) and bool(app.truth)
     report['Point_LIO_executed'] = bool(app.estimates)
-    audit_received_inputs(report, output, app.published_frames, len(app.imus))
+    audit_received_inputs(report, output, app.published_lidar_stamps, [row[0] for row in app.imus])
     report['passed'] = report['passed'] and report['clean_shutdown']
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), flush=True)
