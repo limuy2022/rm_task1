@@ -7,9 +7,10 @@ import sys
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT/'src/gimbal_common'))
 from gimbal_common.protocol import decode_imu
+sys.path.insert(0, str(ROOT/'tools'))
 from watch_gimbal_axes import orientation_values
 
 
@@ -26,7 +27,7 @@ def golden_cases():
             case[key] = value.strip()
 
 
-def main():
+def test_gimbal_axes_golden_frames():
     checks = []
     g = 9.80665
     for label, xyzw, expected_angles, expected_force in [
@@ -78,17 +79,3 @@ def main():
     checks.extend(['production_decoder_static_force_matches_q',
                    'production_decoder_gyro_matches_tilted_yaw_pitch_model',
                    'flipping_accel_axis_without_rotating_q_breaks_consistency'])
-    report = {'passed':True,'checks':checks,'static_case_residuals_m_s2':static_errors,
-              'moving_case_max_axis_errors_rad_s':moving_errors,'sign_flip_counterexample':flip_example,
-              'physical_devices_opened':0,'ros_nodes_started':0,
-              'limitations':['黄金帧/已知模型，不是现场固件或真实IMU',
-                             '不确认板型、芯片到PCB安装或实际S到F矩阵',
-                             '只读工具的实际DDS通信与实机联调待现场验证']}
-    output = ROOT/'build/offline/gimbal_axes_result.json'
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-
-
-if __name__ == '__main__':
-    main()

@@ -54,7 +54,7 @@ from .tick_csv import V_STOP, TickCsvWriter
 from .tick_sampler import TickSampler
 from gimbal_common.log_utils import get_logger
 from gimbal_common import frames
-from gimbal_common.node_utils import declare_params
+from gimbal_common.node_utils import declare_params, spin_with_finally, shutdown
 from gimbal_common.time_buffer import stamp_seconds
 from gimbal_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 
@@ -367,15 +367,11 @@ def main(args: Optional[list] = None) -> int:
     rclpy.init(args=args)
     node = JudgeIoNode()
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
-        pass
+        spin_with_finally(node, node.shutdown)
     finally:
-        try:
-            node.shutdown()
-        finally:
-            node.destroy_node()
-            rclpy.shutdown()
+        node.destroy_node()
+        # 默认信号处理可能已经关闭context，复用幂等关闭入口。
+        shutdown()
     return 0
 
 

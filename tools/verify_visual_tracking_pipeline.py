@@ -74,9 +74,49 @@ def main():
         pitch += sent[-1].angular.y*dt
     assert np.linalg.norm(error)<5., error
     assert np.linalg.norm(error)<np.linalg.norm(first_error)*.05
+    dynamics = []
+    for scenario in ('delayed_step', 'delayed_moving'):
+        node, clock, params, sent = create_harness(camera)
+        params.update(motion_enabled=True, run_seconds=10.)
+        node.tick()
+        yaw = pitch = 0.
+        velocity = np.zeros(2)
+        pending = [np.zeros(2), np.zeros(2)]
+        pointing_errors = []
+        for k in range(180):
+            dt = 1. / 30; t = k * dt; clock.advance(dt)
+            if scenario == 'delayed_step':
+                target = np.array([3., .25, .12]) if t < 2. else np.array([3., -.20, -.10])
+            else:
+                target = np.array([3., .20 + .10 * math.sin(.8 * t), .08 + .05 * math.sin(.5 * t)])
+            cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+            R = np.array([[cy*cp,-sy,cy*sp],[sy*cp,cy,sy*sp],[-sp,0.,cp]])
+            body = R.T @ target
+            optical = np.array([-body[1], -body[2], body[0]])
+            picked = render(optical, 0)
+            q = (math.cos(yaw/2)*math.cos(pitch/2), -math.sin(yaw/2)*math.sin(pitch/2),
+                 math.cos(yaw/2)*math.sin(pitch/2), math.sin(yaw/2)*math.cos(pitch/2))
+            node.on_imu(imu_message(clock, q))
+            msg = corners_message(clock, camera['cx'], camera['cy'])
+            msg.corners = [SimpleNamespace(x=float(x), y=float(y)) for x, y in picked]
+            node.on_corners(msg); node.tick()
+            assert not node.fault, (scenario, node.fault)
+            pending.append(np.array([sent[-1].angular.z, sent[-1].angular.y]))
+            request = pending.pop(0)
+            # 67ms命令延迟、80ms一阶响应、速度死区及限幅；不调整生产增益。
+            request = np.where(np.abs(request) < .001, 0., np.clip(request, -.25, .25))
+            velocity += dt / (.08 + dt) * (request - velocity)
+            yaw += velocity[0] * dt; pitch += velocity[1] * dt
+            pointing_errors.append(math.degrees(math.atan2(np.linalg.norm(optical[:2]), optical[2])))
+        tail = pointing_errors[-30:]
+        maximum = max(tail)
+        assert maximum < (.4 if scenario == 'delayed_step' else .9), (scenario, maximum)
+        dynamics.append(dict(scenario=scenario, last_second_max_error_deg=maximum,
+                             command_delay_s=2./30, actuator_tau_s=.08, deadzone_rad_s=.001))
     print(json.dumps({'passed':True,'real_detector_ids':[0,1,2,3],
         'initial_error_px':first_error.tolist(),'final_error_px':error.tolist(),
-        'simulated_seconds':5.,'model':'ideal angular velocity plant; not hardware validation'},ensure_ascii=False))
+        'simulated_seconds':5., 'dynamic_scenarios': dynamics,
+        'model':'理想基线及带延迟/惯性/死区的合成执行器；不代表实机'},ensure_ascii=False))
 
 
 if __name__=='__main__': main()

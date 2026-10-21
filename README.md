@@ -7,7 +7,7 @@
 按[云台跟踪教程](docs/教程/云台跟踪.md)将源码包装到自己的独立 NUC 目录后运行：
 
 ```bash
-bash "$HOME/ws_championship/src/47-visual-tracking-20261018-r3/run_here.bash" target_id:=0
+bash "$HOME/ws_championship/src/47-visual-tracking/run_here.bash" target_id:=0
 ```
 
 默认只看不动；真实串口模式加 `with_bridge:=true port:=/dev/ttyUSB0`，由人在参数终端开启 motion_enabled。停止在启动终端 Ctrl+C，或设置 motion_enabled=false。先做 3 秒单轴方向试验，再做两轴。参数默认值、调整现象和保存方法见[调参检查清单](docs/教程/上机调参检查清单.md)。
@@ -59,7 +59,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
            --install-base /tmp/ci --packages-select gimbal_serial_42 &&
     colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
     python3 -B -m pytest -q src --import-mode=importlib &&
-    python3 -B tools/verify_all_offline.py'
+    python3 -B tools/verify_all_offline.py --skip-pytest'
 ```
 
 测试环境即运行环境：被测的 rclpy / OpenCV / numpy / pyserial 等全部来自 humble 镜像的 apt 包，不用 pip 覆盖（**不要在NUC用pip覆盖ROS的OpenCV/numpy**）。串口伪终端验证所需的 C++ 编译器镜像内已有；脚本本身不安装依赖、不假装通过。日志及合成产物放在被 Git 忽略的`build/offline/`。

@@ -253,7 +253,7 @@ def self_checks():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--output-dir', type=Path, default=ROOT/'build/offline/prediction_20261018-r3')
+    parser.add_argument('--output-dir', type=Path, default=ROOT/'build/offline/prediction')
     parser.add_argument('--csv', type=Path)
     parser.add_argument('--teaching-bag', type=Path)
     parser.add_argument('--duration', type=float, default=20.)

@@ -27,7 +27,7 @@ jobs:
 
       # 四层验证（与 README 容器命令逐字一致）：
       # colcon 全量构建（含 gimbal_interfaces 消息生成）→ C++ gtest →
-      # pytest src → tools/verify_all_offline.py 23 项离线核验。
+      # pytest src → tools/verify_all_offline.py --skip-pytest 19 项核验。
       # colcon 产物放 /tmp；verify 日志写 build/offline/（已 gitignore）。
       - name: Full verification（colcon build + gtest + pytest + tools 离线核验）
         run: |
@@ -41,7 +41,7 @@ jobs:
                      --install-base /tmp/ci --packages-select gimbal_serial_42 &&
               colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
               python3 -B -m pytest -q src --import-mode=importlib &&
-              python3 -B tools/verify_all_offline.py'
+              python3 -B tools/verify_all_offline.py --skip-pytest'
 
       # 失败排查用：verify_all_offline.py 的逐项日志与 result.json。
       # 容器以 runner 同 uid 运行，产物属主与 runner 一致可直接读取。
@@ -63,6 +63,8 @@ jobs:
       matrix:
         include:
           - scenario: navigation
+            target: test
+          - scenario: submission
             target: test
           - scenario: gazebo_lio
             target: gazebo-sim

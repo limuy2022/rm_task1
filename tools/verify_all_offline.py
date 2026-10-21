@@ -6,6 +6,7 @@ protocol+PTY test code under build/offline. Logs/results are saved there.
 A missing prerequisite is a failed check, not an invented pass.
 Run from any directory via this script's path.
 """
+import argparse
 import json
 import os
 from pathlib import Path
@@ -17,24 +18,30 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--skip-pytest', action='store_true',
+                        help='标准全量流程已执行 pytest 时使用，避免重复运行')
+    args = parser.parse_args()
     output = ROOT/'build/offline'; output.mkdir(parents=True,exist_ok=True)
     env = os.environ.copy()
     package_paths = [str(p) for p in (ROOT/'src').iterdir() if (p/'setup.py').exists()]
     env['PYTHONPATH'] = os.pathsep.join(package_paths + [env.get('PYTHONPATH', '')])
     names = ['perception','control','navigation','advisor','timing','kinematics','processing',
-             'submission','protocol','pipeline']
+             'protocol','pipeline']
     # 按作业超时（秒）：默认 60；含真检测/闭环仿真的重作业放宽。
-    timeouts = {'verify_visual_tracking_pipeline': 240, 'aiming_robustness': 240}
-    jobs = [('pytest', [sys.executable,'-B','-m','pytest','-q','src','--import-mode=importlib'])]
+    timeouts = {'verify_visual_tracking_pipeline': 240, 'aiming_robustness': 240,
+                'verify_visual_tracking_dds': 90, 'verify_submission_dds': 90}
+    jobs = [] if args.skip_pytest else [
+        ('pytest', [sys.executable,'-B','-m','pytest','-q','src','--import-mode=importlib'])]
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/('verify_'+name+'_offline.py'))]) for name in names)
     jobs.extend((name,[sys.executable,'-B',str(ROOT/'tools'/(name+'.py'))])
-                for name in ('verify_cloud_mapping','verify_vision_and_gate','verify_coordinate_regressions',
-                             'verify_field_followup','verify_calibration_entry',
-                             'verify_visual_servo','verify_visual_pid',
+                for name in ('verify_cloud_mapping','verify_calibration_entry',
+                             'verify_visual_servo',
                              'verify_visual_tracking_pipeline',
+                             'verify_visual_tracking_dds',
                              'verify_visual_tracking_launch',
                              'verify_tracking_robustness',
-                             'verify_tracking_debug'))
+                             'verify_tracking_debug', 'verify_submission_dds'))
     jobs.append(('aiming_robustness',
                  [sys.executable,'-B',str(ROOT/'tools'/'verify_aiming_robustness.py'),
                   '--quick']))

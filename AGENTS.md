@@ -28,7 +28,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
              --install-base /tmp/ci --packages-select gimbal_serial_42 &&
       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
       python3 -B -m pytest -q src --import-mode=importlib &&
-      python3 -B tools/verify_all_offline.py'
+      python3 -B tools/verify_all_offline.py --skip-pytest'
   ```
 
 - **本地没有 Docker** → 提交并推送，关注云端 GitHub Actions（`.github/workflows/ci.yml`）的结果（如 `gh run watch` 或 Actions 页面）；失败时下载 `offline-verification` artifact 查看 verify 日志与 result.json。

@@ -48,6 +48,31 @@ def camera(model, t):
     return FR.compose_T(R, base(t))@model.forward(.08*math.sin(.5*t), .03*math.sin(.3*t)).base_optical
 
 
+def check_acceptance(report):
+    """完整180秒均参与可用率/评分验收，精度诊断的排除窗口不能掩盖失效。"""
+    invalid = set(report['invalid_ticks'])
+    normal_invalid = [k for k in invalid if k >= 20 and not 600 <= k < 630]
+    valid_fraction = 1. - len(invalid) / report['ticks']
+    longest = consecutive = 0
+    for tick in range(report['ticks']):
+        consecutive = consecutive + 1 if tick in invalid else 0
+        longest = max(longest, consecutive)
+    recovery = next((k for k in range(609, report['ticks']) if k not in invalid), None)
+    checks = {
+        'all_ticks_present': report['ticks'] == 1800,
+        'valid_fraction': valid_fraction >= .99,
+        'normal_window_available': not normal_invalid,
+        'bounded_loss': longest <= 6,
+        'loss_exercised': any(k in invalid for k in range(605, 608)),
+        'recovered_after_occlusion': recovery is not None and recovery <= 612,
+        'score_budget': report['synthetic_score'] is not None
+                        and math.isfinite(report['synthetic_score']) and 0 <= report['synthetic_score'] <= .04,
+    }
+    report.update(checks=checks, valid_fraction=valid_fraction, longest_invalid_ticks=longest,
+                  first_recovered_tick=recovery, acceptance_score_max=.04)
+    return all(checks.values())
+
+
 def main():
     start = time.perf_counter(); output = ROOT/'build/offline/pipeline'; output.mkdir(parents=True, exist_ok=True)
     # Never overwrite/resume a real submission; this is an owned synthetic fixture.
@@ -125,8 +150,9 @@ def main():
     assert max(report['current_xy_rmse_m']) < .04, report
     assert max(report['prediction_xy_rmse_m']) < .05, report
     assert max(report['base_xy_rmse_m']) < 1e-5, report
-    assert any(60.5 <= tick*.1 < 60.8 for tick in invalid), invalid
+    accepted = check_acceptance(report)
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
+    assert accepted, report
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
