@@ -46,14 +46,22 @@ RUN mkdir -p /opt/lio_sim/src \
  && tar -xzf /tmp/navigation.tar.gz -C /opt/lio_sim/src --strip-components=2 \
       src/pb2025_sentry_nav/point_lio src/pb2025_sentry_nav/livox_ros_driver2 \
  && rm /tmp/navigation.tar.gz
-COPY tools/gazebo/apply_point_lio_plane_guard.py tools/gazebo/point_lio_plane_guard.hpp /opt/lio_sim/patches/
+COPY tools/gazebo/apply_point_lio_plane_guard.py tools/gazebo/point_lio_plane_guard.hpp tools/gazebo/point_lio_input_audit.hpp /opt/lio_sim/patches/
+COPY tools/gazebo/fix_point_lio_knn.py tools/gazebo/test_point_lio_knn.cpp /opt/lio_sim/patches/
+COPY tools/gazebo/fix_point_lio_measurement_noise.py tools/gazebo/test_point_lio_measurement_noise.cpp /opt/lio_sim/patches/
 # 只修补构建副本；保留 /opt/lio_sim/src 原版供固定输入对照与诊断。
-# 构建时验证原文件哈希，并编译实际平面函数执行十项几何回归。
+# 构建时验证原文件哈希，执行实际平面、近邻及滤波模板回归。
 RUN mkdir -p /tmp/lio_workspace \
  && cp -a /opt/lio_sim/src /tmp/lio_workspace/src \
  && python3 -B /opt/lio_sim/patches/apply_point_lio_plane_guard.py \
       --source /tmp/lio_workspace/src/point_lio \
       --manifest /opt/lio_sim/plane_guard_manifest.json \
+ && python3 -B /opt/lio_sim/patches/fix_point_lio_knn.py \
+      --source /tmp/lio_workspace/src/point_lio \
+      --manifest /opt/lio_sim/knn_manifest.json \
+ && python3 -B /opt/lio_sim/patches/fix_point_lio_measurement_noise.py \
+      --source /tmp/lio_workspace/src/point_lio \
+      --manifest /opt/lio_sim/measurement_noise_manifest.json \
  && /bin/bash -c 'source /opt/ros/humble/setup.bash && \
     cd /tmp/lio_workspace && colcon --log-base /tmp/lio_log build \
       --build-base /tmp/lio_build --install-base /opt/lio_sim/install \

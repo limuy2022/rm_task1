@@ -30,7 +30,7 @@ from cv_bridge import CvBridge
 from gimbal_interfaces.msg import MarkerObservation, TargetState
 from gimbal_common import frames
 from gimbal_common.qos_utils import sensor_qos
-from simulate_gazebo_lio import GazeboLio, NS, ROOT, ORIGIN, RESOLUTION, seconds, envelope, point_lio_image_build
+from simulate_gazebo_lio import GazeboLio, NS, ROOT, ORIGIN, RESOLUTION, seconds, envelope, point_lio_image_build, audit_received_inputs
 
 
 MARKER = np.array([2.8, 0., .9])
@@ -445,6 +445,7 @@ def main():
     report['clean_shutdown'] = all(code == 0 for code in report['node_exit_codes'].values())
     report['Gazebo_executed'] = bool(app.images) and bool(app.raw_scans) and bool(app.truth)
     report['Point_LIO_executed'] = bool(app.estimates)
+    audit_received_inputs(report, output, app.published_lidar_stamps, [row[0] for row in app.imus])
     report['passed'] = report['passed'] and report['clean_shutdown']
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), flush=True)

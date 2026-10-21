@@ -173,6 +173,9 @@ def test_c_launch_references_match_entry_points(entry_points):
                 bridge = os.path.join(SRC_DIR, '42-gimbal_serial')
                 with open(os.path.join(bridge, 'CMakeLists.txt'), encoding='utf-8') as f:
                     cmake = f.read()
+                assert 'add_executable(robo_bridge_node src/main.cpp)' in cmake
+                assert 'install(TARGETS robo_bridge_node DESTINATION lib/${PROJECT_NAME})' in cmake
+                assert os.path.isfile(os.path.join(bridge, 'src', 'main.cpp'))
                 continue  # C++节点由CMake登记，不是Python console_script。
             if exe not in entry_points:
                 bad.append('%s: %s 不在任何 entry_points 中' % (_rel(lf), exe))

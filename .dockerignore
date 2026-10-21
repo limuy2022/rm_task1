@@ -8,3 +8,8 @@
 !tools/gazebo/force_controller.cpp
 !tools/gazebo/apply_point_lio_plane_guard.py
 !tools/gazebo/point_lio_plane_guard.hpp
+!tools/gazebo/point_lio_input_audit.hpp
+!tools/gazebo/fix_point_lio_knn.py
+!tools/gazebo/test_point_lio_knn.cpp
+!tools/gazebo/fix_point_lio_measurement_noise.py
+!tools/gazebo/test_point_lio_measurement_noise.cpp
