@@ -12,9 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "gimbal_serial/imu_convert.hpp"
-#include "gimbal_serial/protocol.hpp"
-#include "gimbal_serial/serial_port.hpp"
+#include "imu_convert.hpp"
+#include "protocol.hpp"
+#include "serial_port.hpp"
 
 using namespace gimbal_serial;  // NOLINT
 

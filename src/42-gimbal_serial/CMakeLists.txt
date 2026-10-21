@@ -33,7 +33,7 @@ target_link_libraries(${PROJECT_NAME}_core PUBLIC ${PROJECT_NAME}_serial)
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
   rclcpp sensor_msgs std_msgs geometry_msgs builtin_interfaces tf2_ros)
 
-add_executable(robo_bridge_node src/robo_bridge_node_main.cpp)
+add_executable(robo_bridge_node src/main.cpp)
 target_link_libraries(robo_bridge_node ${PROJECT_NAME}_core)
 
 install(TARGETS robo_bridge_node DESTINATION lib/${PROJECT_NAME})

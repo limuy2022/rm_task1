@@ -23,12 +23,8 @@
 #include <rcutils/logging.h>
 #include <rcutils/time.h>
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "rclcpp/rclcpp.hpp"
-#include "gimbal_serial/bridge_node.hpp"
-#include "gimbal_serial/protocol.hpp"
-#include "sensor_msgs/msg/imu.hpp"
-#include "tf2_msgs/msg/tf_message.hpp"
+#include <bridge_node.hpp>
+#include <protocol.hpp>
 
 using namespace std::chrono_literals;
 using namespace gimbal_serial;  // NOLINT
