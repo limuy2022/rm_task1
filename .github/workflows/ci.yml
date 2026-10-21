@@ -1,4 +1,4 @@
-# 全量验证流水线：把 README「容器内验证」一条龙原样搬进 CI。
+# 全量验证流水线：执行 docs/教程/测试运行指南.md 中的标准全量命令。
 # 环境定义单一来源是仓库根 Dockerfile（osrf/ros:humble-desktop-full + pytest），
 # 本文件不引入 pip、不重复环境，本地能全绿 CI 即全绿。
 # 子模块 gimbal-edu-tools 必须拉取：test_consistency 会校验其中 virtual_gimbal
@@ -25,7 +25,7 @@ jobs:
       - name: Build test image（复用根 Dockerfile）
         run: docker build -t rm-task1-humble-test .
 
-      # 四层验证（与 README 容器命令逐字一致）：
+      # 四层验证（与测试运行指南中的容器命令逐字一致）：
       # colcon 全量构建（含 gimbal_interfaces 消息生成）→ C++ gtest →
       # pytest src → tools/verify_all_offline.py --skip-pytest 19 项核验。
       # colcon 产物放 /tmp；verify 日志写 build/offline/（已 gitignore）。
