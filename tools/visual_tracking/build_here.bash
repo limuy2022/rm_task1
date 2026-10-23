@@ -2,7 +2,7 @@
 # Only build the private workspace contained in the delivered ZIP.
 set -eo pipefail
 TRACK_WS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-[[ -f "$TRACK_WS/COLCON_IGNORE" && -d "$TRACK_WS/src/47-gimbal_control" ]] || { echo '请在解压后的 47-visual-tracking-20261018-r3 文件夹运行本脚本。'; exit 2; }
+[[ -f "$TRACK_WS/COLCON_IGNORE" && -d "$TRACK_WS/src/47-gimbal_control" ]] || { echo '请在解压后的 47-visual-tracking 文件夹运行本脚本。'; exit 2; }
 [[ -f /opt/ros/humble/setup.bash ]] || { echo '未找到 /opt/ros/humble/setup.bash；请在 NUC 的 Ubuntu 终端运行。'; exit 2; }
 unset AMENT_PREFIX_PATH COLCON_PREFIX_PATH CMAKE_PREFIX_PATH PYTHONPATH LD_LIBRARY_PATH
 export PATH="/usr/bin:/bin:$PATH"

@@ -1,4 +1,4 @@
-#include "gimbal_serial/serial_port.hpp"
+#include "serial_port.hpp"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -19,298 +19,337 @@
 #include <cstring>
 #include <utility>
 
-namespace gimbal_serial
-{
-namespace
-{
+namespace gimbal_serial {
+namespace {
 
-struct BaudEntry
-{
-  int baud;
-  speed_t speed;
+struct BaudEntry {
+    int baud;
+    speed_t speed;
 };
 
 const BaudEntry kBauds[] = {
-  {9600, B9600}, {19200, B19200}, {38400, B38400}, {57600, B57600}, {115200, B115200},
-  {230400, B230400},
-  // POSIX platforms expose different high-speed constants. Do not invent a
-  // numeric baud mapping on hosts used only for offline PTY verification.
+    {9600, B9600},       {19200, B19200},   {38400, B38400},
+    {57600, B57600},     {115200, B115200}, {230400, B230400},
+// POSIX platforms expose different high-speed constants. Do not invent a
+// numeric baud mapping on hosts used only for offline PTY verification.
 #ifdef B460800
-  {460800, B460800},
+    {460800, B460800},
 #endif
 #ifdef B500000
-  {500000, B500000},
+    {500000, B500000},
 #endif
 #ifdef B576000
-  {576000, B576000},
+    {576000, B576000},
 #endif
 #ifdef B921600
-  {921600, B921600},
+    {921600, B921600},
 #endif
 #ifdef B1000000
-  {1000000, B1000000},
+    {1000000, B1000000},
 #endif
 #ifdef B1152000
-  {1152000, B1152000},
+    {1152000, B1152000},
 #endif
 #ifdef B1500000
-  {1500000, B1500000},
+    {1500000, B1500000},
 #endif
 #ifdef B2000000
-  {2000000, B2000000},
+    {2000000, B2000000},
 #endif
 #ifdef B2500000
-  {2500000, B2500000},
+    {2500000, B2500000},
 #endif
 #ifdef B3000000
-  {3000000, B3000000},
+    {3000000, B3000000},
 #endif
 #ifdef B3500000
-  {3500000, B3500000},
+    {3500000, B3500000},
 #endif
 #ifdef B4000000
-  {4000000, B4000000},
+    {4000000, B4000000},
 #endif
 };
 
-bool lookupSpeed(int baud, speed_t & out)
-{
-  for (const auto & e : kBauds) {
-    if (e.baud == baud) {out = e.speed; return true;}
-  }
-  return false;
+bool lookupSpeed(int baud, speed_t &out) {
+    for (const auto &e : kBauds) {
+        if (e.baud == baud) {
+            out = e.speed;
+            return true;
+        }
+    }
+    return false;
 }
 
-std::string errnoText(const char * what)
-{
-  return std::string(what) + ": " + std::strerror(errno);
+std::string errnoText(const char *what) {
+    return std::string(what) + ": " + std::strerror(errno);
 }
 
-// realpath 的 GNU 形式（第二参数 nullptr，返回 malloc 的缓冲）；失败返回空串，不设 errno 语义。
-std::string realPathOrEmpty(const std::string & path)
-{
-  char * resolved = ::realpath(path.c_str(), nullptr);
-  if (resolved == nullptr) {return {};}
-  std::string out(resolved);
-  ::free(resolved);
-  return out;
+// realpath 的 GNU 形式（第二参数 nullptr，返回 malloc
+// 的缓冲）；失败返回空串，不设 errno 语义。
+std::string realPathOrEmpty(const std::string &path) {
+    char *resolved = ::realpath(path.c_str(), nullptr);
+    if (resolved == nullptr) {
+        return {};
+    }
+    std::string out(resolved);
+    ::free(resolved);
+    return out;
 }
 
-std::string lowercased(std::string s)
-{
-  std::transform(s.begin(), s.end(), s.begin(),
-    [](unsigned char c) {return static_cast<char>(std::tolower(c));});
-  return s;
+std::string lowercased(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
 }
 
-}  // namespace
+} // namespace
 
 SerialPort::SerialPort(UartCounterReader counter_reader)
-: counter_reader_(std::move(counter_reader))
-{
+    : counter_reader_(std::move(counter_reader)) {}
+
+bool SerialPort::baudSupported(int baud) {
+    speed_t s;
+    return lookupSpeed(baud, s);
 }
 
-bool SerialPort::baudSupported(int baud)
-{
-  speed_t s;
-  return lookupSpeed(baud, s);
+bool SerialPort::open(const std::string &path, int baud, std::string &err) {
+    close();
+    last_errno_ = 0;
+    speed_t speed;
+    if (!lookupSpeed(baud, speed)) {
+        err = "unsupported baudrate " + std::to_string(baud);
+        return false;
+    }
+
+    const int fd =
+        ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        last_errno_ = errno;
+        err = errnoText(("open " + path).c_str());
+        return false;
+    }
+    // 第 2 节：先 TIOCEXCL，再 flock。任何一步失败直接报错，不静默重试。
+    if (ioctl(fd, TIOCEXCL) != 0) {
+        last_errno_ = errno;
+        err = errnoText(("ioctl(TIOCEXCL) " + path).c_str());
+        ::close(fd);
+        return false;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        last_errno_ = errno;
+        err = errnoText(
+            ("flock(LOCK_EX|LOCK_NB) " + path + "，可能已被其他进程占用")
+                .c_str());
+        ::close(fd);
+        return false;
+    }
+
+    termios tio;
+    if (tcgetattr(fd, &tio) != 0) {
+        last_errno_ = errno;
+        err = errnoText(("tcgetattr " + path).c_str());
+        ioctl(fd, TIOCNXCL); // 已持有 flock，独占标志是我们设的，关之前清掉
+        ::close(fd);
+        return false;
+    }
+    cfmakeraw(&tio); // 关闭回显、行缓冲、软件流控，8 位
+    // CP210x 等驱动只有 INPCK 开启时才上报错误事件；PARENB 仍关闭，线路保持
+    // 8N1。 不启用 PARMRK/IGNPAR：合法字节不转义，驱动标记的坏字节由内核转
+    // NUL。
+    tio.c_iflag |= INPCK;
+    tio.c_iflag &= ~(IGNPAR | PARMRK | ISTRIP);
+    tio.c_cflag |= (CLOCAL | CREAD);
+    tio.c_cflag &= ~(CSTOPB | PARENB | CRTSCTS); // 8N1，无流控
+    tio.c_cc[VMIN] = 0;
+    tio.c_cc[VTIME] = 0;
+    if (cfsetispeed(&tio, speed) != 0 || cfsetospeed(&tio, speed) != 0) {
+        last_errno_ = errno;
+        err = errnoText("cfsetspeed");
+        ioctl(fd, TIOCNXCL); // 已持有 flock，独占标志是我们设的，关之前清掉
+        ::close(fd);
+        return false;
+    }
+    if (tcsetattr(fd, TCSANOW, &tio) != 0) {
+        last_errno_ = errno;
+        err = errnoText(("tcsetattr " + path).c_str());
+        ioctl(fd, TIOCNXCL); // 已持有 flock，独占标志是我们设的，关之前清掉
+        ::close(fd);
+        return false;
+    }
+    tcflush(fd, TCIOFLUSH);
+
+    fd_ = fd;
+    path_ = path;
+    return true;
 }
 
-bool SerialPort::open(const std::string & path, int baud, std::string & err)
-{
-  close();
-  last_errno_ = 0;
-  speed_t speed;
-  if (!lookupSpeed(baud, speed)) {
-    err = "unsupported baudrate " + std::to_string(baud);
-    return false;
-  }
-
-  const int fd = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
-  if (fd < 0) {
-    last_errno_ = errno;
-    err = errnoText(("open " + path).c_str());
-    return false;
-  }
-  // 第 2 节：先 TIOCEXCL，再 flock。任何一步失败直接报错，不静默重试。
-  if (ioctl(fd, TIOCEXCL) != 0) {
-    last_errno_ = errno;
-    err = errnoText(("ioctl(TIOCEXCL) " + path).c_str());
-    ::close(fd);
-    return false;
-  }
-  if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-    last_errno_ = errno;
-    err = errnoText(("flock(LOCK_EX|LOCK_NB) " + path + "，可能已被其他进程占用").c_str());
-    ::close(fd);
-    return false;
-  }
-
-  termios tio;
-  if (tcgetattr(fd, &tio) != 0) {
-    last_errno_ = errno;
-    err = errnoText(("tcgetattr " + path).c_str());
-    ioctl(fd, TIOCNXCL);  // 已持有 flock，独占标志是我们设的，关之前清掉
-    ::close(fd);
-    return false;
-  }
-  cfmakeraw(&tio);                    // 关闭回显、行缓冲、软件流控，8 位
-  // CP210x 等驱动只有 INPCK 开启时才上报错误事件；PARENB 仍关闭，线路保持 8N1。
-  // 不启用 PARMRK/IGNPAR：合法字节不转义，驱动标记的坏字节由内核转 NUL。
-  tio.c_iflag |= INPCK;
-  tio.c_iflag &= ~(IGNPAR | PARMRK | ISTRIP);
-  tio.c_cflag |= (CLOCAL | CREAD);
-  tio.c_cflag &= ~(CSTOPB | PARENB | CRTSCTS);  // 8N1，无流控
-  tio.c_cc[VMIN] = 0;
-  tio.c_cc[VTIME] = 0;
-  if (cfsetispeed(&tio, speed) != 0 || cfsetospeed(&tio, speed) != 0) {
-    last_errno_ = errno;
-    err = errnoText("cfsetspeed");
-    ioctl(fd, TIOCNXCL);  // 已持有 flock，独占标志是我们设的，关之前清掉
-    ::close(fd);
-    return false;
-  }
-  if (tcsetattr(fd, TCSANOW, &tio) != 0) {
-    last_errno_ = errno;
-    err = errnoText(("tcsetattr " + path).c_str());
-    ioctl(fd, TIOCNXCL);  // 已持有 flock，独占标志是我们设的，关之前清掉
-    ::close(fd);
-    return false;
-  }
-  tcflush(fd, TCIOFLUSH);
-
-  fd_ = fd;
-  path_ = path;
-  return true;
+void SerialPort::close() {
+    if (fd_ >= 0) {
+        // 先清 TIOCEXCL 再 close：pty 上只要 master 还开着，slave 的 tty
+        // 对象就不释放， TTY_EXCLUSIVE 会一直留着，非 root 重开会得到
+        // EBUSY（root 绕过 TIOCEXCL，看不出来）。
+        ioctl(fd_, TIOCNXCL);
+        ::close(fd_); // 同时释放 flock
+        fd_ = -1;
+    }
 }
 
-void SerialPort::close()
-{
-  if (fd_ >= 0) {
-    // 先清 TIOCEXCL 再 close：pty 上只要 master 还开着，slave 的 tty 对象就不释放，
-    // TTY_EXCLUSIVE 会一直留着，非 root 重开会得到 EBUSY（root 绕过 TIOCEXCL，看不出来）。
-    ioctl(fd_, TIOCNXCL);
-    ::close(fd_);  // 同时释放 flock
-    fd_ = -1;
-  }
+ssize_t SerialPort::readSome(std::uint8_t *buf, std::size_t cap,
+                             int timeout_ms) {
+    if (fd_ < 0) {
+        return -1;
+    }
+    pollfd pfd;
+    pfd.fd = fd_;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    const int pr = poll(&pfd, 1, timeout_ms);
+    if (pr < 0) {
+        return errno == EINTR ? 0 : -1;
+    }
+    if (pr == 0) {
+        return 0;
+    }
+    if (pfd.revents & POLLIN) {
+        const ssize_t n = ::read(fd_, buf, cap);
+        if (n > 0) {
+            return n;
+        }
+        if (n < 0 &&
+            (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+            return 0;
+        }
+        return -1; // 0（对端关闭）或其他错误
+    }
+    return -1; // POLLHUP、POLLERR、POLLNVAL
 }
 
-ssize_t SerialPort::readSome(std::uint8_t * buf, std::size_t cap, int timeout_ms)
-{
-  if (fd_ < 0) {return -1;}
-  pollfd pfd;
-  pfd.fd = fd_;
-  pfd.events = POLLIN;
-  pfd.revents = 0;
-  const int pr = poll(&pfd, 1, timeout_ms);
-  if (pr < 0) {return errno == EINTR ? 0 : -1;}
-  if (pr == 0) {return 0;}
-  if (pfd.revents & POLLIN) {
-    const ssize_t n = ::read(fd_, buf, cap);
-    if (n > 0) {return n;}
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {return 0;}
-    return -1;  // 0（对端关闭）或其他错误
-  }
-  return -1;  // POLLHUP、POLLERR、POLLNVAL
-}
-
-UartCounterResult SerialPort::readErrorCounters() const
-{
-  if (fd_ < 0) {return {UartCounterStatus::Error, {}, EBADF};}
-  if (counter_reader_) {return counter_reader_(fd_);}
+UartCounterResult SerialPort::readErrorCounters() const {
+    if (fd_ < 0) {
+        return {UartCounterStatus::Error, {}, EBADF};
+    }
+    if (counter_reader_) {
+        return counter_reader_(fd_);
+    }
 #if defined(__linux__) && defined(TIOCGICOUNT)
-  serial_icounter_struct count{};
-  int rc;
-  do {
-    rc = ioctl(fd_, TIOCGICOUNT, &count);
-  } while (rc < 0 && errno == EINTR);
-  if (rc < 0) {
-    const int e = errno;
-    const bool unsupported = e == ENOTTY || e == EINVAL || e == EOPNOTSUPP || e == ENOSYS;
-    return {unsupported ? UartCounterStatus::Unsupported : UartCounterStatus::Error, {}, e};
-  }
-  return {UartCounterStatus::Ok,
-    {static_cast<std::uint32_t>(count.frame), static_cast<std::uint32_t>(count.parity),
-      static_cast<std::uint32_t>(count.overrun), static_cast<std::uint32_t>(count.brk),
-      static_cast<std::uint32_t>(count.buf_overrun)}, 0};
+    serial_icounter_struct count{};
+    int rc;
+    do {
+        rc = ioctl(fd_, TIOCGICOUNT, &count);
+    } while (rc < 0 && errno == EINTR);
+    if (rc < 0) {
+        const int e = errno;
+        const bool unsupported =
+            e == ENOTTY || e == EINVAL || e == EOPNOTSUPP || e == ENOSYS;
+        return {unsupported ? UartCounterStatus::Unsupported
+                            : UartCounterStatus::Error,
+                {},
+                e};
+    }
+    return {UartCounterStatus::Ok,
+            {static_cast<std::uint32_t>(count.frame),
+             static_cast<std::uint32_t>(count.parity),
+             static_cast<std::uint32_t>(count.overrun),
+             static_cast<std::uint32_t>(count.brk),
+             static_cast<std::uint32_t>(count.buf_overrun)},
+            0};
 #else
-  return {UartCounterStatus::Unsupported, {}, ENOSYS};
+    return {UartCounterStatus::Unsupported, {}, ENOSYS};
 #endif
 }
 
-bool SerialPort::writeAll(const std::uint8_t * data, std::size_t size)
-{
-  std::lock_guard<std::mutex> lock(write_mutex_);
-  if (fd_ < 0) {return false;}
-  std::size_t off = 0;
-  int stalls = 0;
-  while (off < size) {
-    const ssize_t n = ::write(fd_, data + off, size - off);
-    if (n > 0) {
-      off += static_cast<std::size_t>(n);
-      stalls = 0;
-      continue;
+bool SerialPort::writeAll(const std::uint8_t *data, std::size_t size) {
+    std::lock_guard<std::mutex> lock(write_mutex_);
+    if (fd_ < 0) {
+        return false;
     }
-    if (n < 0 && errno == EINTR) {continue;}
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-      pollfd pfd;
-      pfd.fd = fd_;
-      pfd.events = POLLOUT;
-      pfd.revents = 0;
-      if (poll(&pfd, 1, 100) <= 0 && ++stalls >= 10) {return false;}  // 最多等约 1 s
-      continue;
+    std::size_t off = 0;
+    int stalls = 0;
+    while (off < size) {
+        const ssize_t n = ::write(fd_, data + off, size - off);
+        if (n > 0) {
+            off += static_cast<std::size_t>(n);
+            stalls = 0;
+            continue;
+        }
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            pollfd pfd;
+            pfd.fd = fd_;
+            pfd.events = POLLOUT;
+            pfd.revents = 0;
+            if (poll(&pfd, 1, 100) <= 0 && ++stalls >= 10) {
+                return false;
+            } // 最多等约 1 s
+            continue;
+        }
+        return false;
     }
-    return false;
-  }
-  return true;
+    return true;
 }
 
-PortChoice selectPort(
-  const std::string & param, const std::string & env, bool gimbal_exists,
-  const std::vector<std::string> & candidates)
-{
-  if (!param.empty() && param != "auto") {return {param, "param"};}
-  if (!env.empty()) {return {env, "RM_SIM_SERIAL"};}
-  if (gimbal_exists) {return {"/dev/gimbal", "udev"};}
-  if (!candidates.empty()) {return {candidates.front(), "scan"};}
-  return {"", "none"};
-}
-
-bool isGimbalRuleChipByIdName(const std::string & by_id_basename)
-{
-  const std::string name = lowercased(by_id_basename);
-  return name.find("cp210") != std::string::npos ||
-         name.find("ch340") != std::string::npos ||
-         name.find("ch9102") != std::string::npos;
-}
-
-PortIdentity inspectPortIdentity(const std::string & path, const std::string & by_id_dir)
-{
-  PortIdentity out;
-  out.resolved = realPathOrEmpty(path);
-  std::vector<std::string> entries;
-  {
-    glob_t g{};
-    if (glob((by_id_dir + "/*").c_str(), 0, nullptr, &g) == 0) {
-      for (std::size_t i = 0; i < g.gl_pathc; ++i) {entries.emplace_back(g.gl_pathv[i]);}
+PortChoice selectPort(const std::string &param, const std::string &env,
+                      bool gimbal_exists,
+                      const std::vector<std::string> &candidates) {
+    if (!param.empty() && param != "auto") {
+        return {param, "param"};
     }
-    globfree(&g);
-  }
-  std::vector<std::string> rule_chip_devices;  // 按 resolved 目标去重
-  for (const auto & entry : entries) {
-    const std::string target = realPathOrEmpty(entry);
-    if (target.empty()) {continue;}
-    if (target == out.resolved && out.by_id.empty()) {out.by_id = entry;}
-    const auto slash = entry.find_last_of('/');
-    const std::string base = slash == std::string::npos ? entry : entry.substr(slash + 1);
-    if (isGimbalRuleChipByIdName(base) &&
-      std::find(rule_chip_devices.begin(), rule_chip_devices.end(), target) ==
-      rule_chip_devices.end()) {
-      rule_chip_devices.push_back(target);
-      out.rule_chip_by_ids.push_back(entry);
+    if (!env.empty()) {
+        return {env, "RM_SIM_SERIAL"};
     }
-  }
-  return out;
+    if (gimbal_exists) {
+        return {"/dev/gimbal", "udev"};
+    }
+    if (!candidates.empty()) {
+        return {candidates.front(), "scan"};
+    }
+    return {"", "none"};
 }
 
-}  // namespace gimbal_serial
+bool isGimbalRuleChipByIdName(const std::string &by_id_basename) {
+    const std::string name = lowercased(by_id_basename);
+    return name.find("cp210") != std::string::npos ||
+           name.find("ch340") != std::string::npos ||
+           name.find("ch9102") != std::string::npos;
+}
+
+PortIdentity inspectPortIdentity(const std::string &path,
+                                 const std::string &by_id_dir) {
+    PortIdentity out;
+    out.resolved = realPathOrEmpty(path);
+    std::vector<std::string> entries;
+    {
+        glob_t g{};
+        if (glob((by_id_dir + "/*").c_str(), 0, nullptr, &g) == 0) {
+            for (std::size_t i = 0; i < g.gl_pathc; ++i) {
+                entries.emplace_back(g.gl_pathv[i]);
+            }
+        }
+        globfree(&g);
+    }
+    std::vector<std::string> rule_chip_devices; // 按 resolved 目标去重
+    for (const auto &entry : entries) {
+        const std::string target = realPathOrEmpty(entry);
+        if (target.empty()) {
+            continue;
+        }
+        if (target == out.resolved && out.by_id.empty()) {
+            out.by_id = entry;
+        }
+        const auto slash = entry.find_last_of('/');
+        const std::string base =
+            slash == std::string::npos ? entry : entry.substr(slash + 1);
+        if (isGimbalRuleChipByIdName(base) &&
+            std::find(rule_chip_devices.begin(), rule_chip_devices.end(),
+                      target) == rule_chip_devices.end()) {
+            rule_chip_devices.push_back(target);
+            out.rule_chip_by_ids.push_back(entry);
+        }
+    }
+    return out;
+}
+
+} // namespace gimbal_serial

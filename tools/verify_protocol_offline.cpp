@@ -18,8 +18,8 @@
 #include <unistd.h>
 #include <vector>
 
-#include "gimbal_serial/protocol.hpp"
-#include "gimbal_serial/serial_port.hpp"
+#include "protocol.hpp"
+#include "serial_port.hpp"
 
 namespace proto = gimbal_serial::proto;
 using Bytes = std::vector<std::uint8_t>;

@@ -789,9 +789,7 @@ def test_ros2_launch_show_args(launch_name):
         [ros2, 'launch', 'gimbal_tracker_bringup', launch_name, '--show-args'],
         capture_output=True, text=True, timeout=120)
     out = (proc.stdout or '') + (proc.stderr or '')
-    if 'PackageNotFoundError' in out or 'not found' in out.lower():
-        pytest.skip('需 Ubuntu + ROS2：请先 colcon build --symlink-install 并 '
-                    'source install/setup.bash')
+    # 已确认ROS环境后，安装缺失或launch中的not found是失败，不能降为跳过。
     assert proc.returncode == 0, '--show-args 失败:\n%s' % out
     required = {'processing.launch.py':'vehicle_config', 'vision.launch.py':'target_id',
                 'submission.launch.py':'team_id'}.get(launch_name,'params_file')
@@ -811,7 +809,11 @@ def test_static_transform_publisher_accepts_flag_style():
 
     exe = shutil.which('static_transform_publisher')
     if exe is None:
-        pytest.skip('需 Ubuntu + ROS2：找不到 static_transform_publisher')
+        # ROS节点通常安装在lib/<package>，不在PATH；按ament索引定位。
+        from ament_index_python.packages import get_package_prefix
+        exe = os.path.join(get_package_prefix('tf2_ros'), 'lib', 'tf2_ros',
+                           'static_transform_publisher')
+    assert os.path.isfile(exe), '已配置ROS环境但缺少static_transform_publisher'
     proc = subprocess.run([exe, '--help'], capture_output=True, text=True, timeout=60)
     out = (proc.stdout or '') + (proc.stderr or '')
     for flag in ('--frame-id', '--child-frame-id', '--x', '--roll'):

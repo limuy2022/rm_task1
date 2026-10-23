@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "gimbal_serial/serial_port.hpp"
+#include "serial_port.hpp"
 
 using gimbal_serial::SerialPort;
 using gimbal_serial::UartCounterResult;

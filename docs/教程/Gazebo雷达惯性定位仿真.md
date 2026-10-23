@@ -78,6 +78,9 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
 
 `--record-bag` 可省略；启用时录的是**仿真数据**，不能当真实雷达数据交付。
 脚本捕获失败并写日志，退出时只停止自己启动的进程。
+收尾时先通过当前 `IGN_PARTITION` 的 `/server_control` 请求 Gazebo 正常停止，
+响应保存在 `gazebo_stop.log`；服务不可用时退回进程组信号回收。
+超时强杀仍记录退出码 `-9`，并使 `clean_shutdown` 与整体验收失败。
 
 ## 4 运动与验收
 

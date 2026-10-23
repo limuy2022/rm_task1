@@ -15,7 +15,6 @@ import json
 import math
 import os
 from pathlib import Path
-import signal
 import subprocess
 import time
 import traceback
@@ -40,6 +39,7 @@ from grid_mapper.cloud_grid import pointcloud2_xyz
 from grid_mapper.pgm_io import read_pgm
 from gazebo.sensor_config import use_si_acceleration
 from gazebo.input_audit import audit_received_inputs
+from gazebo.process_shutdown import stop_processes
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -453,17 +453,7 @@ class GazeboLio(Node):
 
     def close(self):
         self.cmd_pub.publish(Twist())
-        codes = {}
-        for name, proc in reversed(self.processes):
-            if proc.poll() is None:
-                try: os.killpg(proc.pid, signal.SIGINT)
-                except ProcessLookupError: pass
-        for name, proc in reversed(self.processes):
-            try: proc.wait(timeout=8.)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait(timeout=3.)
-            codes[name] = proc.returncode
+        codes = stop_processes(self.processes, self.output)
         for log in self.logs: log.close()
         self.destroy_node()
         return codes

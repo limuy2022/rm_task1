@@ -1,4 +1,4 @@
-#include "gimbal_serial/bridge_node.hpp"
+#include "bridge_node.hpp"
 
 #include <glob.h>
 #include <unistd.h>
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "gimbal_serial/imu_convert.hpp"
+#include "imu_convert.hpp"
 
 using namespace std::chrono_literals;
 

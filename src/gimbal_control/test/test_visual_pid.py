@@ -1,6 +1,6 @@
 """Exercise the production visual PID without ROS or physical devices.
 
-Run: python3 -B tools/verify_visual_pid.py
+由 pytest 自动收集；验证理想角速度执行器下的控制律。
 The simulated plant executes requested angular speed exactly.  These checks
 test the algorithm, not a motor, serial connection, camera or real tuning.
 """
@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'src/gimbal_control'))
 from gimbal_control.visual_pid import AxisPID
 
@@ -29,7 +29,7 @@ def simulate(pid, seconds=12.0, target_speed=0.0, disturbance=0.0,
     return errors, outputs
 
 
-def main():
+def test_visual_pid_regressions():
     checks, results = [], {}
     errors, outputs = simulate(AxisPID())
     assert all(0 <= error <= .2 + 1e-12 for error in errors)
@@ -103,7 +103,3 @@ def main():
                       'physical_devices_opened': 0, 'ros_nodes_started': 0,
                       'limitations': ['ideal angular-speed simulation; real motor response and gains unverified']},
                      ensure_ascii=False, indent=2))
-
-
-if __name__ == '__main__':
-    main()

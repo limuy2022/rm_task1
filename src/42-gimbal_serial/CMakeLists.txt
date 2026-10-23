@@ -4,6 +4,7 @@ project(gimbal_serial_42)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -32,7 +33,7 @@ target_link_libraries(${PROJECT_NAME}_core PUBLIC ${PROJECT_NAME}_serial)
 ament_target_dependencies(${PROJECT_NAME}_core PUBLIC
   rclcpp sensor_msgs std_msgs geometry_msgs builtin_interfaces tf2_ros)
 
-add_executable(robo_bridge_node src/robo_bridge_node_main.cpp)
+add_executable(robo_bridge_node src/main.cpp)
 target_link_libraries(robo_bridge_node ${PROJECT_NAME}_core)
 
 install(TARGETS robo_bridge_node DESTINATION lib/${PROJECT_NAME})

@@ -17,7 +17,7 @@
 #              --install-base /tmp/ci --packages-select gimbal_serial_42 &&
 #       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
 #       python3 -B -m pytest -q src --import-mode=importlib &&
-#       python3 -B tools/verify_all_offline.py'
+#       python3 -B tools/verify_all_offline.py --skip-pytest'
 #
 # 说明：
 # - 仓库挂载到 /workspace（ASCII 路径，规避宿主路径含中文的问题）；
