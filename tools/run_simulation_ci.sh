@@ -4,8 +4,8 @@ set -eo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  navigation|gazebo_lio|gazebo_vision) ;;
-  *) echo '用法：bash tools/run_simulation_ci.sh navigation|gazebo_lio|gazebo_vision' >&2; exit 2 ;;
+  navigation|gazebo_lio|gazebo_vision|submission) ;;
+  *) echo '用法：bash tools/run_simulation_ci.sh navigation|gazebo_lio|gazebo_vision|submission' >&2; exit 2 ;;
 esac
 
 cd /workspace
@@ -16,14 +16,16 @@ mkdir "$output"
 exec > >(tee "$output/console.log") 2>&1
 
 source /opt/ros/humble/setup.bash
-if [[ "$scenario" != navigation ]]; then
+if [[ "$scenario" == gazebo_* ]]; then
   source /opt/lio_sim/install/setup.bash
 fi
 colcon --log-base /tmp/clog build --build-base /tmp/cb \
   --install-base /tmp/ci --symlink-install --parallel-workers 2
 source /tmp/ci/setup.bash
 
-if [[ "$scenario" == navigation ]]; then
+if [[ "$scenario" == submission ]]; then
+  python3 -B tools/verify_submission_dds.py --count 1800 --output-dir "$output/result"
+elif [[ "$scenario" == navigation ]]; then
   python3 -B tools/simulate_navigation.py --scenario all \
     --output-dir "$output/result"
 else

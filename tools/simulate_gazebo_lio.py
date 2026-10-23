@@ -15,7 +15,6 @@ import json
 import math
 import os
 from pathlib import Path
-import signal
 import subprocess
 import time
 import traceback
@@ -39,6 +38,8 @@ from gimbal_common.qos_utils import latched_qos, sensor_qos
 from grid_mapper.cloud_grid import pointcloud2_xyz
 from grid_mapper.pgm_io import read_pgm
 from gazebo.sensor_config import use_si_acceleration
+from gazebo.input_audit import audit_received_inputs
+from gazebo.process_shutdown import stop_processes
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -50,7 +51,12 @@ INITIAL_BODY = np.array([0., 0., .7])
 def point_lio_image_build():
     """记录镜像修复来源，避免将修复版的结果误认为归档原版结果。"""
     manifest = Path('/opt/lio_sim/plane_guard_manifest.json')
-    return json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
+    data = json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
+    knn = Path('/opt/lio_sim/knn_manifest.json')
+    if knn.exists(): data['nearest_neighbor_fix'] = json.loads(knn.read_text())
+    noise = Path('/opt/lio_sim/measurement_noise_manifest.json')
+    if noise.exists(): data['measurement_noise_fix'] = json.loads(noise.read_text())
+    return data
 
 
 def seconds(stamp):
@@ -81,6 +87,7 @@ class GazeboLio(Node):
         self.measurement_samples = []
         self.scan_lines = scan_lines
         self.published_frames, self.published_points = 0, 0
+        self.published_lidar_stamps = []
         self.raw_scans, self.raw_bad, self.offset_spans = 0, 0, []
         self.latest_map = None
         self.motion_start, self.last_command = None, -1.
@@ -100,6 +107,8 @@ class GazeboLio(Node):
         params = config['/**']['ros__parameters']
         params['use_sim_time'] = True
         params['use_imu_as_input'] = imu_mode == 'input'
+        params['sensor_qos_depth'] = 200
+        params['input_audit_path'] = str(self.output/'input_audit.csv')
         params['common'].update(lid_topic=NS+'/livox/lidar', imu_topic=NS+'/imu')
         # 该版本饱和检查直接比较原始 IMU 消息；把输入从原配置单位改成
         # m/s² 时，必须同步换算饱和阈值，否则9.81的静止重力会超过3。
@@ -193,6 +202,7 @@ class GazeboLio(Node):
                 points.append(point)
         out.point_num, out.points = len(points), points
         self.lidar_pub.publish(out)
+        self.published_lidar_stamps.append(base*1e-9)
         self.offset_spans.append(self.batch_stamps[-1]-base)
         self.published_frames += 1
         self.published_points += len(points)
@@ -443,17 +453,7 @@ class GazeboLio(Node):
 
     def close(self):
         self.cmd_pub.publish(Twist())
-        codes = {}
-        for name, proc in reversed(self.processes):
-            if proc.poll() is None:
-                try: os.killpg(proc.pid, signal.SIGINT)
-                except ProcessLookupError: pass
-        for name, proc in reversed(self.processes):
-            try: proc.wait(timeout=8.)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait(timeout=3.)
-            codes[name] = proc.returncode
+        codes = stop_processes(self.processes, self.output)
         for log in self.logs: log.close()
         self.destroy_node()
         return codes
@@ -501,6 +501,7 @@ def main():
     report['passed'] = report['passed'] and report['clean_shutdown']
     report['Gazebo_executed'] = app.raw_scans > 0 and len(app.truth) > 0
     report['Point_LIO_executed'] = len(app.estimates) > 0
+    audit_received_inputs(report, output, app.published_lidar_stamps, [row[0] for row in app.imus])
     (output/'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)+'\n')
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), flush=True)
     return 0 if report['passed'] else 1

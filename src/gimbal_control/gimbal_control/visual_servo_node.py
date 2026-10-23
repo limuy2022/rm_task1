@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String, UInt64
@@ -298,7 +299,10 @@ class VisualServoNode(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args); node = VisualServoNode()
+    # 保留Python的KeyboardInterrupt，让停转发布先于context关闭执行。
+    # rclpy默认SIGINT处理会先关闭context，finally里的零帧发布因此失败。
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    node = VisualServoNode()
     try: rclpy.spin(node)
     # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
     except KeyboardInterrupt: pass

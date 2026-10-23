@@ -173,6 +173,9 @@ def test_c_launch_references_match_entry_points(entry_points):
                 bridge = os.path.join(SRC_DIR, '42-gimbal_serial')
                 with open(os.path.join(bridge, 'CMakeLists.txt'), encoding='utf-8') as f:
                     cmake = f.read()
+                assert 'add_executable(robo_bridge_node src/main.cpp)' in cmake
+                assert 'install(TARGETS robo_bridge_node DESTINATION lib/${PROJECT_NAME})' in cmake
+                assert os.path.isfile(os.path.join(bridge, 'src', 'main.cpp'))
                 continue  # C++节点由CMake登记，不是Python console_script。
             if exe not in entry_points:
                 bad.append('%s: %s 不在任何 entry_points 中' % (_rel(lf), exe))
@@ -306,22 +309,75 @@ def test_e5_rate_params_are_floats(params_yaml):
 # F. launch overrides 键
 # ---------------------------------------------------------------------------
 def test_f_launch_override_keys_are_known(text_of, params_yaml):
-    """launch 里写入 overrides 的参数名必须能在代码或 YAML 中找到。"""
-    import re
-    corpus = '\n'.join(txt for p, txt in text_of.items()
-                       if 'test' not in p.replace('\\', '/').split('/'))
+    """覆盖键必须在独立生产模块中有参数声明/读取或默认字典。"""
+    known = _parameter_names(text_of)
     keys: Set[str] = set()
     for lf in glob.glob(os.path.join(PKG_DIR, 'launch', '**', '*.py'), recursive=True):
         with open(lf, 'r', encoding='utf-8') as f:
             txt = f.read()
-        keys |= set(re.findall(r"over\['([a-z_]+\.[a-z_]+)'\]", txt))
-        keys |= set(re.findall(r"_put(?:_num|_int)?_if_set\(\s*over,\s*'([a-z_]+\.[a-z_]+)'",
-                               txt))
+        # mission 两键由 launch 自己消费；只承认从配置 flat 读取，不承认 over 写入。
+        for node in ast.walk(ast.parse(txt)):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == 'flat'
+                    and node.func.attr == 'get' and node.args
+                    and isinstance(node.args[0], ast.Constant)):
+                known.add(node.args[0].value)
+            if (isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store)
+                    and isinstance(node.value, ast.Name) and node.value.id == 'over'
+                    and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str)):
+                keys.add(node.slice.value)
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in ('_put_if_set', '_put_num_if_set', '_put_int_if_set')
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                keys.add(node.args[1].value)
     assert keys, '未解析到任何 overrides 键'
-    missing = [k for k in sorted(keys)
-               if ("'%s'" % k) not in corpus and ('"%s"' % k) not in corpus
-               and k not in params_yaml]
+    missing = sorted(keys - known)
     assert missing == [], 'launch 覆盖了未知参数: %s' % missing
+
+
+def _parameter_names(text_of):
+    """忽略 launch、测试、注释与文档串，避免覆盖键自证存在。"""
+    names = set()
+    for path, source in text_of.items():
+        if {'test', 'launch'} & set(path.replace('\\', '/').split('/')):
+            continue
+        tree = ast.parse(source)
+        aliases = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Attribute)
+                    and node.value.attr in ('declare_parameter', 'get_parameter')):
+                aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                names.update(k.value for k in node.keys
+                             if isinstance(k, ast.Constant) and isinstance(k.value, str))
+            elif isinstance(node, ast.Call) and node.args:
+                fn = node.func
+                parameter_call = (
+                    isinstance(fn, ast.Attribute) and fn.attr in ('declare_parameter', 'get_parameter')
+                    or isinstance(fn, ast.Name) and fn.id in aliases)
+                if parameter_call and isinstance(node.args[0], ast.Constant):
+                    if isinstance(node.args[0].value, str):
+                        names.add(node.args[0].value)
+    return names
+
+
+@pytest.mark.parametrize('assignment', [
+    "over['control.typo2'] = 1\n", '_put_num_if_set(over, "control.typo2", "1")\n',
+])
+def test_override_guard_rejects_launch_yaml_and_documentation_only(monkeypatch, tmp_path, assignment):
+    launch = tmp_path / 'launch' / 'example.py'
+    launch.parent.mkdir()
+    launch.write_text(assignment)
+    monkeypatch.setattr(glob, 'glob', lambda *args, **kwargs: [str(launch)])
+    sources = {str(launch): launch.read_text(),
+               '/src/pkg/pkg/node.py': '\"\"\"control.typo2\"\"\"\n# control.typo2\n',
+               '/src/pkg/test/test_node.py': "defaults = {'control.typo2': 1}"}
+    with pytest.raises(AssertionError, match='control.typo2'):
+        test_f_launch_override_keys_are_known(sources, {'control.typo2': 1})
+    sources['/src/pkg/pkg/node.py'] = "defaults = {'control.typo2': 1}"
+    test_f_launch_override_keys_are_known(sources, {})
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +510,42 @@ def test_k_no_wall_clock_calls(text_of):
 
 
 def test_k2_monotonic_time_is_used(text_of):
-    """正向确认：工程里确实有 `time_utils.now()` 这一唯一时间入口。"""
-    hits = [p for p, t in text_of.items() if 'time_utils' in t and 'now' in t]
+    """正向确认：非测试模块确实调用统一时钟；不把文档或导入当使用。"""
+    hits = []
+    for path, source in text_of.items():
+        if {'test', 'launch'} & set(path.replace('\\', '/').split('/')):
+            continue
+        tree = ast.parse(source)
+        imported = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imported[alias.asname or alias.name] = (node.module or '') + '.' + alias.name
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported[alias.asname or alias.name.split('.')[0]] = (
+                        alias.name if alias.asname else alias.name.split('.')[0])
+        def qualified(node):
+            if isinstance(node, ast.Name):
+                return imported.get(node.id, node.id)
+            if isinstance(node, ast.Attribute):
+                return qualified(node.value) + '.' + node.attr
+            return ''
+        if any(isinstance(node, ast.Call) and qualified(node.func) == 'gimbal_common.time_utils.now'
+               for node in ast.walk(tree)):
+            hits.append(path)
     assert hits, '未发现使用 gimbal_common.time_utils 的代码'
+
+
+def test_clock_guard_rejects_self_documentation_and_unused_import():
+    with open(__file__, encoding='utf-8') as stream:
+        own_source = stream.read()
+    sources = {__file__: own_source,
+               '/src/pkg/pkg/node.py': '"""time_utils.now()"""\nfrom gimbal_common.time_utils import now\n'}
+    with pytest.raises(AssertionError, match='未发现'):
+        test_k2_monotonic_time_is_used(sources)
+    sources['/src/pkg/pkg/node.py'] += 'started = now()\n'
+    test_k2_monotonic_time_is_used(sources)
 
 
 # ---------------------------------------------------------------------------

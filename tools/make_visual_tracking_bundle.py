@@ -4,15 +4,30 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = '47-visual-tracking-20261018-r3'
+NAME = '47-visual-tracking'
 PACKAGES = {**{f'src/{p}': f'src/47-{p}' for p in (
     'gimbal_common', 'gimbal_interfaces', 'gimbal_perception',
     'gimbal_control', 'gimbal_tracker_bringup', 'gimbal_judge_io', 'grid_mapper',
     'gimbal_localization', 'gimbal_estimation', 'chassis_advisor')},
     'src/42-gimbal_serial': 'src/47-gimbal_serial'}
+
+
+def source_version():
+    """记录实际源码基线；无 Git 的源码副本明确记为未知。"""
+    try:
+        commit = subprocess.run(
+            ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'],
+            check=True, capture_output=True, text=True).stdout.strip()
+        status = subprocess.run(
+            ['git', '-C', str(ROOT), 'status', '--porcelain', '--untracked-files=all'],
+            check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return {'source_base': None, 'source_dirty': None}
+    return {'source_base': commit, 'source_dirty': bool(status.strip())}
 
 
 def build(output):
@@ -54,7 +69,7 @@ def build(output):
             if path.suffix in ('.pyc', '.pyo'): continue
             if path.is_symlink(): raise ValueError('Do not package symbolic link: '+str(path))
             if path.is_file(): files[f'{dest}/{rel.as_posix()}'] = path.read_bytes()
-    manifest = {'workspace': NAME, 'source_base': 'e52edf73f00f0154e3b8d8f1828850be8c0f23df',
+    manifest = {'workspace': NAME, **source_version(),
                 'files': {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}}
     files['manifest.json'] = (json.dumps(manifest, ensure_ascii=False, indent=2)+'\n').encode()
     output = Path(output); output.parent.mkdir(parents=True, exist_ok=True)

@@ -34,14 +34,16 @@ def main():
     ready_at = None
     count = 0
     done_at = None
+    finished = False
 
     def step():
-        nonlocal ready_at, count, done_at
+        nonlocal ready_at, count, done_at, finished
         now = time.monotonic()
         if done_at is not None:
             if now - done_at >= 1.2:
                 node.get_logger().info(f'完成{count}拍；请检查CSV与地图')
-                rclpy.shutdown()
+                # 不在执行器回调内部shutdown；Humble会等待当前回调结束而死锁。
+                finished = True
             return
         publishers = (tick, replay, target, base, advice, grid)
         if not all(p.get_subscription_count() for p in publishers):
@@ -78,7 +80,8 @@ def main():
             done_at = now
     node.create_timer(.1, step)
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not finished:
+            rclpy.spin_once(node, timeout_sec=.1)
     finally:
         node.destroy_node()
         if rclpy.ok():

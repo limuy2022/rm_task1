@@ -1,4 +1,4 @@
-"""Targeted offline checks for the 2026-10-17 field follow-up; no devices/ROS DDS."""
+"""现场只读检查、标定比较与参考 PnP 入口回归；不访问设备或 DDS。"""
 from __future__ import annotations
 
 import importlib.util
@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 
 def load(name):
     spec=importlib.util.spec_from_file_location(name,ROOT/'tools'/f'{name}.py')
@@ -116,6 +116,3 @@ class FieldTests(unittest.TestCase):
             self.assertNotIn('gimbal_serial_42',args)
             bad=subprocess.run(['bash',str(ROOT/'tools/run_reference_pnp.bash'),str(OTHER),'50'],env=env,capture_output=True)
             self.assertEqual(bad.returncode,2)
-
-if __name__=='__main__':
-    unittest.main(verbosity=2)

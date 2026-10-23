@@ -10,7 +10,7 @@
    语义优雅停转：指令归零、不误报 fault）。
 
 用法：python3 -B tools/verify_aiming_robustness.py [--quick]
---quick 每场景 2 姿态、闭环 90 帧（供 verify_all_offline 编排）；默认全量。
+--quick 每档 4 姿态×3帧、闭环 90 帧；默认静态每姿态12帧。
 结果 JSON 打印并写入 build/offline/aiming_robustness.json；失败退出码 1。
 """
 
@@ -35,7 +35,7 @@ import cv2  # noqa: E402
 import rclpy  # noqa: E402
 
 import aim_sim  # noqa: E402
-import verify_perception_offline as VP  # noqa: E402  (安装共享 stand-in)
+import verify_perception_offline as VP  # noqa: E402
 from verify_visual_servo import create_harness, corners_message, imu_message  # noqa: E402
 
 QUICK = '--quick' in sys.argv
@@ -90,33 +90,59 @@ BURST_FRAMES = (28, 50)      # 该区间目标被完全遮挡
 def run_static(detector, pnp, failures, report):
     for name, degr, hit_min, pnp_factor in SCENARIOS:
         rng = np.random.default_rng(_stable_seed(name, 1234))
-        poses = POSES[:2] if QUICK else POSES
+        poses = POSES
+        repeats = 3 if QUICK else 12
         hits, pnp_ok = 0, 0
-        err_max, err_worst = 0.0, None
-        for tvec, rvec in poses:
+        err_max = 0.0
+        for sample in range(len(poses) * repeats):
+            tvec, rvec = poses[sample % len(poses)]
             image, _gt = aim_sim.render_scene(CAMERA, 3, tvec, rvec, rng=rng, **degr)
-            corners, result = VP.feed(detector, pnp, image, 10)
+            corners, result = VP.feed(detector, pnp, image, 10 + sample)
             if corners.valid and corners.marker_id == 3:
                 hits += 1
             if result.valid:
                 pnp_ok += 1
                 err = float(np.linalg.norm(
                     np.array([result.x, result.y, result.z]) - np.array(tvec)))
-                err_max = max(err_max, err)
-                err_worst = tvec
-        rate = hits / len(poses)
-        row = dict(hit_rate=rate, pnp_valid=pnp_ok,
+                if not math.isfinite(err):
+                    failures.append('%s PnP 误差非有限值' % name)
+                if err > err_max:
+                    err_max = err
+                if pnp_factor is not None and err > max(.03, pnp_factor * tvec[2]):
+                    failures.append('%s PnP 误差 %.3fm 超过该距离误差界，姿态 %s' % (name, err, tvec))
+        count = len(poses) * repeats
+        rate, pnp_rate = hits / count, pnp_ok / count
+        row = dict(samples=count, hit_rate=rate, pnp_valid=pnp_ok, pnp_valid_rate=pnp_rate,
                    pnp_err_max_m=round(err_max, 4) if pnp_ok else None)
         report['static'][name] = row
         if rate < hit_min:
             failures.append('%s 检测命中率 %.2f < %.2f' % (name, rate, hit_min))
-        if pnp_factor is not None and pnp_ok:
-            bound = max(0.03, pnp_factor * max(t[2] for t, _ in poses))
-            if err_max > bound:
-                failures.append('%s PnP 误差 %.3fm > 界 %.3fm（最坏姿态 %s）'
-                                % (name, err_max, bound, err_worst))
+        if pnp_factor is not None and pnp_rate < .95:
+            failures.append('%s PnP 有效率 %.2f < 0.95' % (name, pnp_rate))
         print('static %-16s hit=%.2f pnp_err<=%s' %
               (name, rate, ('%.3fm' % err_max) if pnp_ok else 'n/a'), flush=True)
+
+
+def check_loss_commands(commands, name, failures):
+    """按丢失时的发送索引取窗，要求实际出现三零帧，随后静默。"""
+    zero = [abs(m.angular.z) <= 1e-9 and abs(m.angular.y) <= 1e-9 for m in commands]
+    first_zero = next((i for i, value in enumerate(zero) if value), len(zero))
+    stopped = (first_zero <= 2 and len(zero) - first_zero == 3
+               and all(zero[first_zero:]))
+    if not stopped:
+        failures.append('%s 未完成最多两帧宽限、三零帧及静默：发送零帧序列 %s' % (name, zero))
+    return dict(stop_frames=sum(zero), grace_frames=first_zero, stopped=stopped)
+
+
+def check_settled(errors, name, failures):
+    """最后半秒必须持续有新观测并保持精度，不能用丢失前的旧误差通过。"""
+    tail = errors[-15:]
+    valid = [e for e in tail if e is not None and math.isfinite(e)]
+    settled = len(tail) == 15 and len(valid) >= 14 and max(valid, default=math.inf) < 8.
+    if not settled:
+        failures.append('%s 最后半秒未持续收敛：有效观测 %d/15，最大误差 %s' %
+                        (name, len(valid), max(valid, default=None)))
+    return settled
 
 
 def _optical_from_state(yaw, pitch, target):
@@ -144,6 +170,7 @@ def run_closed_loop(detector, failures, report):
 
         yaw = pitch = 0.0
         first_error = error = None
+        errors = []
         burst = name == 'burst'
         burst_i0 = burst_i1 = None      # 丢失起止时刻的 sent 长度（帧号≠索引：
         frames = range(90 if QUICK else 150)  # 静默期 sent 不增长）
@@ -188,12 +215,13 @@ def run_closed_loop(detector, failures, report):
                     first_error = error.copy()
                     assert sent[-1].angular.z > 0 and sent[-1].angular.y < 0, \
                         '%s 首拍指令方向错误' % name
+            errors.append(float(np.linalg.norm(error)) if picked is not None and node.observation is not None else None)
 
         row = {}
         if first_error is not None and error is not None:
             row = dict(initial_px=[round(float(v), 1) for v in first_error],
                        final_px=[round(float(v), 1) for v in error],
-                       converged=bool(np.linalg.norm(error) < 8.0))
+                       converged=check_settled(errors, name, failures))
             if not row['converged']:
                 failures.append('%s 闭环未收敛：final=%s px'
                                 % (name, row['final_px']))
@@ -204,13 +232,7 @@ def run_closed_loop(detector, failures, report):
         if burst:
             # 丢失期间的发送窗（按 sent 长度切，静默期不增长）：除 coast
             # 宽限（前 2 条衰减指令）外必须为零；3 零帧+静默是停止语义。
-            window = sent[burst_i0:burst_i1]
-            nonzero = [t for t in window[2:]
-                       if abs(t.angular.z) > 1e-9 or abs(t.angular.y) > 1e-9]
-            row['burst_loss_nonzero_cmds'] = len(nonzero)
-            if nonzero:
-                failures.append('%s 遮挡丢失期间 %d 帧仍在发非零指令（宽限外应停转）'
-                                % (name, len(nonzero)))
+            row.update(check_loss_commands(sent[burst_i0:burst_i1], name, failures))
             if not row.get('converged'):
                 failures.append('%s 遮挡恢复后未重新收敛' % name)
         report['closed_loop'][name] = row
@@ -224,10 +246,15 @@ def run_closed_loop(detector, failures, report):
     params.update(motion_enabled=True, run_seconds=10.)
     node.tick()
     yaw = pitch = 0.0
-    hidden_from = 30 if QUICK else 30
+    hidden_from = 30
+    loss_start = None
     for k in range(60 if QUICK else 90):
         dt = 1. / 30
         clock.advance(dt)
+        if k == hidden_from:
+            loss_start = len(sent)
+            if not any(abs(m.angular.z) > 1e-9 or abs(m.angular.y) > 1e-9 for m in sent):
+                failures.append('持续丢失场景在遮挡前未建立运动')
         optical = _optical_from_state(yaw, pitch, target)
         kwargs = {'occlusion_frac': 0.95} if k >= hidden_from else {}
         image, _gt = aim_sim.render_scene(CAMERA, 3, optical, rng=rng, **kwargs)
@@ -248,15 +275,11 @@ def run_closed_loop(detector, failures, report):
         cmd = sent[-1] if sent else _ZERO_CMD
         yaw += cmd.angular.z * dt
         pitch += cmd.angular.y * dt
-    tail = sent[hidden_from + 12:]
-    nonzero = [t for t in tail if abs(t.angular.z) > 1e-9 or abs(t.angular.y) > 1e-9]
-    report['closed_loop'][name] = dict(tail_nonzero_cmds=len(nonzero),
-                                       fault=bool(getattr(node, 'fault', None)))
-    if nonzero:
-        failures.append('持续丢失后指令未归零（%d 帧非零）' % len(nonzero))
+    metrics = check_loss_commands(sent[loss_start:], name, failures)
+    report['closed_loop'][name] = dict(**metrics, fault=bool(getattr(node, 'fault', None)))
     if getattr(node, 'fault', None):
         failures.append('持续丢失不得 fault（丢失是正常路径）: %s' % node.fault)
-    print('closed %-16s tail_nonzero=%d' % (name, len(nonzero)), flush=True)
+    print('closed %-16s stopped=%s' % (name, metrics['stopped']), flush=True)
 
 
 def main() -> int:

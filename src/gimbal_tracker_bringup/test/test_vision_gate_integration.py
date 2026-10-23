@@ -12,7 +12,7 @@ from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point32, PolygonStamped
 from gimbal_interfaces.msg import GimbalOmegaCmd, MarkerCorners
 
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[3]
 for name in ('gimbal_perception','gimbal_serial_bridge','gimbal_common'):
     sys.path.insert(0,str(root/'src'/name))
 import gimbal_serial_bridge.hardware_adapter_node as hw_module
@@ -144,5 +144,3 @@ class Regression(unittest.TestCase):
         detector._log=NS(info=lambda msg:None)
         detector._on_timer()
         self.assertEqual(detector._target_digit,-1);self.assertIsNone(detector._latest)
-
-if __name__=='__main__':unittest.main()

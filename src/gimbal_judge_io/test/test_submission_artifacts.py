@@ -1,31 +1,17 @@
 """离线核验真实写出器与地图序列化；需要numpy。在 ROS 2 Humble 容器内运行，
 但不启动 ROS 节点、不做 DDS 实机通信。"""
-import ast
-import csv
-import importlib.util
-import inspect
 import sys
-import tempfile
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1]
+root = Path(__file__).resolve().parents[3]
 for package in ('gimbal_common', 'gimbal_judge_io', 'grid_mapper'):
     sys.path.insert(0, str(root / 'src' / package))
 from gimbal_judge_io.tick_csv import TickCsvWriter
 from grid_mapper.pgm_io import write_pgm, read_grid, read_pgm
 import numpy as np
 
-spec = importlib.util.spec_from_file_location('tick_tests', root / 'src/gimbal_judge_io/test/test_tick_csv.py')
-tests = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tests)
-with tempfile.TemporaryDirectory() as directory:
-    directory = Path(directory)
-    for name, fn in inspect.getmembers(tests, inspect.isfunction):
-        if name.startswith('test_'):
-            p = directory / name
-            p.mkdir()
-            fn(p) if inspect.signature(fn).parameters else fn()
-            print('PASS', name)
+def test_1800_rows_visible_before_close(tmp_path):
+    directory = tmp_path
     expected = []
     for k in range(1800):
         dt = k / 10
@@ -41,7 +27,10 @@ with tempfile.TemporaryDirectory() as directory:
     # 不关闭写出器，独立文件句柄也必须可读全部行。
     assert p.read_text().splitlines() == expected
     writer.close()
-    print('PASS 1800 rows: actual writer, order, timestamp, visibility before close')
+
+
+def test_asymmetric_map_pixels(tmp_path):
+    directory = tmp_path
     grid = np.array([[100,0,0,-1],[0,100,0,0],[0,0,100,0]], dtype=np.int8).T
     pgm = directory / '47_map.pgm'
     write_pgm(str(pgm), grid)
@@ -49,8 +38,3 @@ with tempfile.TemporaryDirectory() as directory:
     image, _ = read_pgm(str(pgm))
     # 独立预期像素，避免仅通过互逆读写掩盖共同翻转错误。
     assert image.tolist() == [[254,254,0,254],[254,0,254,254],[0,254,254,205]]
-    print('PASS asymmetric PGM pixels and occupancy roundtrip')
-for path in root.glob('src/**/*.py'):
-    ast.parse(path.read_bytes(), filename=str(path))
-print('PASS Python syntax')
-print('NOT VERIFIED: live DDS communication, Humble launch, NUC timing, physical accuracy (runs inside the ROS 2 Humble container)')
