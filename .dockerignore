@@ -1,15 +1,9 @@
-# 默认测试目标只用 apt；可选 Gazebo 目标需要导航源码和仿真控制插件。
+# 算法随src挂载构建；镜像仅构建Livox依赖和可选Gazebo插件。
 *
 !archives/
-!archives/robomaster_navigation.tar.gz
+!archives/livox_ros_driver2.tar.gz
 !tools/
+!tools/ros_entrypoint.bash
 !tools/gazebo/
 !tools/gazebo/CMakeLists.txt
 !tools/gazebo/force_controller.cpp
-!tools/gazebo/apply_point_lio_plane_guard.py
-!tools/gazebo/point_lio_plane_guard.hpp
-!tools/gazebo/point_lio_input_audit.hpp
-!tools/gazebo/fix_point_lio_knn.py
-!tools/gazebo/test_point_lio_knn.cpp
-!tools/gazebo/fix_point_lio_measurement_noise.py
-!tools/gazebo/test_point_lio_measurement_noise.cpp

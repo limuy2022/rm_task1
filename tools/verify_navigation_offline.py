@@ -17,22 +17,22 @@ from types import SimpleNamespace as NS
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-for package in ('gimbal_common', 'gimbal_localization', 'grid_mapper'):
+for package in ('team43_common', 'team43_localization', 'team43_grid_mapper'):
     sys.path.insert(0, str(ROOT/'src'/package))
 from builtin_interfaces.msg import Time as Stamp
 from nav_msgs.msg import Odometry, OccupancyGrid
 from tf2_ros import TransformException
 
-from gimbal_localization import base_pose_provider_node as provider_module
-from gimbal_localization.base_pose_source import OdomTopicSource
-from gimbal_localization.odometry_geometry import (  # noqa:E402
+from team43_localization import base_pose_provider_node as provider_module
+from team43_localization.base_pose_source import OdomTopicSource
+from team43_localization.odometry_geometry import (  # noqa:E402
     rigid_transform, quaternion_matrix, matrix_quaternion, convert_odometry,
 )
-from grid_mapper.grid_builder import GridMap  # noqa:E402
-from grid_mapper.grid_geometry import compose_grid_origin, planar_quaternion_yaw  # noqa:E402
-from grid_mapper import grid_mapper_node as adapter  # noqa:E402
-from grid_mapper.pgm_io import write_map, read_grid  # noqa:E402
-from grid_mapper.png_draw import world_to_pixel  # noqa:E402
+from team43_grid_mapper.grid_builder import GridMap  # noqa:E402
+from team43_grid_mapper.grid_geometry import compose_grid_origin, planar_quaternion_yaw  # noqa:E402
+from team43_grid_mapper import grid_mapper_node as adapter  # noqa:E402
+from team43_grid_mapper.pgm_io import write_map, read_grid  # noqa:E402
+from team43_grid_mapper.png_draw import world_to_pixel  # noqa:E402
 
 
 def odom(xyz=(0.,0.,0.), xyzw=(0.,0.,0.,1.), stamp=(12,123456789),
@@ -155,10 +155,10 @@ class NavigationOfflineTests(unittest.TestCase):
                 self.assertEqual(gm.world_to_cell(gm.cell_to_world((i,j))),(i,j))
                 np.testing.assert_allclose(world_to_pixel(gm.cell_to_world((i,j)),gm),[i,1-j],atol=1e-12)
         with tempfile.TemporaryDirectory() as d:
-            paths=write_map(d,gm,image_name='47_map.pgm',yaml_name='47_map.yaml')
+            paths=write_map(d,gm,image_name='43_map.pgm',yaml_name='43_map.yaml')
             np.testing.assert_array_equal(read_grid(paths['pgm']).grid,gm.grid)
             content=Path(paths['yaml']).read_text()
-            self.assertIn('image: 47_map.pgm',content)
+            self.assertIn('image: 43_map.pgm',content)
             self.assertIn('origin: [2, -1, 1.570796]',content)
 
     def test_grid_metadata_frame_composition_does_not_resample(self):

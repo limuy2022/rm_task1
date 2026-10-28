@@ -16,19 +16,19 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-for pkg in ('gimbal_common','gimbal_perception','gimbal_localization','gimbal_estimation',
-            'gimbal_judge_io','chassis_advisor','grid_mapper'):
+for pkg in ('team43_common','team43_perception','team43_localization','team43_estimation',
+            'team43_judge_io','team43_chassis_advisor','team43_grid_mapper'):
     sys.path.insert(0, str(ROOT/'src'/pkg))
-from gimbal_common import frames as FR
-from gimbal_perception.pnp_solver import PnpSolver
-from gimbal_localization.gimbal_kinematics import GimbalKinematics
-from gimbal_estimation.observation_builder import ObservationBuilder
-from gimbal_estimation.stamped_tracker import StampedTracker
-from gimbal_judge_io.tick_sampler import TickSampler
-from gimbal_judge_io.tick_csv import TickCsvWriter
-from chassis_advisor.free_dir import FreeDirSolver
-from grid_mapper.pgm_io import write_map, read_grid
-from grid_mapper.grid_builder import GridMap
+from team43_common import frames as FR
+from team43_perception.pnp_solver import PnpSolver
+from team43_localization.gimbal_kinematics import GimbalKinematics
+from team43_estimation.observation_builder import ObservationBuilder
+from team43_estimation.stamped_tracker import StampedTracker
+from team43_judge_io.tick_sampler import TickSampler
+from team43_judge_io.tick_csv import TickCsvWriter
+from team43_chassis_advisor.free_dir import FreeDirSolver
+from team43_grid_mapper.pgm_io import write_map, read_grid
+from team43_grid_mapper.grid_builder import GridMap
 from check_csv import check_csv
 from score_csv import evaluate
 from verify_kinematics_offline import calibration
@@ -82,7 +82,7 @@ def main():
     c['base_mount_rpy'] = [0.,0.,0.]; c['pitch_gimbal_rpy'] = [0.,0.,0.]
     c['gimbal_camera_rpy'] = [0.,0.,0.]; c['joint_zero_rad'] = [0.,0.]
     model = GimbalKinematics(c)
-    cam = yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/camera_team47.yaml').read_text())['camera']
+    cam = yaml.safe_load((ROOT/'src/team43_bringup/config/camera_team43.yaml').read_text())['camera']
     pnp = PnpSolver.from_camera_config(cam, marker_size_m=.10)
     builder = ObservationBuilder(); tracker = StampedTracker(); sampler = TickSampler()
     arr = np.zeros((200, 120), np.int8); arr[0,:] = -1; arr[160:162,80:92] = 100

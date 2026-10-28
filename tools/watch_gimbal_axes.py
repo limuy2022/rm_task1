@@ -64,7 +64,7 @@ def main(argv=None):
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output = args.output_dir/(args.label+'_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'.jsonl')
     rclpy.init()
-    node = Node('gimbal_axes_view', namespace='team47_check')
+    node = Node('gimbal_axes_view', namespace='team43_check')
     latest = [None]
     count = [0]
 

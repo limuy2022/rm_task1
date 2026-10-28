@@ -17,7 +17,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-for pkg in ('gimbal_common', 'gimbal_estimation', 'gimbal_judge_io', 'gimbal_localization'):
+for pkg in ('team43_common', 'team43_estimation', 'team43_judge_io', 'team43_localization'):
     sys.path.insert(0, str(ROOT/'src'/pkg))
 from builtin_interfaces.msg import Time as Stamp
 from geometry_msgs.msg import Quaternion, TransformStamped, Vector3
@@ -25,23 +25,23 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
 from tf2_ros import TransformException
 
-from gimbal_interfaces.msg import ChassisAdvice, MarkerObservation, TargetState
+from team43_interfaces.msg import ChassisAdvice, MarkerObservation, TargetState
 
-from gimbal_common import frames as FR
-from gimbal_common.time_buffer import TimeBuffer, PoseHistory, stamp_seconds
-from gimbal_estimation.ca_kalman import CAKalman
-from gimbal_estimation.observation_builder import ObservationBuilder
-from gimbal_estimation.stamped_tracker import StampedTracker
-from gimbal_judge_io import judge_io_node as judge_module
-from gimbal_judge_io.judge_io_node import JudgeIoNode
-from gimbal_judge_io.tick_csv import TickCsvWriter
-from gimbal_judge_io.tick_sampler import TickSampler
-from gimbal_localization.map_frame_broadcaster_node import (
+from team43_common import frames as FR
+from team43_common.time_buffer import TimeBuffer, PoseHistory, stamp_seconds
+from team43_estimation.ca_kalman import CAKalman
+from team43_estimation.observation_builder import ObservationBuilder
+from team43_estimation.stamped_tracker import StampedTracker
+from team43_judge_io import judge_io_node as judge_module
+from team43_judge_io.judge_io_node import JudgeIoNode
+from team43_judge_io.tick_csv import TickCsvWriter
+from team43_judge_io.tick_sampler import TickSampler
+from team43_localization.map_frame_broadcaster_node import (
     PARAM_DEFAULTS as MAP_PARAM_DEFAULTS,
     MapFrameBroadcasterNode,
     _xyz_rpy_to_T,
 )
-from gimbal_estimation.target_estimator_node import TargetEstimatorNode
+from team43_estimation.target_estimator_node import TargetEstimatorNode
 
 
 def stamp(t):

@@ -26,7 +26,7 @@ jobs:
         run: docker build -t rm-task1-humble-test .
 
       # 四层验证（与测试运行指南中的容器命令逐字一致）：
-      # colcon 全量构建（含 gimbal_interfaces 消息生成）→ C++ gtest →
+      # colcon 全量构建（含 team43_interfaces 消息生成）→ C++ gtest →
       # pytest src → tools/verify_all_offline.py --skip-pytest 19 项核验。
       # colcon 产物放 /tmp；verify 日志写 build/offline/（已 gitignore）。
       - name: Full verification（colcon build + gtest + pytest + tools 离线核验）
@@ -38,7 +38,7 @@ jobs:
                      --install-base /tmp/ci --symlink-install &&
               source /tmp/ci/setup.bash &&
               colcon --log-base /tmp/clog test --build-base /tmp/cb \
-                     --install-base /tmp/ci --packages-select gimbal_serial_42 &&
+                     --install-base /tmp/ci --packages-select team43_serial_bridge &&
               colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
               python3 -B -m pytest -q src --import-mode=importlib &&
               python3 -B tools/verify_all_offline.py --skip-pytest'

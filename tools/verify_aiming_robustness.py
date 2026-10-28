@@ -28,8 +28,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-sys.path.insert(0, str(ROOT / 'src' / 'gimbal_perception'))
-sys.path.insert(0, str(ROOT / 'src' / 'gimbal_control'))
+sys.path.insert(0, str(ROOT / 'src' / 'team43_perception'))
+sys.path.insert(0, str(ROOT / 'src' / 'team43_control'))
 
 import cv2  # noqa: E402
 import rclpy  # noqa: E402

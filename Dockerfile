@@ -14,7 +14,7 @@
 #              --install-base /tmp/ci --symlink-install &&
 #       source /tmp/ci/setup.bash &&
 #       colcon --log-base /tmp/clog test --build-base /tmp/cb \
-#              --install-base /tmp/ci --packages-select gimbal_serial_42 &&
+#              --install-base /tmp/ci --packages-select team43_serial_bridge &&
 #       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
 #       python3 -B -m pytest -q src --import-mode=importlib &&
 #       python3 -B tools/verify_all_offline.py --skip-pytest'
@@ -32,41 +32,33 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-# 可选 Gazebo / Point-LIO 验证环境：docker build --target gazebo-sim
-# 源码来自仓库已有导航压缩包；编译和安装均在镜像内，不污染挂载仓库。
-FROM ros-base AS gazebo-sim
+# 测试容器提供比赛机已有的Livox依赖；算法源码直接位于src普通ROS包中。
+FROM ros-base AS livox-runtime
+COPY archives/livox_ros_driver2.tar.gz /tmp/livox_ros_driver2.tar.gz
+RUN echo 'b438683b99951c2a962df0919106476baf00f3281a50e5691203dc510dd24d23  /tmp/livox_ros_driver2.tar.gz' | sha256sum -c - \
+ && mkdir -p /opt/livox/src \
+ && tar -xzf /tmp/livox_ros_driver2.tar.gz -C /opt/livox/src \
+ && rm /tmp/livox_ros_driver2.tar.gz \
+ && /bin/bash -c 'source /opt/ros/humble/setup.bash && \
+    colcon --log-base /tmp/livox_log build --base-paths /opt/livox/src \
+      --build-base /tmp/livox_build --install-base /opt/livox/install \
+      --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF' \
+ && rm -rf /tmp/livox_build /tmp/livox_log
+COPY tools/ros_entrypoint.bash /team43_ros_entrypoint.bash
+ENTRYPOINT ["bash", "/team43_ros_entrypoint.bash"]
+
+FROM ros-base AS gazebo-deps
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ros-humble-ros-gz ros-humble-pcl-ros ros-humble-pcl-conversions \
       ros-humble-ament-cmake-auto libgoogle-glog-dev libunwind-dev \
       libtbb-dev libglm-dev libomp-dev libgl1 libgl1-mesa-dri libegl1-mesa \
  && rm -rf /var/lib/apt/lists/*
-COPY archives/robomaster_navigation.tar.gz /tmp/navigation.tar.gz
-RUN mkdir -p /opt/lio_sim/src \
- && tar -xzf /tmp/navigation.tar.gz -C /opt/lio_sim/src --strip-components=2 \
-      src/pb2025_sentry_nav/point_lio src/pb2025_sentry_nav/livox_ros_driver2 \
- && rm /tmp/navigation.tar.gz
-COPY tools/gazebo/apply_point_lio_plane_guard.py tools/gazebo/point_lio_plane_guard.hpp tools/gazebo/point_lio_input_audit.hpp /opt/lio_sim/patches/
-COPY tools/gazebo/fix_point_lio_knn.py tools/gazebo/test_point_lio_knn.cpp /opt/lio_sim/patches/
-COPY tools/gazebo/fix_point_lio_measurement_noise.py tools/gazebo/test_point_lio_measurement_noise.cpp /opt/lio_sim/patches/
-# 只修补构建副本；保留 /opt/lio_sim/src 原版供固定输入对照与诊断。
-# 构建时验证原文件哈希，执行实际平面、近邻及滤波模板回归。
-RUN mkdir -p /tmp/lio_workspace \
- && cp -a /opt/lio_sim/src /tmp/lio_workspace/src \
- && python3 -B /opt/lio_sim/patches/apply_point_lio_plane_guard.py \
-      --source /tmp/lio_workspace/src/point_lio \
-      --manifest /opt/lio_sim/plane_guard_manifest.json \
- && python3 -B /opt/lio_sim/patches/fix_point_lio_knn.py \
-      --source /tmp/lio_workspace/src/point_lio \
-      --manifest /opt/lio_sim/knn_manifest.json \
- && python3 -B /opt/lio_sim/patches/fix_point_lio_measurement_noise.py \
-      --source /tmp/lio_workspace/src/point_lio \
-      --manifest /opt/lio_sim/measurement_noise_manifest.json \
- && /bin/bash -c 'source /opt/ros/humble/setup.bash && \
-    cd /tmp/lio_workspace && colcon --log-base /tmp/lio_log build \
-      --build-base /tmp/lio_build --install-base /opt/lio_sim/install \
-      --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release' \
- && rm -rf /tmp/lio_build /tmp/lio_log /tmp/lio_workspace
+FROM gazebo-deps AS gazebo-sim
+COPY --from=livox-runtime /opt/livox /opt/livox
+COPY tools/ros_entrypoint.bash /team43_ros_entrypoint.bash
+ENTRYPOINT ["bash", "/team43_ros_entrypoint.bash"]
+# 该路径仅存放Gazebo运动插件；定位包本身不依赖它。
 COPY tools/gazebo/CMakeLists.txt tools/gazebo/force_controller.cpp /opt/gazebo_controller/
 RUN cmake -S /opt/gazebo_controller -B /tmp/gazebo_controller \
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/lio_sim \
@@ -74,5 +66,4 @@ RUN cmake -S /opt/gazebo_controller -B /tmp/gazebo_controller \
  && cmake --install /tmp/gazebo_controller \
  && rm -rf /tmp/gazebo_controller
 
-# 默认目标仍为原来的轻量测试环境；CI 与本地标准命令保持一致。
-FROM ros-base AS test
+FROM livox-runtime AS test

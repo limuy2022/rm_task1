@@ -109,7 +109,7 @@
   "post_baseline_updates": [
     {
       "date": "2026-10-17",
-      "change": "gimbal_serial_42 选口诊断硬化：PortIdentity(by-id 反查+同芯片去重)、启动身份日志、多适配器歧义告警、无 0x01 告警按累计字节分支。纯日志层，不改选口顺序与任何行为。",
+      "change": "team43_serial_bridge 选口诊断硬化：PortIdentity(by-id 反查+同芯片去重)、启动身份日志、多适配器歧义告警、无 0x01 告警按累计字节分支。纯日志层，不改选口顺序与任何行为。",
       "protocol_offline_rerun": {
         "host": "Arch Linux x64",
         "compiler": "/usr/sbin/clang++",

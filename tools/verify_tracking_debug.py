@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT/'src/gimbal_control/gimbal_control/tracking_debug_node.py'
+SOURCE = ROOT/'src/team43_control/team43_control/tracking_debug_node.py'
 CAMERA = {'width': 640, 'height': 480, 'cx': 320., 'cy': 240.}
 
 

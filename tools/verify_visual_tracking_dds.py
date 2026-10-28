@@ -22,7 +22,7 @@ from rcl_interfaces.srv import SetParameters
 from sensor_msgs.msg import Image, Imu
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
-from gimbal_interfaces.msg import MarkerObservation
+from team43_interfaces.msg import MarkerObservation
 
 from verify_perception_offline import CAMERA, render_marker
 
@@ -51,11 +51,11 @@ class Probe(Node):
         # ROS消息对bytes逐元素校验；预建原生uint8数组，避免测试源自己阻塞IMU喂送。
         self.image_data = array('B', self.image.tobytes())
         self.image_pub = self.create_publisher(Image, '/image_raw', 10)
-        self.create_subscription(Twist, '/team47_tracking/cmd_vel', self.twists.append, 10)
-        self.create_subscription(MarkerObservation, '/team47_tracking/marker_cam', self.observations.append, qos_profile_sensor_data)
-        self.create_subscription(String, '/team47_tracking/status', self.statuses.append, 10)
+        self.create_subscription(Twist, '/team43_tracking/cmd_vel', self.twists.append, 10)
+        self.create_subscription(MarkerObservation, '/team43_tracking/marker_cam', self.observations.append, qos_profile_sensor_data)
+        self.create_subscription(String, '/team43_tracking/status', self.statuses.append, 10)
         self.create_subscription(Imu, '/red_standard_robot1/gimbal', self.on_imu, 10)
-        self.parameters = self.create_client(SetParameters, '/team47_tracking/visual_servo_node/set_parameters')
+        self.parameters = self.create_client(SetParameters, '/team43_tracking/visual_servo_node/set_parameters')
 
     def on_imu(self, message):
         self.imu_count += 1
@@ -140,7 +140,7 @@ def main():
     try:
         with (output / 'visual_tracking_dds.log').open('w') as log:
             launch = subprocess.Popen([
-                'ros2', 'launch', 'gimbal_tracker_bringup', 'visual_tracking.launch.py',
+                'ros2', 'launch', 'team43_bringup', 'visual_tracking.launch.py',
                 'target_id:=3', 'with_bridge:=true', 'port:=' + port],
                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             rclpy.init()

@@ -21,8 +21,8 @@ import yaml
 from score_csv import evaluate
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/grid_mapper'))
-from grid_mapper.pgm_io import read_pgm  # noqa: E402
+sys.path.insert(0, str(ROOT / 'src/team43_grid_mapper'))
+from team43_grid_mapper.pgm_io import read_pgm  # noqa: E402
 
 
 def verify(count, output):
@@ -42,11 +42,11 @@ def verify(count, output):
                                            start_new_session=True)
 
     try:
-        launch('writer', ['ros2', 'launch', 'gimbal_tracker_bringup', 'submission.launch.py',
+        launch('writer', ['ros2', 'launch', 'team43_bringup', 'submission.launch.py',
                           'output_dir:=' + str(work / 'data'), 'tick_topic:=/test/tick',
                           'replay_topic:=/test/replay_start'])
         launch('observer', [sys.executable, '-B', str(ROOT / 'tools/observe_submission.py'),
-                            str(work / 'data/47.csv'), '--count', str(count),
+                            str(work / 'data/43.csv'), '--count', str(count),
                             '--timeout', str(count / 10. + 45.)])
         launch('source', [sys.executable, '-B', str(ROOT / 'tools/submission_test_source.py'),
                           '--count', str(count)])
@@ -66,7 +66,7 @@ def verify(count, output):
         report['observer'] = observer
         report['checks']['visible_while_writer_running'] = True
 
-        with (work / 'data/47.csv').open() as stream:
+        with (work / 'data/43.csv').open() as stream:
             rows = list(csv.reader(stream))
         assert len(rows) == count
         stamps = [float(row[8]) for row in rows]
@@ -81,15 +81,15 @@ def verify(count, output):
             writer.writerow(['t_tick', 'pred_x', 'pred_y', 'cur_x', 'cur_y', 'base_x', 'base_y', 'std_dir_deg'])
             for row in rows:
                 writer.writerow([row[8], 1., 2., 1., 2., .5, -.25, math.degrees(math.atan2(.4, .3))])
-        score = evaluate(work / 'data/47.csv', reference, field_long_side_m=10.)
+        score = evaluate(work / 'data/43.csv', reference, field_long_side_m=10.)
         assert score['total'] is not None and score['total'] < 1e-6, score
         assert score['meta']['matched'] == count and not score['meta']['format_issues']
         report.update(score=score)
         report['checks']['all_ticks_and_nine_columns_score_correctly'] = True
         # 非对称像素与YAML预期独立于生产序列化公式。
-        pixels, _ = read_pgm(str(work / 'data/47_map.pgm'))
+        pixels, _ = read_pgm(str(work / 'data/43_map.pgm'))
         assert pixels.tolist() == [[254, 254, 0, 254], [254, 0, 254, 254], [0, 254, 254, 205]]
-        metadata = yaml.safe_load((work / 'data/47_map.yaml').read_text())
+        metadata = yaml.safe_load((work / 'data/43_map.yaml').read_text())
         assert metadata['origin'] == [-1., -.5, 0.] and metadata['resolution'] == .5
         report['checks']['actual_map_pixels_and_metadata'] = True
         report['passed'] = True

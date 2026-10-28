@@ -14,15 +14,15 @@ import yaml
 from verify_visual_servo import create_harness, corners_message, imu_message
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'src/gimbal_perception'))
+sys.path.insert(0, str(ROOT/'src/team43_perception'))
 # Reuse transport/import stand-ins; importing this module does not run its
 # unittest suite. The production detector, OpenCV and PID methods run below.
 import verify_perception_offline  # noqa: F401 - installs the shared stand-ins
-from gimbal_perception.aruco_detector_node import ArucoDetectorNode, _make_detector_params
+from team43_perception.aruco_detector_node import ArucoDetectorNode, _make_detector_params
 
 
 def main():
-    camera = yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/camera_team47.yaml').read_text())['camera']
+    camera = yaml.safe_load((ROOT/'src/team43_bringup/config/camera_team43.yaml').read_text())['camera']
     K = np.array([[camera['fx'], 0., camera['cx']], [0., camera['fy'], camera['cy']], [0., 0., 1.]])
     D = np.asarray(camera['distortion'])
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)

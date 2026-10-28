@@ -19,24 +19,24 @@ import unittest
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-for package in ('gimbal_control', 'gimbal_common'):
+for package in ('team43_control', 'team43_common'):
     sys.path.insert(0, str(ROOT / 'src' / package))
 from builtin_interfaces.msg import Time as Stamp
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Header, UInt64
 
-from gimbal_interfaces.msg import GimbalState, MarkerObservation, TargetState
+from team43_interfaces.msg import GimbalState, MarkerObservation, TargetState
 
-from gimbal_common import frames
-import gimbal_control.gimbal_bearing_node as bearing_module
-import gimbal_control.gimbal_controller_node as controller_module
-from gimbal_control.gimbal_bearing_node import GimbalBearingNode
-from gimbal_control.gimbal_controller_node import GimbalControllerNode, HeightTracker
-from gimbal_control.bearing_supervisor import BearingSupervisor
-from gimbal_control.control_law import (
+from team43_common import frames
+import team43_control.gimbal_bearing_node as bearing_module
+import team43_control.gimbal_controller_node as controller_module
+from team43_control.gimbal_bearing_node import GimbalBearingNode
+from team43_control.gimbal_controller_node import GimbalControllerNode, HeightTracker
+from team43_control.bearing_supervisor import BearingSupervisor
+from team43_control.control_law import (
     BearingControlLaw, ControlLaw, feedforward, r_gimbal_from_opt,
 )
-from gimbal_control.search_pattern import make_small_search
+from team43_control.search_pattern import make_small_search
 
 
 def message_stamp(seconds, frame='map'):

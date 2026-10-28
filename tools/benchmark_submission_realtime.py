@@ -16,8 +16,8 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'src/gimbal_judge_io'))
-from gimbal_judge_io.tick_csv import TickCsvWriter
+sys.path.insert(0, str(ROOT/'src/team43_judge_io'))
+from team43_judge_io.tick_csv import TickCsvWriter
 
 
 def reader(path, count, timeout, done, pipe):
@@ -62,7 +62,7 @@ def benchmark(output, seconds=180., hz=10.):
     count=round(seconds*hz)
     if count<1:raise ValueError('no ticks requested')
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
-    csv_path=output/'47.csv'
+    csv_path=output/'43.csv'
     writer=TickCsvWriter(str(csv_path));assert writer.open()
     context=mp.get_context('spawn');done=context.Event();receive,send=context.Pipe(duplex=False)
     process=context.Process(target=reader,args=(str(csv_path),count,seconds+15,done,send))

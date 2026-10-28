@@ -1,3 +1,7 @@
 {
-    "cmake.sourceDirectory": "/home/limuy/桌面/code/rm_task1/src/42-gimbal_serial"
+    "cmake.sourceDirectory": "/home/limuy/桌面/code/rm_task1/src/team43_serial_bridge",
+    "python.analysis.extraPaths": [
+        "/root/ros_ws/src/install/**/lib/python3.10/site-packages",
+        "/root/ros_ws/src/install/team43_interfaces/local/lib/python3.10/dist-packages"
+    ],
 }

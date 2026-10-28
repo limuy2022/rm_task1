@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>team43_bringup</name>
+  <version>0.1.0</version>
+  <description>一键启动：launch / 参数 YAML（virtual.yaml, field.yaml, tracker_params.yaml）/ 静态 TF / RViz 配置</description>
+  <maintainer email="gimbal@example.com">gimbal_team</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- launch 基础设施 -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <!-- 被一键启动的业务包 -->
+  <exec_depend>team43_common</exec_depend>
+  <exec_depend>team43_lio_backend</exec_depend>
+  <exec_depend>team43_interfaces</exec_depend>
+  <exec_depend>team43_gimbal_io</exec_depend>
+  <exec_depend>team43_serial_bridge</exec_depend>
+  <exec_depend>team43_perception</exec_depend>
+  <exec_depend>team43_localization</exec_depend>
+  <exec_depend>team43_estimation</exec_depend>
+  <exec_depend>team43_control</exec_depend>
+  <exec_depend>team43_grid_mapper</exec_depend>
+  <exec_depend>team43_chassis_advisor</exec_depend>
+  <exec_depend>team43_dataio</exec_depend>
+  <exec_depend>team43_judge_io</exec_depend>
+  <exec_depend>team43_debug</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -17,7 +17,8 @@ exec > >(tee "$output/console.log") 2>&1
 
 source /opt/ros/humble/setup.bash
 if [[ "$scenario" == gazebo_* ]]; then
-  source /opt/lio_sim/install/setup.bash
+  # 标准回归几何与人工编辑的 Blender 场景分开，保持原精度/地图门槛。
+  export RM_LIO_WORLD=/workspace/tools/gazebo/lio_room_regression.sdf
 fi
 colcon --log-base /tmp/clog build --build-base /tmp/cb \
   --install-base /tmp/ci --symlink-install --parallel-workers 2
@@ -32,6 +33,6 @@ else
   # 降低请求倍率，为无显卡 runner 的软件渲染留出时间；不放宽误差门槛。
   # 视觉默认使用 features 场景和 3cm 观测下限，沿用已验证的基线。
   python3 -B "tools/simulate_${scenario}.py" \
-    --output-dir "$output/result" --imu-mode input --scan-lines 16 \
+    --output-dir "$output/result" --scan-lines 16 \
     --real-time-factor 0.25 --timeout 900
 fi

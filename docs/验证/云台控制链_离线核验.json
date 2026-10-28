@@ -30,7 +30,7 @@
         "-m",
         "pytest",
         "-q",
-        "src/gimbal_control/test",
+        "src/team43_control/test",
         "--import-mode=importlib"
       ],
       "returncode": 0,
@@ -99,7 +99,7 @@
     "real motor closed-loop or safety behavior"
   ],
   "source_sha256": {
-    "src/gimbal_control/gimbal_control/gimbal_controller_node.py": "98d0017a0b4fbd9f59daf4ee52032e6dc31422611243535e35c467a5dc690632",
+    "src/team43_control/team43_control/gimbal_controller_node.py": "98d0017a0b4fbd9f59daf4ee52032e6dc31422611243535e35c467a5dc690632",
     "tools/verify_control_offline.py": "788268af9f74b665c6bd885c10ac3bc7705da8ff7b339b5299130ecf4332deb3",
     "tools/verify_vision_and_gate.py": "b8fc5bd55c8e7507c73deb82cd6037fe5875e563135b919981c06d398a1d723b"
   },

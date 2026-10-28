@@ -19,10 +19,10 @@ import numpy as np
 import yaml
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'src/grid_mapper'))
-from grid_mapper.cloud_grid import CloudGrid, PoseHistory, pointcloud2_xyz, rotation_xyzw
-from grid_mapper.grid_builder import FREE, UNKNOWN, OCCUPIED
-from grid_mapper.pgm_io import write_map, read_grid, read_pgm
+sys.path.insert(0,str(ROOT/'src/team43_grid_mapper'))
+from team43_grid_mapper.cloud_grid import CloudGrid, PoseHistory, pointcloud2_xyz, rotation_xyzw
+from team43_grid_mapper.grid_builder import FREE, UNKNOWN, OCCUPIED
+from team43_grid_mapper.pgm_io import write_map, read_grid, read_pgm
 
 
 def cloud(points,stamp=100.,frame='camera_init',endian='<',rows=1,padding=12):
@@ -68,8 +68,8 @@ def parse_checks():
 
 
 def pose_checks():
-    cfg=yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/point_lio_mid360.yaml').read_text())
-    mapping=cfg['/**']['ros__parameters']['mapping']
+    cfg=yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
+    mapping=cfg['/**']['ros__parameters']
     offset=mapping['extrinsic_T']
     h=PoseHistory(sensor_origin_in_body=offset)
     # Non-yaw-only rotation checks that offset is transformed with full pose.
@@ -141,8 +141,8 @@ def ray_room(origin,yaw,with_person=False):
 
 def room_check(tmp):
     m=CloudGrid(resolution=.05,width_m=10.,height_m=8.,origin_xy=(-4.,-3.),floor_confirmed=True)
-    cfg=yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/point_lio_mid360.yaml').read_text())
-    h=PoseHistory(sensor_origin_in_body=cfg['/**']['ros__parameters']['mapping']['extrinsic_T'])
+    cfg=yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
+    h=PoseHistory(sensor_origin_in_body=cfg['/**']['ros__parameters']['extrinsic_T'])
     t0=time.perf_counter(); count=0
     # 120 scans move/yaw the sensor. Register from local sensor coordinates;
     # then the real byte parser, nearest full pose and mapper do the work.
@@ -177,7 +177,7 @@ def room_check(tmp):
     for x in np.arange(.6,1.01,.025):
         for y in np.arange(.15,.56,.025):ghost.append(g.at_world([x,y])==OCCUPIED)
     ghost_cells=int(np.count_nonzero(ghost)); assert ghost_cells==0,ghost_cells
-    paths=write_map(str(tmp),g,'47_slam_map.pgm','47_slam_map.yaml')
+    paths=write_map(str(tmp),g,'43_slam_map.pgm','43_slam_map.yaml')
     back=read_grid(paths['pgm']); assert np.array_equal(back.grid,g.grid)
     img,_=read_pgm(paths['pgm'])
     # Independent pixel lookups enforce actual image top=y-max, x unflipped.
@@ -213,7 +213,7 @@ def ros_adapter_check(tmp):
         def create_timer(self,*a):return None
         def get_clock(self):return NS(now=lambda:NS(nanoseconds=int(self.ros_time*1e9)))
         def get_name(self):return 'cloud_mapping'
-    mod=ast.parse((ROOT/'src/grid_mapper/grid_mapper/cloud_mapping_node.py').read_text())
+    mod=ast.parse((ROOT/'src/team43_grid_mapper/team43_grid_mapper/cloud_mapping_node.py').read_text())
     nodes=[n for n in mod.body if isinstance(n,(ast.FunctionDef,ast.ClassDef)) and n.name in ['stamp_seconds','CloudMappingNode']]
     from collections import deque
     import os,re
@@ -233,12 +233,12 @@ def ros_adapter_check(tmp):
     n.on_cloud(cloud([[2.,0.,.6]])); assert not n.mapper.accepted_scans
     n.on_odom(odom); assert n.mapper.accepted_scans==1
     n.publish(); saved=n.save()
-    assert Path(saved,'47_slam_map.pgm').is_file()
-    map_msg=n.pubs['/team47/slam_map'].messages[-1]
+    assert Path(saved,'43_slam_map.pgm').is_file()
+    map_msg=n.pubs['/team43/slam_map'].messages[-1]
     assert map_msg.header.frame_id=='camera_init' and len(map_msg.data)==400*400
     assert map_msg.info.origin.orientation.w==1.
     assert map_msg.info.origin.position.z==-.78
-    saved_meta=yaml.safe_load(Path(saved,'47_slam_map.yaml').read_text())
+    saved_meta=yaml.safe_load(Path(saved,'43_slam_map.yaml').read_text())
     assert saved_meta['frame_id']=='camera_init'
     assert saved_meta['floor_z']==-.78
     assert saved_meta['origin']==[-10.,-10.,0.] # standard origin[2] remains yaw
@@ -256,9 +256,9 @@ def ros_adapter_check(tmp):
     assert n.mapper.accepted_scans==1 and n.mapper.last_stamp==100.
     assert n.last_status['state'].startswith('无有效回波')
     n.publish()
-    last_map=n.pubs['/team47/slam_map'].messages[-1]
+    last_map=n.pubs['/team43/slam_map'].messages[-1]
     assert last_map.header.stamp.sec==100 and last_map.header.stamp.nanosec==0
-    assert json.loads(n.pubs['/team47/cloud_mapping/status'].messages[-1].data)['state'].startswith('无有效回波')
+    assert json.loads(n.pubs['/team43/cloud_mapping/status'].messages[-1].data)['state'].startswith('无有效回波')
     rejected=n.rejected
     n.on_cloud(cloud([[2.,0.,.6]],stamp=100.,frame='map'))
     n.on_cloud(cloud([[2.,0.,.6]],stamp=98.))
@@ -274,7 +274,7 @@ def ros_adapter_check(tmp):
 
 
 def launch_check(tmp):
-    tree=ast.parse((ROOT/'src/gimbal_tracker_bringup/launch/cloud_mapping.launch.py').read_text())
+    tree=ast.parse((ROOT/'src/team43_bringup/launch/cloud_mapping.launch.py').read_text())
     function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_setup')
     class LC:
         def __init__(self,key):self.key=key
@@ -282,17 +282,17 @@ def launch_check(tmp):
     scope={'yaml':yaml,'LaunchConfiguration':LC,'ParameterValue':lambda value,**kw:value,
            'Node':lambda **kw:kw}
     exec(compile(ast.Module(body=[function],type_ignores=[]),'cloud_mapping.launch.py','exec'),scope)
-    original=ROOT/'src/gimbal_tracker_bringup/config/point_lio_mid360.yaml'
+    original=ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml'
     context={'lio_params_file':str(original)}
     output=scope['_setup'](context)
-    assert len(output)==1 and output[0]['package']=='grid_mapper'
+    assert len(output)==1 and output[0]['package']=='team43_grid_mapper'
     actual=output[0]['parameters'][1]['sensor_origin_in_body']
     cfg=yaml.safe_load(original.read_text())
-    assert actual==cfg['/**']['ros__parameters']['mapping']['extrinsic_T']
-    cfg['/**']['ros__parameters']['mapping']['extrinsic_T']=[.12,-.05,.03]
+    assert actual==cfg['/**']['ros__parameters']['extrinsic_T']
+    cfg['/**']['ros__parameters']['extrinsic_T']=[.12,-.05,.03]
     modified=tmp/'modified-lio.yaml';modified.write_text(yaml.safe_dump(cfg))
     assert scope['_setup']({'lio_params_file':str(modified)})[0]['parameters'][1]['sensor_origin_in_body']==[.12,-.05,.03]
-    cfg['/**']['ros__parameters']['mapping']['extrinsic_est_en']=True
+    cfg['/**']['ros__parameters']['extrinsic_est_en']=True
     modified.write_text(yaml.safe_dump(cfg))
     assert_raises(lambda:scope['_setup']({'lio_params_file':str(modified)}))
     return {'lio_extrinsic_loaded_not_duplicated':True,'changed_offset_propagates':True,
@@ -300,7 +300,7 @@ def launch_check(tmp):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix='team47-cloud-test-') as td:
+    with tempfile.TemporaryDirectory(prefix='team43-cloud-test-') as td:
         tmp=Path(td)
         result={'pointcloud2':parse_checks(),'pose':pose_checks(),'cell_semantics':small_checks(),
                 'synthetic_room':room_check(tmp/'room'),'ros_adapter':ros_adapter_check(tmp),

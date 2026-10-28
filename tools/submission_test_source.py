@@ -17,7 +17,7 @@ def main():
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
     from std_msgs.msg import Header
     from nav_msgs.msg import Odometry, OccupancyGrid
-    from gimbal_interfaces.msg import TargetState, ChassisAdvice
+    from team43_interfaces.msg import TargetState, ChassisAdvice
 
     rclpy.init()
     node = Node('submission_test_source')

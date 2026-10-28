@@ -1,7 +1,7 @@
 """Real OpenCV image -> detector callbacks -> PnP callbacks on real ROS 2 Humble.
 
 Runs inside the ROS 2 Humble container (see Dockerfile): imports the real
-rclpy, sensor_msgs, geometry_msgs and gimbal_interfaces, constructs real nodes,
+rclpy, sensor_msgs, geometry_msgs and team43_interfaces, constructs real nodes,
 and captures what their publishers emit by wrapping Node.create_publisher.
 Detection, subpixel refinement, pose solving, calibration loading and callback
 bodies are the production implementations. There is no camera, physical
@@ -28,15 +28,15 @@ from builtin_interfaces.msg import Time
 from sensor_msgs.msg import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-for package in ('gimbal_perception', 'gimbal_common'):
+for package in ('team43_perception', 'team43_common'):
     sys.path.insert(0, str(ROOT / 'src' / package))
 
-import gimbal_perception.aruco_detector_node as detector_module
-import gimbal_perception.marker_pnp_node as pnp_module
-from gimbal_common import log_utils, node_utils as NU
-from gimbal_perception.pnp_solver import PnpSolver, marker_object_points, rpy_to_R
+import team43_perception.aruco_detector_node as detector_module
+import team43_perception.marker_pnp_node as pnp_module
+from team43_common import log_utils, node_utils as NU
+from team43_perception.pnp_solver import PnpSolver, marker_object_points, rpy_to_R
 
-CAMERA_PATH = ROOT / 'src/gimbal_tracker_bringup/config/camera_team47.yaml'
+CAMERA_PATH = ROOT / 'src/team43_bringup/config/camera_team43.yaml'
 CAMERA = yaml.safe_load(CAMERA_PATH.read_text())['camera']
 K = np.array([[CAMERA['fx'], 0., CAMERA['cx']],
               [0., CAMERA['fy'], CAMERA['cy']], [0., 0., 1.]])

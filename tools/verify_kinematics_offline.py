@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-for pkg in ('gimbal_common', 'gimbal_localization'):
+for pkg in ('team43_common', 'team43_localization'):
     sys.path.insert(0, str(ROOT/'src'/pkg))
-from gimbal_common import frames as FR
-from gimbal_localization import gimbal_kinematics_node as kinematics_node_module
-from gimbal_localization.gimbal_kinematics import GimbalKinematics, SynchronizedKinematics
+from team43_common import frames as FR
+from team43_localization import gimbal_kinematics_node as kinematics_node_module
+from team43_localization.gimbal_kinematics import GimbalKinematics, SynchronizedKinematics
 
 
 def calibration():
@@ -28,7 +28,7 @@ class KinematicsTests(unittest.TestCase):
     def test_actual_node_defaults_and_full_stamped_tf_reset_gate(self):
         from sensor_msgs.msg import Imu
         from std_msgs.msg import UInt64
-        from gimbal_common.time_buffer import stamp_seconds
+        from team43_common.time_buffer import stamp_seconds
         from verify_timing_offline import Publisher, odom, quat, stamp
 
         class Broadcaster:

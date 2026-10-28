@@ -1,7 +1,7 @@
 """Run owned regression checks in a sourced ROS2 Humble environment (see repo Dockerfile).
 
 Uses the calling Python; expects /opt/ros + the workspace install to be sourced
-so rclpy/launch/gimbal_interfaces are importable. C++ check compiles only
+so rclpy/launch/team43_interfaces are importable. C++ check compiles only
 protocol+PTY test code under build/offline. Logs/results are saved there.
 A missing prerequisite is a failed check, not an invented pass.
 Run from any directory via this script's path.

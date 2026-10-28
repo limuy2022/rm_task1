@@ -10,11 +10,11 @@ from launch_ros.actions import Node as LaunchNodeAction
 from launch_ros.utilities import evaluate_parameters
 from verify_timing_offline import ROOT
 from verify_kinematics_offline import calibration
-for pkg in ('gimbal_tracker_bringup','gimbal_localization','gimbal_common'):
+for pkg in ('team43_bringup','team43_localization','team43_common'):
     sys.path.insert(0,str(ROOT/'src'/pkg))
-from gimbal_tracker_bringup.deployment_config import load_vehicle_config
+from team43_bringup.deployment_config import load_vehicle_config
 
-LAUNCH_PATH = ROOT/'src/gimbal_tracker_bringup/launch/processing.launch.py'
+LAUNCH_PATH = ROOT/'src/team43_bringup/launch/processing.launch.py'
 
 
 def setup_actions(args):
@@ -37,10 +37,10 @@ def node_executable(action):
 class ProcessingTests(unittest.TestCase):
     def test_unmounted_template_cannot_become_vehicle_identity_calibration(self):
         with self.assertRaisesRegex(ValueError, '未确认'):
-            load_vehicle_config(ROOT/'src/gimbal_tracker_bringup/config/vehicle_template.yaml')
+            load_vehicle_config(ROOT/'src/team43_bringup/config/vehicle_template.yaml')
 
     def test_processing_has_no_serial_drivers_control_and_submission_opt_in(self):
-        data = yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/vehicle_template.yaml').read_text())
+        data = yaml.safe_load((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_text())
         p = data['/**']['ros__parameters']
         p.update({'kinematics.'+k:v for k,v in calibration().items()})
         p.update({'kinematics.calibrated_epoch':7,'estimation.geometry_confirmed':True,
@@ -48,9 +48,9 @@ class ProcessingTests(unittest.TestCase):
                   'localization.parent_transform_confirmed':True})
         with tempfile.TemporaryDirectory() as directory:
             cfg = Path(directory)/'synthetic_config.yaml'; cfg.write_text(yaml.safe_dump(data))
-            camera = ROOT/'src/gimbal_tracker_bringup/config/camera_team47.yaml'
+            camera = ROOT/'src/team43_bringup/config/camera_team43.yaml'
             args = dict(vehicle_config=str(cfg),camera_config=str(camera),target_id='-1',submission='false',
-                        team_id='47',output_dir=str(Path(directory)/'test_output'))
+                        team_id='43',output_dir=str(Path(directory)/'test_output'))
             actions = setup_actions(args)
             nodes = [a for a in actions if isinstance(a, LaunchNodeAction)]
             executables = [node_executable(a) for a in nodes]
@@ -58,8 +58,8 @@ class ProcessingTests(unittest.TestCase):
             self.assertNotIn('judge_io_node',executables)
             self.assertFalse(any(x and ('bridge' in x or 'controller' in x or 'driver' in x) for x in executables))
             args['submission']='true'
-            # team_id 必须以字符串原样透传（'0047'/'true' 不得被类型吞掉）
-            for team_id in ('47','0047','true'):
+            # team_id 必须以字符串原样透传（'0043'/'true' 不得被类型吞掉）
+            for team_id in ('43','0043','true'):
                 with self.subTest(team_id=team_id):
                     args['team_id']=team_id
                     actions = setup_actions(args)

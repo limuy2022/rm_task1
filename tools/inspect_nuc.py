@@ -50,9 +50,9 @@ def inspect_ros(expected_install: Path | None = None) -> dict:
     }
     try:
         packages = importlib.import_module('ament_index_python.packages')
-        prefix = packages.get_package_prefix('gimbal_interfaces')
+        prefix = packages.get_package_prefix('team43_interfaces')
         result['interfaces_prefix'] = prefix
-        result['perception_prefix'] = packages.get_package_prefix('gimbal_perception')
+        result['perception_prefix'] = packages.get_package_prefix('team43_perception')
         if expected_install is not None:
             root = expected_install.resolve()
             result['expected_install'] = str(root)
@@ -62,7 +62,7 @@ def inspect_ros(expected_install: Path | None = None) -> dict:
         utilities = importlib.import_module('rosidl_runtime_py.utilities')
         support = importlib.import_module('rclpy.type_support')
         for name in ('MarkerObservation', 'MarkerCorners'):
-            cls = utilities.get_message('gimbal_interfaces/msg/' + name)
+            cls = utilities.get_message('team43_interfaces/msg/' + name)
             support.check_for_type_support(cls)
             result[name] = {'python_module': cls.__module__, 'type_support_imported': True}
         result['status'] = 'type_support_ok'

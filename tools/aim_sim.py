@@ -27,10 +27,10 @@ import cv2
 import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT / 'src' / 'gimbal_perception') not in sys.path:
-    sys.path.insert(0, str(_ROOT / 'src' / 'gimbal_perception'))
+if str(_ROOT / 'src' / 'team43_perception') not in sys.path:
+    sys.path.insert(0, str(_ROOT / 'src' / 'team43_perception'))
 
-from gimbal_perception.pnp_solver import marker_object_points, rpy_to_R  # noqa: E402
+from team43_perception.pnp_solver import marker_object_points, rpy_to_R  # noqa: E402
 
 _MARKER_SRC = 256          # 生成的码图边长（像素）
 _MARKER_PAD = 64           # 码图四周的白边（quiet zone），保证纹理背景下可检测
@@ -178,7 +178,7 @@ def render_scene(camera: Dict, marker_id: int, tvec, rvec=None, *,
 
     Args:
         camera: 内参字典（width/height/fx/fy/cx/cy/distortion），
-            通常来自 `camera_team47.yaml`。
+            通常来自 `camera_team43.yaml`。
         marker_id: ArUco ID（DICT_4X4_50，0..49）。
         tvec/rvec: 码在相机光学系下的位姿（rvec=None 表示生产基准姿态）。
         rng: 种子发生器（确定性；None 时退化为干净渲染的等价路径）。

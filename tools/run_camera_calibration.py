@@ -68,9 +68,9 @@ def main(argv=None):
     cli = importlib.import_module('camera_calibration.nodes.cameracalibrator')
     ros_args = ['cameracalibrator', '--no-service-check', '--size',
                 f'{args.cols}x{args.rows}', '--square', format(args.square_mm / 1000, '.12g'),
-                '--camera_name', 'team47_hik', '--ros-args',
-                '-r', 'image:=/image_raw', '-r', '__node:=team47_cameracalibrator',
-                '-r', '__ns:=/team47_calibration']
+                '--camera_name', 'team43_hik', '--ros-args',
+                '-r', 'image:=/image_raw', '-r', '__node:=team43_cameracalibrator',
+                '-r', '__ns:=/team43_calibration']
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / 'session.json').write_text(json.dumps({
         'inner_corners': [args.cols, args.rows], 'square_mm': args.square_mm,

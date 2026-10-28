@@ -34,9 +34,9 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from livox_ros_driver2.msg import CustomMsg, CustomPoint
 
-from gimbal_common.qos_utils import latched_qos, sensor_qos
-from grid_mapper.cloud_grid import pointcloud2_xyz
-from grid_mapper.pgm_io import read_pgm
+from team43_common.qos_utils import latched_qos, sensor_qos
+from team43_grid_mapper.cloud_grid import pointcloud2_xyz
+from team43_grid_mapper.pgm_io import read_pgm
 from gazebo.sensor_config import use_si_acceleration
 from gazebo.input_audit import audit_received_inputs
 from gazebo.process_shutdown import stop_processes
@@ -49,13 +49,14 @@ INITIAL_BODY = np.array([0., 0., .7])
 
 
 def point_lio_image_build():
-    """记录镜像修复来源，避免将修复版的结果误认为归档原版结果。"""
-    manifest = Path('/opt/lio_sim/plane_guard_manifest.json')
-    data = json.loads(manifest.read_text()) if manifest.exists() else {'variant': 'upstream'}
-    knn = Path('/opt/lio_sim/knn_manifest.json')
-    if knn.exists(): data['nearest_neighbor_fix'] = json.loads(knn.read_text())
-    noise = Path('/opt/lio_sim/measurement_noise_manifest.json')
-    if noise.exists(): data['measurement_noise_fix'] = json.loads(noise.read_text())
+    """记录唯一定位后端的源码与二进制来源。"""
+    from ament_index_python.packages import get_package_prefix, get_package_share_directory
+    share = Path(get_package_share_directory('team43_lio_backend'))
+    data = json.loads((share/'upstream.json').read_text())
+    if data.get('variant') != 'small_point_lio_ros2':
+        raise ValueError('必须安装固定版本的 Small Point-LIO 后端')
+    binary = Path(get_package_prefix('team43_lio_backend'))/'lib/team43_lio_backend/small_point_lio_node'
+    data['executable_sha256'] = hashlib.sha256(binary.read_bytes()).hexdigest()
     return data
 
 
@@ -78,7 +79,7 @@ def envelope(t, duration=4., ramp=.5):
 
 
 class GazeboLio(Node):
-    def __init__(self, output, timeout, real_time_factor, record_bag, imu_mode, scan_lines):
+    def __init__(self, output, timeout, real_time_factor, record_bag, scan_lines):
         super().__init__('gazebo_lio_trial', parameter_overrides=[Parameter('use_sim_time', value=True)])
         self.output, self.timeout = output, timeout
         self.processes, self.logs = [], []
@@ -103,26 +104,18 @@ class GazeboLio(Node):
         self.create_subscription(String, NS+'/mapping_status', lambda m: self.statuses.append(json.loads(m.data)), 100)
         self.save_client = self.create_client(Trigger, NS+'/save_map')
         self.mapper_parameters = self.create_client(SetParameters, '/cloud_mapper/set_parameters')
-        config = yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/point_lio_mid360.yaml').read_text())
+        point_lio_image_build()
+        config = yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
-        params['use_sim_time'] = True
-        params['use_imu_as_input'] = imu_mode == 'input'
-        params['sensor_qos_depth'] = 200
-        params['input_audit_path'] = str(self.output/'input_audit.csv')
-        params['common'].update(lid_topic=NS+'/livox/lidar', imu_topic=NS+'/imu')
-        # 该版本饱和检查直接比较原始 IMU 消息；把输入从原配置单位改成
-        # m/s² 时，必须同步换算饱和阈值，否则9.81的静止重力会超过3。
-        use_si_acceleration(params['mapping'])
-        params['mapping']['imu_time_inte'] = .005
-        params['mapping']['lidar_time_inte'] = .1
-        params['preprocess']['scan_line'] = scan_lines
-        params['point_filter_num'] = 2
-        params['filter_size_surf'] = .15
-        params['filter_size_map'] = .15
-        params['publish']['tf_send_en'] = False
-        self.lidar_offset = params['mapping']['extrinsic_T']
+        params.update(use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
+                      input_audit_path=str(self.output/'input_audit.csv'),
+                      space_downsample_leaf_size=.15, map_resolution=.15, max_distance=15.)
+        use_si_acceleration(params)
+        self.lidar_offset = params['extrinsic_T']
         (output/'point_lio.yaml').write_text(yaml.safe_dump(config, allow_unicode=True))
-        tree = ET.parse(ROOT/'tools/gazebo/lio_room.sdf')
+        self.world_source = Path(os.environ.get('RM_LIO_WORLD', str(ROOT/'tools/gazebo/lio_room.sdf'))).resolve()
+        self.world_source_sha256 = hashlib.sha256(self.world_source.read_bytes()).hexdigest()
+        tree = ET.parse(self.world_source)
         tree.find('.//physics/real_time_factor').text = str(real_time_factor)
         tree.find('.//sensor[@name="lidar"]/lidar/scan/vertical/samples').text = str(scan_lines)
         tree.find(".//model[@name='lidar_rig']/link/sensor[@name='lidar']/pose").text = ' '.join(map(str, self.lidar_offset))+' 0 0 0'
@@ -226,16 +219,16 @@ class GazeboLio(Node):
 
     def start(self):
         # 估计器先启动，避免遗漏启动静止窗口。真值话题从未接到估计器。
-        self.launch('point_lio', ['ros2', 'run', 'point_lio', 'pointlio_mapping', '--ros-args',
+        self.launch('point_lio', ['ros2', 'run', 'team43_lio_backend', 'small_point_lio_node', '--ros-args',
                     '--params-file', str(self.output/'point_lio.yaml'), '-r', '__ns:='+NS+'/lio'])
-        self.launch_ros('cloud_mapper', 'grid_mapper', 'cloud_mapping_node', {
+        self.launch_ros('cloud_mapper', 'team43_grid_mapper', 'cloud_mapping_node', {
             'cloud_topic': NS+'/lio/cloud_registered', 'odom_topic': NS+'/lio/aft_mapped_to_init',
             'origin_model_confirmed': True, 'sensor_origin_in_body': self.lidar_offset,
             'floor_z': -.7, 'floor_confirmed': True, 'resolution': RESOLUTION,
             'origin_xy': ORIGIN.tolist(), 'width_m': 10., 'height_m': 8.,
             'publish_hz': 2., 'autosave_seconds': 0., 'output_dir': str(self.output/'maps'),
-        }, {'/team47/slam_map': NS+'/map', '/team47/cloud_mapping/status': NS+'/mapping_status',
-            '/team47/save_slam_map': NS+'/save_map'})
+        }, {'/team43/slam_map': NS+'/map', '/team43/cloud_mapping/status': NS+'/mapping_status',
+            '/team43/save_slam_map': NS+'/save_map'})
         # 方括号是 Gazebo→ROS，右方括号是 ROS→Gazebo；不桥接硬件话题。
         self.launch('bridge', ['ros2', 'run', 'ros_gz_bridge', 'parameter_bridge',
                     '/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock',
@@ -323,6 +316,10 @@ class GazeboLio(Node):
         return self.evaluate(time.monotonic()-wall_start)
 
     def evaluate(self, elapsed_wall):
+        reference = ROOT/'tools/gazebo/lio_room_regression.sdf'
+        if self.world_source_sha256 != hashlib.sha256(reference.read_bytes()).hexdigest():
+            raise ValueError('自定义 SDF 不适用标准房间的墙面/回波验收；不能据此判定算法失败。'
+                             '标准回归请设置 RM_LIO_WORLD=tools/gazebo/lio_room_regression.sdf')
         gt, estimate = np.asarray(self.truth), np.asarray(self.estimates)
         if len(gt) < 100 or len(estimate) < 100 or self.latest_map is None:
             raise RuntimeError('没有足够的定位、真值或地图输出')
@@ -384,7 +381,7 @@ class GazeboLio(Node):
                 d = np.abs(world-center)-half
                 distances.append(np.abs(np.linalg.norm(np.maximum(d, 0), axis=1)+np.minimum(np.max(d, axis=1), 0)))
             surface_errors.extend(np.min(distances, axis=0))
-        disk, _ = read_pgm(str(self.output/'maps/47_slam_map.pgm'))
+        disk, _ = read_pgm(str(self.output/'maps/43_slam_map.pgm'))
         expected_pixels = np.where(grid == 100, 0, np.where(grid == 0, 254, 205)).astype(np.uint8)[::-1]
         metrics = {
             'position_rmse_m': float(np.sqrt(np.mean(position_error**2))),
@@ -465,10 +462,8 @@ def main():
     parser.add_argument('--timeout', type=float, default=600.)
     parser.add_argument('--real-time-factor', type=float, default=.5)
     parser.add_argument('--record-bag', action='store_true')
-    parser.add_argument('--imu-mode', choices=['input', 'output'], default='input',
-                        help='仿真默认使用已验收的 input 模式；不修改实车配置')
     parser.add_argument('--scan-lines', type=int, choices=[16, 32], default=16,
-                        help='同时修改 Gazebo 光束数和 Point-LIO 预处理配置')
+                        help='修改 Gazebo 雷达实际垂直光束数')
     args = parser.parse_args()
     if os.environ.get('ROS_LOCALHOST_ONLY') != '1' or not os.environ.get('ROS_DOMAIN_ID'):
         parser.error('必须设置 ROS_LOCALHOST_ONLY=1 和独立 ROS_DOMAIN_ID')
@@ -478,11 +473,14 @@ def main():
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     rclpy.init()
-    app = GazeboLio(output, args.timeout, args.real_time_factor, args.record_bag, args.imu_mode, args.scan_lines)
+    app = GazeboLio(output, args.timeout, args.real_time_factor, args.record_bag, args.scan_lines)
     report = {'kind': 'gazebo_raw_lidar_imu_point_lio', 'ground_truth_used_as_odometry_input': False,
               'point_lio_image_build': point_lio_image_build(),
-              'hardware_accessed': False, 'imu_mode': args.imu_mode, 'scan_lines': args.scan_lines,
-              'source_archive_sha256': hashlib.sha256((ROOT/'archives/robomaster_navigation.tar.gz').read_bytes()).hexdigest(),
+              'world_source': str(app.world_source), 'world_source_sha256': app.world_source_sha256,
+              'generated_world_sha256': hashlib.sha256((output/'world.sdf').read_bytes()).hexdigest(),
+              'hardware_accessed': False, 'imu_model': 'imu_measurement_update', 'scan_lines': args.scan_lines,
+              'source_archive_role': 'livox_messages_only',
+              'source_archive_sha256': hashlib.sha256((ROOT/'archives/livox_ros_driver2.tar.gz').read_bytes()).hexdigest(),
               'limitations': ['悬浮刚性平台，不模拟轮胎或悬架', '规则多线雷达，不是MID360非重复扫描模式',
                               '当前场景没有额外注入传感器噪声、偏置或时延',
                               '每次瞬时快照内部时间相同；四次快照按各自采样时刻组成一帧',

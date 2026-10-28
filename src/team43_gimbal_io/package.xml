@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>team43_gimbal_io</name>
+  <version>1.0.0</version>
+  <description>独占串口：0x01 解码 -> Imu + GimbalState + TF；0x30 100Hz 下发；链路使能/故障状态机。</description>
+  <maintainer email="team@example.com">gimbal_tracker_team</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>team43_common</depend>
+  <depend>team43_interfaces</depend>
+
+  <exec_depend>python3-serial</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

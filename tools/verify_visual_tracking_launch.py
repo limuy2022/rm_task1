@@ -12,9 +12,9 @@ class Config:
     def perform(self,context): return context[self.name]
 
 def main():
-    tree=ast.parse((ROOT/'src/gimbal_tracker_bringup/launch/visual_tracking.launch.py').read_text())
+    tree=ast.parse((ROOT/'src/team43_bringup/launch/visual_tracking.launch.py').read_text())
     tree.body=[n for n in tree.body if not isinstance(n,(ast.Import,ast.ImportFrom))]
-    ns=dict(os=os,get_package_share_directory=lambda _:str(ROOT/'src/gimbal_tracker_bringup'),
+    ns=dict(os=os,get_package_share_directory=lambda _:str(ROOT/'src/team43_bringup'),
         LaunchConfiguration=Config,Node=Action,RegisterEventHandler=lambda e:e,
         OnProcessExit=Action,EmitEvent=Action,Shutdown=Action,
         LaunchDescription=lambda x:x,DeclareLaunchArgument=lambda name,**kw:Action(name=name,**kw),
@@ -25,17 +25,17 @@ def main():
     assert defaults['with_bridge']=='false' and defaults['target_id']=='-1'
     context={**defaults,'target_id':'0'}
     nodes=[n for n in ns['_setup'](context) if hasattr(n,'package')]
-    assert [n.package for n in nodes]==['gimbal_perception','gimbal_perception','gimbal_control']
+    assert [n.package for n in nodes]==['team43_perception','team43_perception','team43_control']
     servo=nodes[-1]
-    assert servo.namespace=='team47_tracking' and servo.parameters[-1]['motion_enabled'] is False
+    assert servo.namespace=='team43_tracking' and servo.parameters[-1]['motion_enabled'] is False
     assert servo.parameters[0].endswith('/config/visual_tracking.yaml')
-    assert nodes[0].parameters[-1]['perception.marker_corners_topic']=='/team47_tracking/marker_corners'
+    assert nodes[0].parameters[-1]['perception.marker_corners_topic']=='/team43_tracking/marker_corners'
     enabled=ns['_setup']({**context,'with_bridge':'true'})
-    bridge=[n for n in enabled if getattr(n,'package',None)=='gimbal_serial_42'][0]
+    bridge=[n for n in enabled if getattr(n,'package',None)=='team43_serial_bridge'][0]
     p=bridge.parameters[0]
     assert p['subscribe_cmd_vel'] is True and p['publish_tf'] is False
     assert p['port']=='/dev/ttyUSB0' and p['imu_axis_sign']==[1,1,1]
-    assert p['cmd_vel_topic']=='/team47_tracking/cmd_vel' and p['imu_topic']=='/red_standard_robot1/gimbal'
+    assert p['cmd_vel_topic']=='/team43_tracking/cmd_vel' and p['imu_topic']=='/red_standard_robot1/gimbal'
     nodes=[n for n in enabled if hasattr(n,'package')]
     handlers=[n for n in enabled if hasattr(n,'target_action')]
     assert len(nodes)==len(handlers) and all(h.target_action in nodes for h in handlers)

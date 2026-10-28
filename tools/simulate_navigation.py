@@ -34,8 +34,8 @@ from std_msgs.msg import Header, String
 from std_srvs.srv import Trigger
 from tf2_ros import StaticTransformBroadcaster
 
-from gimbal_common.qos_utils import latched_qos, sensor_qos
-from grid_mapper.pgm_io import read_pgm
+from team43_common.qos_utils import latched_qos, sensor_qos
+from team43_grid_mapper.pgm_io import read_pgm
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = '/sim/navigation'
@@ -135,8 +135,8 @@ class Simulation(Node):
         self.floor_client = self.create_client(SetParameters, PREFIX+'/cloud_mapper/set_parameters')
         # 合成 camera_init 与 odom 约定同轴同原点；真实安装值不能照搬。
         self.tf = StaticTransformBroadcaster(self, qos=latched_qos())
-        cfg = yaml.safe_load((ROOT/'src/gimbal_tracker_bringup/config/point_lio_mid360.yaml').read_text())
-        self.lidar_offset = np.array(cfg['/**']['ros__parameters']['mapping']['extrinsic_T'])
+        cfg = yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
+        self.lidar_offset = np.array(cfg['/**']['ros__parameters']['extrinsic_T'])
 
     def on_source_map(self, message):
         self.source_map = message
@@ -186,32 +186,32 @@ class Simulation(Node):
         self.processes.append((name, proc))
 
     def start(self):
-        self.launch('grid_mapper', 'cloud_mapping_node', 'cloud_mapper', {
+        self.launch('team43_grid_mapper', 'cloud_mapping_node', 'cloud_mapper', {
             'cloud_topic': PREFIX+'/cloud_registered', 'odom_topic': PREFIX+'/lio_odom',
             'origin_model_confirmed': True, 'sensor_origin_in_body': self.lidar_offset.tolist(),
             'width_m': 10., 'height_m': 8., 'origin_xy': GRID_ORIGIN.tolist(),
             'floor_z': 0., 'floor_confirmed': False, 'publish_hz': 5., 'autosave_seconds': 0.,
             'output_dir': str(self.output/'source'),
-        }, {'/team47/slam_map': PREFIX+'/source_map', '/team47/cloud_mapping/status': PREFIX+'/status',
-            '/team47/save_slam_map': PREFIX+'/save_map', '/cloud_mapper/set_parameters': PREFIX+'/cloud_mapper/set_parameters'})
+        }, {'/team43/slam_map': PREFIX+'/source_map', '/team43/cloud_mapping/status': PREFIX+'/status',
+            '/team43/save_slam_map': PREFIX+'/save_map', '/cloud_mapper/set_parameters': PREFIX+'/cloud_mapper/set_parameters'})
         mount = MOUNT_XYZ.copy()
         if self.inject_mount_error:
             mount[0] += 0.25
-        self.launch('gimbal_localization', 'base_pose_provider_node', 'base_provider', {
+        self.launch('team43_localization', 'base_pose_provider_node', 'base_provider', {
             'localization.base_pose_source': 'odom', 'localization.odom_topic': PREFIX+'/lio_odom',
             'localization.odom_frame_id': 'camera_init', 'localization.odom_child_frame_id': 'body',
             'localization.sensor_in_base_xyz': mount.tolist(), 'localization.sensor_in_base_rpy': MOUNT_RPY,
             'localization.sensor_extrinsics_confirmed': True, 'localization.parent_transform_confirmed': True,
             'localization.odom_twist_source': 'pose_difference',
         }, {'/gimbal/base_pose_raw': PREFIX+'/base_pose_raw', '/judge/replay_start': PREFIX+'/provider_reset'})
-        self.launch('gimbal_localization', 'map_frame_broadcaster_node', 'map_origin', {}, {
+        self.launch('team43_localization', 'map_frame_broadcaster_node', 'map_origin', {}, {
             '/gimbal/base_pose_raw': PREFIX+'/base_pose_raw', '/gimbal/base_pose': PREFIX+'/base_pose',
             '/judge/replay_start': PREFIX+'/replay_start', '/gimbal/origin_freeze': PREFIX+'/origin_freeze',
             '/gimbal/t_map_world': PREFIX+'/t_map_world'})
-        self.launch('grid_mapper', 'grid_mapper_node', 'map_exporter', {
+        self.launch('team43_grid_mapper', 'grid_mapper_node', 'map_exporter', {
             'grid.map_source': 'topic', 'grid.map_topic': PREFIX+'/source_map',
             'grid.source_frame': 'camera_init', 'grid.out_dir': str(self.output/'competition'),
-            'grid.output_basename': '47_map', 'grid.write_preview_png': False,
+            'grid.output_basename': '43_map', 'grid.write_preview_png': False,
         }, {'/map/grid': PREFIX+'/map', '/map/ray_grid': PREFIX+'/ray_map'})
         # 生产节点工厂显式默认系统时钟；在独立仿真域通过公开参数服务切换，
         # 不修改生产入口的默认时钟策略，也不替换 node._clock。
@@ -416,10 +416,10 @@ class Simulation(Node):
         final_yaw = 2*math.atan2(q.z, q.w)
         metadata_error = float(np.linalg.norm(np.array([final_origin.x, final_origin.y])-expected_origin))
         metadata_yaw_error = abs(math.atan2(math.sin(final_yaw+self.origin_rpy[2]), math.cos(final_yaw+self.origin_rpy[2])))
-        disk, _ = read_pgm(str(self.output/'source/47_slam_map.pgm'))
+        disk, _ = read_pgm(str(self.output/'source/43_slam_map.pgm'))
         expected_pixels = np.where(grid == 100, 0, np.where(grid == 0, 254, 205)).astype(np.uint8)[::-1]
-        final_disk, _ = read_pgm(str(self.output/'competition/47_map.pgm'))
-        meta = yaml.safe_load((self.output/'competition/47_map.yaml').read_text())
+        final_disk, _ = read_pgm(str(self.output/'competition/43_map.pgm'))
+        meta = yaml.safe_load((self.output/'competition/43_map.yaml').read_text())
         values = {
             'wall_coverage_within_one_cell': float(np.mean(wall_hits)),
             'interior_free_fraction': float(np.mean(np.array(interior) == 0)),

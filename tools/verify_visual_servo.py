@@ -17,8 +17,8 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/gimbal_control'))
-from gimbal_control.visual_pid import AxisPID, ErrorConditioner
+sys.path.insert(0, str(ROOT / 'src/team43_control'))
+from team43_control.visual_pid import AxisPID, ErrorConditioner
 
 
 class Clock:
@@ -92,7 +92,7 @@ def create_harness(camera):
         def create_timer(self, *args, **kwargs):
             return None
 
-    tree = ast.parse((ROOT / 'src/gimbal_control/gimbal_control/visual_servo_node.py').read_text())
+    tree = ast.parse((ROOT / 'src/team43_control/team43_control/visual_servo_node.py').read_text())
     definitions = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))
                    and node.name in ('stamp_seconds', 'image_error', 'VisualServoNode')]
     for node in definitions:
@@ -106,7 +106,7 @@ def create_harness(camera):
         QoSProfile=lambda **kwargs: SimpleNamespace(**kwargs),
         ReliabilityPolicy=SimpleNamespace(BEST_EFFORT='best_effort', RELIABLE='reliable'),
         DurabilityPolicy=SimpleNamespace(TRANSIENT_LOCAL='transient_local'),
-        # 节点 __init__ 经 gimbal_common.qos_utils 构造 QoS；harness 的发布/订阅
+        # 节点 __init__ 经 team43_common.qos_utils 构造 QoS；harness 的发布/订阅
         # 忽略 qos 实参，这里给出可调用的桩即可。
         sensor_qos=lambda depth=10: SimpleNamespace(depth=depth),
         latched_qos=lambda depth=1: SimpleNamespace(depth=depth),

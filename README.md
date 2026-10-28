@@ -7,12 +7,34 @@
 按[云台跟踪教程](docs/教程/云台跟踪.md)将源码包装到自己的独立 NUC 目录后运行：
 
 ```bash
-bash "$HOME/ws_championship/src/47-visual-tracking/run_here.bash" target_id:=0
+bash "$HOME/ws_championship/src/43-visual-tracking/run_here.bash" target_id:=0
 ```
 
 默认只看不动；真实串口模式加 `with_bridge:=true port:=/dev/ttyUSB0`，由人在参数终端开启 motion_enabled。停止在启动终端 Ctrl+C，或设置 motion_enabled=false。先做 3 秒单轴方向试验，再做两轴。参数默认值、调整现象和保存方法见[调参检查清单](docs/教程/上机调参检查清单.md)。
 
-代码统一保留在 src（含 C++ 串口包 42-gimbal_serial）；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
+代码统一保留在 src（含 C++ 串口包 team43_serial_bridge）；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
+
+本队队号为 **43**。自有软件包统一使用 `team43_<功能>`，源码目录、ROS 包名、Python 模块名保持一致；部署 ZIP 内也保留相同目录名。第三方子模块和 vendor 源码保留上游名称及许可证。
+
+| 软件包 | 职责 |
+|---|---|
+| `team43_common` | 公共几何、时钟、通信协议和工具 |
+| `team43_interfaces` | ROS 消息接口 |
+| `team43_perception` | ArUco 识别与 PnP |
+| `team43_estimation` | 目标状态估计与预测 |
+| `team43_control` | 云台跟踪与控制 |
+| `team43_serial_bridge` | C++ 实机串口桥 |
+| `team43_gimbal_io` | Python 仿真串口收发与实机消息适配 |
+| `team43_localization` | 底盘定位转换与云台运动学 |
+| `team43_lio_backend` | Small Point-LIO 接入 |
+| `team43_grid_mapper` | 点云建图与栅格地图输出 |
+| `team43_chassis_advisor` | 底盘方向与速度建议 |
+| `team43_judge_io` | 评分与 CSV 提交 |
+| `team43_dataio` | 运行记录与轨迹标注 |
+| `team43_debug` | 仿真调试与误差监测 |
+| `team43_bringup` | 启动配置与系统集成 |
+
+跟踪话题使用 `/team43_tracking/*`，建图话题使用 `/team43/*`；默认提交文件为 `43.csv` 和 `43_map.pgm/yaml`。迁移后应从源码重新构建并加载新安装空间，NUC 上仍按教程只构建自己的独立源码包。
 
 验证命令与产物位置见[测试运行指南](docs/教程/测试运行指南.md)；既有测试成绩见[回归历史](docs/记录/测试与控制回归历史.md)。原始实验产物不提交 Git。
 

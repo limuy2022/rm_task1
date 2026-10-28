@@ -22,8 +22,8 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/gimbal_judge_io'))
-from gimbal_judge_io import scoring as S
+sys.path.insert(0, str(ROOT / 'src/team43_judge_io'))
+from team43_judge_io import scoring as S
 from check_csv import _read_submission, _safe_path, _tick_us
 
 

@@ -8,12 +8,12 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = '47-visual-tracking'
-PACKAGES = {**{f'src/{p}': f'src/47-{p}' for p in (
-    'gimbal_common', 'gimbal_interfaces', 'gimbal_perception',
-    'gimbal_control', 'gimbal_tracker_bringup', 'gimbal_judge_io', 'grid_mapper',
-    'gimbal_localization', 'gimbal_estimation', 'chassis_advisor')},
-    'src/42-gimbal_serial': 'src/47-gimbal_serial'}
+NAME = '43-visual-tracking'
+PACKAGES = {f'src/{p}': f'src/{p}' for p in (
+    'team43_common', 'team43_interfaces', 'team43_perception',
+    'team43_control', 'team43_bringup', 'team43_judge_io', 'team43_grid_mapper',
+    'team43_localization', 'team43_estimation', 'team43_chassis_advisor', 'team43_lio_backend',
+    'team43_serial_bridge')}
 
 
 def source_version():
@@ -32,8 +32,9 @@ def source_version():
 
 def build(output):
     files = {'COLCON_IGNORE': b'',
-             'README.md': ('# 47队 NUC 源码包\n\n'
-                           '包含本队独立工作区的十一个包，需在 NUC 编译；不含 Point-LIO 或传感器驱动。\n'
+             'README.md': ('# 43队 NUC 源码包\n\n'
+                           '包含本队跟踪包和定位包，Small Point-LIO源码直接包含在定位包vendor目录中。\n'
+                           '定位：加载已有Livox环境后colcon build --base-paths src --packages-select team43_lio_backend，再ros2 launch team43_lio_backend lio.launch.py。\n'
                            '按 docs/教程/云台跟踪.md 传输、编译、启动和停止；调参另见 docs/教程/上机调参检查清单.md。\n'
                            '默认运动关闭。本包不修改系统环境，不自动安装依赖。\n').encode()}
     for name in ('build_here.bash', 'use_here.bash', 'run_here.bash'):

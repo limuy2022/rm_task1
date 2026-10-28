@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run real advisor callbacks/kernels in-memory against real ROS modules, no DDS.
 
-rclpy / nav_msgs / gimbal_interfaces 全部来自已 source 的 Humble 环境
+rclpy / nav_msgs / team43_interfaces 全部来自已 source 的 Humble 环境
 （含工作区 install），不做 sys.modules 替换。
 """
 from __future__ import annotations
@@ -13,14 +13,14 @@ from types import SimpleNamespace as NS
 
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1]
-for name in ('gimbal_common','chassis_advisor'):
+for name in ('team43_common','team43_chassis_advisor'):
     sys.path.insert(0,str(ROOT/'src'/name))
 
-import chassis_advisor.chassis_advisor_node as node_module
-from chassis_advisor.chassis_advisor_node import ChassisAdvisorNode, DEFAULTS
-from chassis_advisor.cost_raycast import CostRaycast,RayGridAdapter,rotz2
-from chassis_advisor.free_dir import FreeDirSolver,_ray_blocked
-from chassis_advisor.velocity_law import VelocityLaw
+import team43_chassis_advisor.chassis_advisor_node as node_module
+from team43_chassis_advisor.chassis_advisor_node import ChassisAdvisorNode, DEFAULTS
+from team43_chassis_advisor.cost_raycast import CostRaycast,RayGridAdapter,rotz2
+from team43_chassis_advisor.free_dir import FreeDirSolver,_ray_blocked
+from team43_chassis_advisor.velocity_law import VelocityLaw
 
 
 def grid_message(arr,origin=(0.,0.),yaw=0.,stamp=100.,frame='map',resolution=.1):

@@ -16,7 +16,7 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/gimbal_perception'))
+sys.path.insert(0, str(ROOT / 'src/team43_perception'))
 
 
 def read_calibration(path: Path) -> dict:
@@ -61,7 +61,7 @@ def compare(paths: list[Path], corners=None, marker_size=.10) -> dict:
               'selected_calibration': None,
               'limitation': 'Files alone cannot establish the current camera/lens or measurement accuracy.'}
     if corners is not None:
-        from gimbal_perception.pnp_solver import PnpSolver
+        from team43_perception.pnp_solver import PnpSolver
         for item in cameras:
             r = PnpSolver.from_camera_config(item['camera'], marker_size_m=marker_size).solve(corners)
             item['pnp'] = {'valid': bool(r.ok), 'reason': r.reason,

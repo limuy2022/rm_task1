@@ -28,9 +28,9 @@ import sys
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/gimbal_estimation'))
-from gimbal_estimation.ca_kalman import CAKalman
-from gimbal_estimation.stamped_tracker import StampedTracker
+sys.path.insert(0, str(ROOT / 'src/team43_estimation'))
+from team43_estimation.ca_kalman import CAKalman
+from team43_estimation.stamped_tracker import StampedTracker
 
 
 @dataclass

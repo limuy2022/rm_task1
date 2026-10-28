@@ -27,9 +27,9 @@ from geometry_msgs.msg import TransformStamped, Twist
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import StaticTransformBroadcaster
 from cv_bridge import CvBridge
-from gimbal_interfaces.msg import MarkerObservation, TargetState
-from gimbal_common import frames
-from gimbal_common.qos_utils import sensor_qos
+from team43_interfaces.msg import MarkerObservation, TargetState
+from team43_common import frames
+from team43_common.qos_utils import sensor_qos
 from simulate_gazebo_lio import GazeboLio, NS, ROOT, ORIGIN, RESOLUTION, seconds, envelope, point_lio_image_build, audit_received_inputs
 
 
@@ -61,8 +61,8 @@ def box(link, name, xyz, size, color):
 
 
 class GazeboVision(GazeboLio):
-    def __init__(self, output, timeout, factor, record_bag, imu_mode, scan_lines, scene, sigma_floor):
-        super().__init__(output, timeout, factor, record_bag, imu_mode, scan_lines)
+    def __init__(self, output, timeout, factor, record_bag, scan_lines, scene, sigma_floor):
+        super().__init__(output, timeout, factor, record_bag, scan_lines)
         self.scene = scene
         self.sigma_floor = sigma_floor
         self.images, self.infos, self.observations, self.states = [], [], [], []
@@ -134,19 +134,19 @@ class GazeboVision(GazeboLio):
         super().launch(name, command, env)
 
     def start(self):
-        self.launch_ros('vision_detector', 'gimbal_perception', 'aruco_detector_node', {
+        self.launch_ros('vision_detector', 'team43_perception', 'aruco_detector_node', {
             'perception.image_topic': NS+'/camera/image',
             'perception.marker_corners_topic': NS+'/vision/corners',
             'perception.detect_rate_hz': 20.,
         }, {})
-        self.launch_ros('vision_pnp', 'gimbal_perception', 'marker_pnp_node', {
+        self.launch_ros('vision_pnp', 'team43_perception', 'marker_pnp_node', {
             'perception.marker_corners_topic': NS+'/vision/corners',
             'perception.camera_info_topic': NS+'/camera/camera_info',
             'perception.camera_info_source': 'topic',
             'config.virtual_yaml': str(self.output/'camera.yaml'),
             'perception.marker_size_m': MARKER_SIZE,
         }, {'/perception/marker_cam': NS+'/vision/pnp'})
-        self.launch_ros('vision_base', 'gimbal_localization', 'base_pose_provider_node', {
+        self.launch_ros('vision_base', 'team43_localization', 'base_pose_provider_node', {
             'localization.base_pose_source': 'odom',
             'localization.odom_topic': NS+'/lio/aft_mapped_to_init',
             'localization.odom_frame_id': 'camera_init', 'localization.odom_child_frame_id': 'body',
@@ -155,11 +155,11 @@ class GazeboVision(GazeboLio):
             'localization.parent_transform_confirmed': True,
             'localization.odom_twist_source': 'pose_difference',
         }, {'/gimbal/base_pose_raw': NS+'/vision/base_raw', '/judge/replay_start': NS+'/unused_start'})
-        self.launch_ros('vision_origin', 'gimbal_localization', 'map_frame_broadcaster_node', {
+        self.launch_ros('vision_origin', 'team43_localization', 'map_frame_broadcaster_node', {
             'localization.origin_mode': 'base_init', 'localization.origin_settle_s': .5,
         }, {'/gimbal/base_pose_raw': NS+'/vision/base_raw', '/gimbal/base_pose': NS+'/vision/base',
             '/gimbal/t_map_world': NS+'/vision/t_map_world'})
-        self.launch_ros('vision_estimator', 'gimbal_estimation', 'target_estimator_node', {
+        self.launch_ros('vision_estimator', 'team43_estimation', 'target_estimator_node', {
             'estimation.geometry_confirmed': True,
             # 这里只配置仿真：组合观测包含厘米级定位误差，不能只按毫米级
             # 像素横向噪声估计 R。实际外参和定位协方差仍需实测标定。
@@ -404,7 +404,6 @@ def main():
     parser.add_argument('--timeout', type=float, default=600.)
     parser.add_argument('--real-time-factor', type=float, default=.5)
     parser.add_argument('--record-bag', action='store_true')
-    parser.add_argument('--imu-mode', choices=['input', 'output'], default='input')
     parser.add_argument('--scan-lines', type=int, choices=[16, 32], default=16)
     parser.add_argument('--scene', choices=['room', 'features'], default='features',
                         help='两箱体房间，或增加不同方位近距离结构的对照场景')
@@ -419,14 +418,17 @@ def main():
         parser.error('observation-sigma-floor 须在 (0,1] 米')
     output = args.output_dir.resolve(); output.mkdir(parents=True, exist_ok=False)
     rclpy.init(args=['--ros-args', '-r', '/tf:='+NS+'/tf', '-r', '/tf_static:='+NS+'/tf_static'])
-    app = GazeboVision(output, args.timeout, args.real_time_factor, args.record_bag, args.imu_mode,
+    app = GazeboVision(output, args.timeout, args.real_time_factor, args.record_bag,
                        args.scan_lines, args.scene, args.observation_sigma_floor)
     report = {'kind': 'gazebo_rgb_lidar_imu_target_estimation',
               'point_lio_image_build': point_lio_image_build(),
+              'world_source': str(app.world_source), 'world_source_sha256': app.world_source_sha256,
+              'generated_world_sha256': hashlib.sha256((output/'world.sdf').read_bytes()).hexdigest(),
+              'source_archive_role': 'livox_messages_only',
               'ground_truth_used_as_estimator_input': False, 'hardware_accessed': False,
-              'imu_mode': args.imu_mode, 'scan_lines': args.scan_lines, 'scene': args.scene,
+              'imu_model': 'imu_measurement_update', 'scan_lines': args.scan_lines, 'scene': args.scene,
               'observation_sigma_floor_m': args.observation_sigma_floor,
-              'source_archive_sha256': hashlib.sha256((ROOT/'archives/robomaster_navigation.tar.gz').read_bytes()).hexdigest(),
+              'source_archive_sha256': hashlib.sha256((ROOT/'archives/livox_ros_driver2.tar.gz').read_bytes()).hexdigest(),
               'limitations': ['固定相机，未覆盖云台关节、视觉控制器或真实电机',
                               '针孔无畸变相机，0.1m静止ArUco；未覆盖运动目标预测精度',
                               '故障注入在PnP之后，未覆盖相机断流及进程重启',

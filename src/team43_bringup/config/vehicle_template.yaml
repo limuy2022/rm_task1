@@ -1,0 +1,79 @@
+# 全部零值是未测占位！相机/云台未上底盘时不要将确认项改为true。
+# 当前processing入口不发送电机指令；控制闭环仍需单独实机验证。
+# 外参唯一运行配置：复制此文件填写，不在launch/其它节点再写另一份安装尺寸。
+# 单位：xyz为米，rpy为弧度；R=Rz(yaw)*Ry(pitch)*Rx(roll)。
+# T_A<-B 的 xyz 是 B 原点在 A 中的位置，旋转把 B 坐标向量转为 A 坐标向量。
+# base_link：底盘中心，x前/y左/z上；map：比赛起点底盘中心，初始x前/y左。
+# camera_link到camera_optical_frame的固定O/C旋转已在frames.py，不重复测绘。
+# 相机已知新K/D单独读取camera_team43.yaml，不能把内参当成安装外参。
+# Point-LIO自带雷达↔IMU内参读取small_point_lio_mid360.yaml；此处sensor_in_base是IMU body↔底盘。
+# 目前云台未装到底盘：底盘安装尺寸与机械零位保持未确认，不填“测量通过”。
+/**:
+  ros__parameters:
+    use_sim_time: false
+    localization.base_pose_source: odom
+    localization.odom_topic: /red_standard_robot1/aft_mapped_to_init
+    localization.odom_frame_id: camera_init
+    localization.odom_child_frame_id: body
+    localization.output_frame_id: odom
+    localization.base_frame_id: base_link
+    localization.sensor_extrinsics_confirmed: false
+    localization.sensor_in_base_xyz: [0.0, 0.0, 0.0] # T_base<-PointLIO body/IMU，不是雷达外壳
+    localization.sensor_in_base_rpy: [0.0, 0.0, 0.0]
+    localization.parent_transform_confirmed: false
+    localization.source_parent_in_output_xyz: [0.0, 0.0, 0.0] # T_odom<-camera_init；同轴同原点可按定义设identity，不是传感器测量
+    localization.source_parent_in_output_rpy: [0.0, 0.0, 0.0]
+    localization.odom_twist_source: pose_difference # 本版本Point-LIO未填twist
+    localization.publish_base_tf: true
+    localization.origin_mode: judge_replay_start
+    localization.origin_max_gap_s: 0.25
+    localization.publish_map_odom: true
+    localization.publish_world_odom: false
+    kinematics.calibration_confirmed: false
+    kinematics.joint_zero_known: false
+    kinematics.mounted_on_base_confirmed: false
+    kinematics.calibrated_epoch: -1
+    kinematics.odom_frame: odom
+    kinematics.base_frame: base_link
+    kinematics.base_mount_xyz: [0.0, 0.0, 0.0] # yaw安装基准原点在base_link中的位置
+    kinematics.base_mount_rpy: [0.0, 0.0, 0.0]
+    kinematics.yaw_to_pitch_xyz: [0.0, 0.0, 0.0] # yaw转后到pitch轴中心，坐标在yaw转后系
+    kinematics.pitch_gimbal_xyz: [0.0, 0.0, 0.0] # pitch转后到G基准原点；原点需定义并与相机尺寸一致
+    kinematics.pitch_gimbal_rpy: [0.0, 0.0, 0.0]
+    kinematics.gimbal_camera_xyz: [0.0, 0.0, 0.0] # camera_link原点在G中；不是camera_optical的另一次轴变换
+    kinematics.gimbal_camera_rpy: [0.0, 0.0, 0.0]
+    kinematics.odom_world_rpy: [0.0, 0.0, 0.0] # R_odom<-IMUworld，必须同次上电对齐
+    kinematics.joint_zero_rad: [0.0, 0.0]
+    kinematics.yaw_limits_rad: [-2.8, 2.8] # 仍需核实，单圈可辨识分支
+    kinematics.pitch_limits_rad: [-0.5, 0.35]
+    kinematics.imu_topic: /red_standard_robot1/gimbal
+    perception.image_topic: /image_raw
+    perception.corners_frame_id: camera_optical_frame
+    perception.marker_corners_topic: /perception/marker_corners
+    perception.camera_info_source: yaml
+    perception.marker_size_m: 0.10
+    perception.aruco_dict: DICT_4X4_50
+    perception.target_digit: -1
+    estimation.geometry_confirmed: false
+    estimation.map_frame: map
+    estimation.camera_frame: camera_optical_frame
+    estimation.predict_dt: 0.1
+    control.enabled: false
+    control.search_enabled: false
+    grid.map_source: topic
+    grid.map_topic: /team43/slam_map # 自有SLAM或map_server，勿订阅保护话题
+    grid.source_frame: camera_init # cloud_mapping真实输出，不改标签冒充比赛map
+    grid.output_frame: map
+    grid.output_basename: 43_map
+    grid.out_dir: maps # 与judge.output_dir分开，避免两个写出器写同一文件
+    grid.external_map_transient_local: true
+    grid.republish_period_s: 2.0
+    grid.write_preview_png: false
+    chassis.cmd_frame: map
+    chassis.dir_block_unknown: true # 保守：需要已观测free射线
+    chassis.map_timeout_s: 5.0 # 本配置接实时地图；静态已确认地图可显式设0
+    chassis.stop_radius_m: 0.45
+    judge.team_id: '43'
+    judge.enforce_v_floor: false # 保留advisor的近目标减速，不统一抬成0.30m/s
+    judge.fresh_run: false
+    judge.output_dir: ~/ws_championship/output

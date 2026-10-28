@@ -3,7 +3,7 @@
 Official environment reference: https://blog.secaumene.com/kit/campus-contest-env.html
 
 
-Usage: python tools/check_csv.py path/to/47.csv [--expected-rows 1800]
+Usage: python tools/check_csv.py path/to/43.csv [--expected-rows 1800]
 The stop-trap check uses submitted positions and is only a diagnostic; the actual
 judge uses true distance. This file cannot establish flush/80ms arrival latency.
 """
@@ -18,9 +18,9 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src/gimbal_judge_io'))
-from gimbal_judge_io.scoring import STOP_NEAR_M, STOP_SPEED
-from gimbal_judge_io.tick_csv import COLS9
+sys.path.insert(0, str(ROOT / 'src/team43_judge_io'))
+from team43_judge_io.scoring import STOP_NEAR_M, STOP_SPEED
+from team43_judge_io.tick_csv import COLS9
 
 _FIXED_TICK = re.compile(r'^[+-]?\d+\.\d{6}$')
 

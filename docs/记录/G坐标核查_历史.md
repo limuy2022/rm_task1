@@ -35,13 +35,13 @@
 | `protocol/PROTOCOL.md` 第1节，约51—59行 | G随yaw、pitch运动；world是惯性参考，启动时的yaw零点不等于车头或比赛坐标 |
 | 同文件§5.1，约237—241行 | 同一安装旋转应同时用于AHRS输入、回传accel、gyro |
 | 同文件§6.2、§7 | q表示G到world的旋转；静止比力、三轴角速度均应在G表达 |
-| `42-gimbal_serial/include/gimbal_serial/protocol.hpp`，`decodeImu()`约162行 | 按线上ax/ay/az、gx/gy/gz原顺序解码 |
+| `team43_serial_bridge/include/protocol.hpp`，`decodeImu()`约162行 | 按线上ax/ay/az、gx/gy/gz原顺序解码 |
 | 同文件`imuLinearAcceleration()`、`imuAngularVelocity()`，约138、147行 | 每轴换单位、乘同轴sign；没有交换xy等安装旋转 |
-| `42-gimbal_serial/include/gimbal_serial/imu_convert.hpp`，`makeImuMsg()`约32行 | q归一化；accel、gyro原轴放进ROS的xyz |
+| `team43_serial_bridge/include/imu_convert.hpp`，`makeImuMsg()`约32行 | q归一化；accel、gyro原轴放进ROS的xyz |
 | 同文件`makeTf()`约63行 | world→G的平移写死为0，不是测出了IMU在空间的位置 |
-| `42-gimbal_serial/config/bridge.yaml` | imu_axis_sign默认[1,1,1]；yaw_sign/pitch_sign只影响控制命令 |
+| `team43_serial_bridge/config/bridge.yaml` | imu_axis_sign默认[1,1,1]；yaw_sign/pitch_sign只影响控制命令 |
 
-Python桥的`gimbal_common/protocol.py:decode_imu()`与`vgimbal_bridge_node.py:_publish_imu()`同样没有替现场C板完成安装换轴。`frames.py`中把相机轴直接写成G/O关系的固定矩阵，注释注明来自虚拟配置中C/G外参全0；不能用它证明实物C与G同向。
+Python桥的`team43_common/protocol.py:decode_imu()`与`vgimbal_bridge_node.py:_publish_imu()`同样没有替现场C板完成安装换轴。`frames.py`中把相机轴直接写成G/O关系的固定矩阵，注释注明来自虚拟配置中C/G外参全0；不能用它证明实物C与G同向。
 
 **不要用imu_axis_sign试到“看着顺”为止：它不改q，可能把accel/gyro与姿态拆成两套轴。** yaw_sign、pitch_sign、电机极性也不提供G轴的证据。[协议在线入口](https://blog.secaumene.com/kit/protocol.html)；本次服务器未能访问，以上依据是仓库已有的v1.4协议和实际桥源码。
 
@@ -104,13 +104,13 @@ rg -n 'BMI088_BOARD_INSTALL_SPIN_MATRIX|imu_cali_slove|gyro_scale_factor|accel_s
 ```bash
 source /opt/ros/humble/setup.bash
 export ROS_LOCALHOST_ONLY=1
-export G_DIR="$HOME/ws_championship/team47_check_20261016/records/g_axes_20261017"
+export G_DIR="$HOME/ws_championship/team43_check_20261016/records/g_axes_20261017"
 export ROS_LOG_DIR="$G_DIR/ros_logs"
 mkdir -p "$G_DIR" "$ROS_LOG_DIR"
 printf '%s\n' "$G_DIR"
 ```
 
-**应该显示：**`/home/实际用户名/ws_championship/team47_check_20261016/records/g_axes_20261017`。NoMachine菜单`Transfer a file → Upload file from the client`把这个py保存到打印的目录。[文件传输说明](https://www.nomachine.com/sharing-files-between-computers)。
+**应该显示：**`/home/实际用户名/ws_championship/team43_check_20261016/records/g_axes_20261017`。NoMachine菜单`Transfer a file → Upload file from the client`把这个py保存到打印的目录。[文件传输说明](https://www.nomachine.com/sharing-files-between-computers)。
 
 传完输入：
 
@@ -309,7 +309,7 @@ B最后在同一个NUC终端输入：
 
 ```bash
 G_ID=$(date +%Y%m%d_%H%M%S)
-G_OUT="$HOME/ws_championship/team47_check_20261016/records/team47_g_axes_$G_ID.tar.gz"
+G_OUT="$HOME/ws_championship/team43_check_20261016/records/team43_g_axes_$G_ID.tar.gz"
 tar -czf "$G_OUT" -C "$G_DIR" .
 ls -lh "$G_OUT"
 ```

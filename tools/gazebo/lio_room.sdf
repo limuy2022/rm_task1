@@ -19,41 +19,36 @@
     <light name="sun" type="directional">
       <pose>0 0 10 0 0 0</pose><diffuse>0.8 0.8 0.8 1</diffuse><direction>-0.2 -0.4 -1</direction>
     </light>
-    <model name="floor">
-      <static>true</static><pose>0 0 -0.05 0 0 0</pose>
-      <link name="shape">
-        <collision name="collision"><geometry><box><size>8.2 6.2 0.1</size></box></geometry></collision>
-        <visual name="visual"><geometry><box><size>8.2 6.2 0.1</size></box></geometry></visual>
+    <model name="blender_scene">
+      <!-- 必须设为 static，否则整个房间会受重力掉下去 -->
+      <static>true</static> 
+      <pose>0 0 0 0 0 0</pose>
+      
+      <link name="scene_link">
+        <!-- 碰撞体：雷达扫到点云和物理碰撞全靠它 -->
+        <collision name="scene_collision">
+          <geometry>
+            <mesh>
+              <!-- 强烈建议这里填入 GLB 文件的绝对路径，例如 /home/user/models/room.glb -->
+              <!-- <uri>file:///root/ros_ws/src/rm_task1/tools/gazebo/scene.stl</uri> -->
+              <uri>file://scene.stl</uri>
+              <scale>0.3 0.3 0.3</scale>
+              <!-- 如果尺寸不对，可以在这里缩放，例如 <scale>1 1 1</scale> -->
+            </mesh>
+          </geometry>
+        </collision>
+
+        <!-- 视觉体：你眼睛看到的贴图和颜色全靠它 -->
+        <visual name="scene_visual">
+          <geometry>
+            <mesh>
+              <!-- 路径必须和 collision 完全一致 -->
+              <uri>file://scene.stl</uri>
+              <scale>0.3 0.3 0.3</scale>
+            </mesh>
+          </geometry>
+        </visual>
       </link>
-    </model>
-    <model name="ceiling">
-      <static>true</static><pose>0 0 2.55 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>8.2 6.2 0.1</size></box></geometry></visual></link>
-    </model>
-    <model name="west_wall">
-      <static>true</static><pose>-4.05 0 1.25 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>0.1 6.2 2.5</size></box></geometry></visual></link>
-    </model>
-    <model name="east_wall">
-      <static>true</static><pose>4.05 0 1.25 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>0.1 6.2 2.5</size></box></geometry></visual></link>
-    </model>
-    <model name="south_wall">
-      <static>true</static><pose>0 -3.05 1.25 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>8.2 0.1 2.5</size></box></geometry></visual></link>
-    </model>
-    <model name="north_wall">
-      <static>true</static><pose>0 3.05 1.25 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>8.2 0.1 2.5</size></box></geometry></visual></link>
-    </model>
-    <!-- 非对称障碍，提供多方向平面，避免只观察一面墙。 -->
-    <model name="box_a">
-      <static>true</static><pose>2.5 1.8 0.5 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>0.8 0.6 1</size></box></geometry></visual></link>
-    </model>
-    <model name="box_b">
-      <static>true</static><pose>-2 0.8 0.7 0 0 0</pose>
-      <link name="shape"><visual name="visual"><geometry><box><size>0.5 1 1.4</size></box></geometry></visual></link>
     </model>
     <model name="lidar_rig">
       <pose>0 0 0.7 0 0 0</pose>

@@ -1,0 +1,12 @@
+{
+  "variant": "small_point_lio_ros2",
+  "repository": "https://github.com/Yancey2023/small_point_lio",
+  "branch": "ros2",
+  "commit": "131fb586dc609521e7acf11a9c833121b2d49141",
+  "license": "MIT",
+  "algorithm_source_modified": false,
+  "imu_model": "imu_measurement_update",
+  "integration": "team43_lio_backend: 固定外参归一到IMU的Livox输入、IMU body位姿、世界系点云、回调接收审核",
+  "original_archive_sha256": "8d87ab72df8ae9631712a980493276bb69ec066273a8bb11c7a0ffbe82a25871",
+  "vendored_source": "vendor/small_point_lio"
+}

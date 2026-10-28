@@ -11,13 +11,13 @@ if [ "$2" -gt 49 ]; then
     printf 'DICT_4X4_50的ID范围为0到49。\n' >&2
     exit 2
 fi
-exec ros2 run gimbal_perception marker_pnp_node --ros-args \
-    -r __ns:=/team47_check -r __node:=marker_pnp_reference \
-    -r /perception/marker_cam:=/team47_check/reference/marker_cam \
+exec ros2 run team43_perception marker_pnp_node --ros-args \
+    -r __ns:=/team43_check -r __node:=marker_pnp_reference \
+    -r /perception/marker_cam:=/team43_check/reference/marker_cam \
     -p "config.virtual_yaml:=$(realpath "$1")" \
     -p "perception.target_digit:=$2" \
-    -p perception.marker_corners_topic:=/team47_check/marker_corners \
-    -p perception.camera_info_topic:=/team47_check/reference/camera_info_unused \
+    -p perception.marker_corners_topic:=/team43_check/marker_corners \
+    -p perception.camera_info_topic:=/team43_check/reference/camera_info_unused \
     -p perception.camera_info_source:=yaml \
     -p perception.marker_size_m:=0.10 \
     -p perception.reproj_max_px:=2.0
