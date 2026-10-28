@@ -4,6 +4,8 @@
 !archives/livox_ros_driver2.tar.gz
 !tools/
 !tools/ros_entrypoint.bash
-!tools/gazebo/
-!tools/gazebo/CMakeLists.txt
-!tools/gazebo/force_controller.cpp
+!src/
+!src/team43_gazebo/
+!src/team43_gazebo/plugins/
+!src/team43_gazebo/plugins/CMakeLists.txt
+!src/team43_gazebo/plugins/force_controller.cpp

@@ -1,14 +1,6 @@
 """静止重力和相同物理量程在g/SI输入下必须得到相同饱和判定。"""
-import importlib.util
-from pathlib import Path
-
 import pytest
-
-
-path = Path(__file__).resolve().parents[3]/'tools/gazebo/sensor_config.py'
-spec = importlib.util.spec_from_file_location('simulation_sensor_config', path)
-sensor_config = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(sensor_config)
+from team43_gazebo import sensor_config
 
 
 @pytest.mark.parametrize('normal,limit', [(1., 3.), (9.81, 29.43)])

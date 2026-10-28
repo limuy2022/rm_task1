@@ -49,6 +49,7 @@ SHA256 为 `8d87ab72df8ae9631712a980493276bb69ec066273a8bb11c7a0ffbe82a25871`，
 ## 3 场景隔离
 
 用户正在编辑 `tools/gazebo/lio_room.sdf` 及 Blender 模型，本次保留这些修改。
+（后续资源整理已迁入 `src/team43_gazebo/worlds/lio_room.sdf`，Blender 源文件位于该包的 `blender/`。）
 `lio_room_regression.sdf` 是仓库原始标准房间，SHA256 为
 `de58aca4e8cce321ad4776b18c3f3d7480716b273c3aacf7bcf6eb3e634c793b`。
 CI 显式设置 `RM_LIO_WORLD` 选择它；报告保留源场景和生成场景的哈希。

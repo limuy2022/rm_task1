@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import yaml
+from ament_index_python.packages import get_package_share_directory
 from PIL import Image, ImageDraw
 import rclpy
 from rclpy.node import Node
@@ -37,9 +38,9 @@ from livox_ros_driver2.msg import CustomMsg, CustomPoint
 from team43_common.qos_utils import latched_qos, sensor_qos
 from team43_grid_mapper.cloud_grid import pointcloud2_xyz
 from team43_grid_mapper.pgm_io import read_pgm
-from gazebo.sensor_config import use_si_acceleration
-from gazebo.input_audit import audit_received_inputs
-from gazebo.process_shutdown import stop_processes
+from team43_gazebo.sensor_config import use_si_acceleration
+from team43_gazebo.input_audit import audit_received_inputs
+from team43_gazebo.process_shutdown import stop_processes
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -105,7 +106,8 @@ class GazeboLio(Node):
         self.save_client = self.create_client(Trigger, NS+'/save_map')
         self.mapper_parameters = self.create_client(SetParameters, '/cloud_mapper/set_parameters')
         point_lio_image_build()
-        config = yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
+        backend_share = Path(get_package_share_directory('team43_lio_backend'))
+        config = yaml.safe_load((backend_share/'config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
         params.update(use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
                       input_audit_path=str(self.output/'input_audit.csv'),
@@ -113,7 +115,8 @@ class GazeboLio(Node):
         use_si_acceleration(params)
         self.lidar_offset = params['extrinsic_T']
         (output/'point_lio.yaml').write_text(yaml.safe_dump(config, allow_unicode=True))
-        self.world_source = Path(os.environ.get('RM_LIO_WORLD', str(ROOT/'tools/gazebo/lio_room.sdf'))).resolve()
+        gazebo_share = Path(get_package_share_directory('team43_gazebo'))
+        self.world_source = Path(os.environ.get('RM_LIO_WORLD', str(gazebo_share/'worlds/lio_room.sdf'))).resolve()
         self.world_source_sha256 = hashlib.sha256(self.world_source.read_bytes()).hexdigest()
         tree = ET.parse(self.world_source)
         tree.find('.//physics/real_time_factor').text = str(real_time_factor)
@@ -316,10 +319,10 @@ class GazeboLio(Node):
         return self.evaluate(time.monotonic()-wall_start)
 
     def evaluate(self, elapsed_wall):
-        reference = ROOT/'tools/gazebo/lio_room_regression.sdf'
+        reference = Path(get_package_share_directory('team43_gazebo'))/'worlds/lio_room_regression.sdf'
         if self.world_source_sha256 != hashlib.sha256(reference.read_bytes()).hexdigest():
             raise ValueError('自定义 SDF 不适用标准房间的墙面/回波验收；不能据此判定算法失败。'
-                             '标准回归请设置 RM_LIO_WORLD=tools/gazebo/lio_room_regression.sdf')
+                             f'标准回归请设置 RM_LIO_WORLD={reference}')
         gt, estimate = np.asarray(self.truth), np.asarray(self.estimates)
         if len(gt) < 100 or len(estimate) < 100 or self.latest_map is None:
             raise RuntimeError('没有足够的定位、真值或地图输出')

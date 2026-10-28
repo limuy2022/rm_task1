@@ -1,15 +1,7 @@
 """接收审核必须区分真实源抖动、接收丢样与源采样质量。"""
 import csv
-import importlib.util
-from pathlib import Path
-
 import pytest
-
-
-path = Path(__file__).resolve().parents[3]/'tools/gazebo/input_audit.py'
-spec = importlib.util.spec_from_file_location('simulation_input_audit', path)
-audit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from team43_gazebo import input_audit as audit
 
 
 def run_audit(output, lidar=(0., .1, .226, .326), imu=(0., .005, .01, .015),

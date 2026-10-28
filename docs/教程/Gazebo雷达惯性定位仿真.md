@@ -16,9 +16,16 @@ Livox驱动和消息单独归档于 `archives/livox_ros_driver2.tar.gz`，保留
 
 ## 2 标准场景与自定义场景
 
-标准回归使用 `tools/gazebo/lio_room_regression.sdf`：8×6m房间、地面、天花板、
+标准回归使用 `src/team43_gazebo/worlds/lio_room_regression.sdf`：8×6m房间、地面、天花板、
 两箱体，平台初始IMU高度0.7m。它与用户编辑的 `lio_room.sdf` 和Blender模型分开。
 视觉联合的features场景在标准房间中增加箱体。
+
+场景和模型由 `team43_gazebo` 包安装；脚本通过 ament 索引读取安装资源，
+默认场景为包内 `worlds/lio_room.sdf`。Blender 源文件保留在包的 `blender/`，
+运行用 `meshes/scene.stl` 通过 `package://team43_gazebo/meshes/scene.stl` 引用。
+source 工作区时自动将安装前缀的 `share/` 加入 `IGN_GAZEBO_RESOURCE_PATH`，
+生成 SDF 移到输出目录后仍能找到模型；无需在 `.bashrc` 中配置源码绝对路径。
+运动插件仍由可选镜像单独编译，通过 `IGN_GAZEBO_SYSTEM_PLUGIN_PATH` 查找库名。
 
 平台通过力/力矩运动，保证IMU测到实际加减速，不模拟轮胎和悬架。
 雷达默认16线、每线180个方向、40Hz快照，四个快照按真实时间组成约10Hz
@@ -42,12 +49,12 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e ROS_DOMAIN_ID=89 -e ROS_LOCALHOST_ONLY=1 \
   -e IGN_PARTITION=rm_task1_gazebo_01 -e LIBGL_ALWAYS_SOFTWARE=1 \
-  -e RM_LIO_WORLD=/workspace/tools/gazebo/lio_room_regression.sdf \
   rm-task1-gazebo-sim bash -c '
     source /opt/ros/humble/setup.bash &&
     colcon --log-base /tmp/clog build --build-base /tmp/cb \
            --install-base /tmp/ci --symlink-install &&
     source /tmp/ci/setup.bash &&
+    export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
     python3 -B tools/simulate_gazebo_lio.py \
       --output-dir build/offline/gazebo_lio_01 --record-bag'
 ```

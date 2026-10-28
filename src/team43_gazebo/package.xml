@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>team43_gazebo</name>
+  <version>0.1.0</version>
+  <description>Gazebo Fortress 仿真场景、模型资源与辅助模块</description>
+  <maintainer email="team43@example.com">Team43</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -4,7 +4,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 
 ## 目录结构
 
-- `src/` — 15 个 ROS2 包，统一命名为 `team43_<功能>`，源码目录、ROS 包名和 Python 模块名保持一致。12 个 Python 包（ament setup.py 布局）+ `team43_interfaces`、`team43_serial_bridge`、`team43_lio_backend` 三个 ament_cmake 包；`team43_serial_bridge` 为 C++ 串口桥（gtest），`team43_gimbal_io` 为 Python 仿真串口收发与硬件消息适配。
+- `src/` — 16 个 ROS2 包，统一命名为 `team43_<功能>`，源码目录、ROS 包名和 Python 模块名保持一致。12 个 Python 包（ament setup.py 布局）+ `team43_interfaces`、`team43_serial_bridge`、`team43_lio_backend`、`team43_gazebo` 四个 ament_cmake 包；`team43_serial_bridge` 为 C++ 串口桥（gtest），`team43_gimbal_io` 为 Python 仿真串口收发与硬件消息适配。`team43_gazebo` 安装仿真资源与 Python 辅助模块，C++ 运动插件仅在可选 Gazebo 镜像中编译。
 - `tools/` — 离线验证与评分脚本；`verify_all_offline.py` 是全量离线核验编排入口。
 - `docs/` — `教程/`（含测试、标定、上机步骤）、`原理/`、`记录/`；改动相关模块前先读对应教程。
 - `gimbal-edu-tools/` — git 子模块，`test_consistency` 校验其中 `virtual_gimbal` 的 entry_points，克隆后必须检出（`git submodule update --init --recursive`）。

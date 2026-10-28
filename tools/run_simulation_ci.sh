@@ -16,13 +16,13 @@ mkdir "$output"
 exec > >(tee "$output/console.log") 2>&1
 
 source /opt/ros/humble/setup.bash
-if [[ "$scenario" == gazebo_* ]]; then
-  # 标准回归几何与人工编辑的 Blender 场景分开，保持原精度/地图门槛。
-  export RM_LIO_WORLD=/workspace/tools/gazebo/lio_room_regression.sdf
-fi
 colcon --log-base /tmp/clog build --build-base /tmp/cb \
   --install-base /tmp/ci --symlink-install --parallel-workers 2
 source /tmp/ci/setup.bash
+if [[ "$scenario" == gazebo_* ]]; then
+  # 标准回归几何与人工编辑的 Blender 场景分开，从安装空间读取。
+  export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf"
+fi
 
 if [[ "$scenario" == submission ]]; then
   python3 -B tools/verify_submission_dds.py --count 1800 --output-dir "$output/result"

@@ -14,6 +14,8 @@ bash "$HOME/ws_championship/src/43-visual-tracking/run_here.bash" target_id:=0
 
 代码统一保留在 src（含 C++ 串口包 team43_serial_bridge）；配置/launch 在对应包内，离线工具在 tools，独立教程在 docs/教程，原理在 docs/原理。没有把代码再复制进文档目录。Point-LIO、目标坐标/预测、点云地图、建议速度和九列提交链已有实现，整车尺寸、真实误差、最终地图与正式 180 秒端到端流程仍待联调。主办方驾驶底盘，我们自行估计底盘位置。
 
+Gazebo 场景、网格模型与仿真辅助模块由 [`team43_gazebo`](src/team43_gazebo/README.md) 包安装；SDF 使用 `package://` 引用模型，source 工作区后自动配置资源搜索路径。运动插件仍只在可选 `gazebo-sim` 镜像中构建。
+
 本队队号为 **43**。自有软件包统一使用 `team43_<功能>`，源码目录、ROS 包名、Python 模块名保持一致；部署 ZIP 内也保留相同目录名。第三方子模块和 vendor 源码保留上游名称及许可证。
 
 | 软件包 | 职责 |

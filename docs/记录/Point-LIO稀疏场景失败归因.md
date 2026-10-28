@@ -137,7 +137,7 @@ m/s²输入中应为29.43。此前32线output的结果不能作为完整IMU约�
 不是实时部署建议。回放等待估计输出覆盖记录末尾再评分，`input_drained_to_end`
 标记该条件；完整回放精度通过不代表实时吞吐或目标新鲜度通过。
 
-仿真现通过 `tools/gazebo/sensor_config.py` 同时换算 `acc_norm` 与 `satu_acc`，并
+仿真现通过 `team43_gazebo.sensor_config`（现位于 `src/team43_gazebo/team43_gazebo/sensor_config.py`）同时换算 `acc_norm` 与 `satu_acc`，并
 在启动前拒绝会把静止重力判为饱和的配置。新增7项回归检查覆盖g与SI的等价
 饱和判定、错误SI量程及非法单位尺度。实车配置数值保留原状，只更正误导性的
 单位注释；真实量程仍须测量。

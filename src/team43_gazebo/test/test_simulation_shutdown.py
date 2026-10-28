@@ -1,17 +1,10 @@
 """仿真收尾必须保留真实退出码，并在停止服务不可用时回收进程。"""
-import importlib.util
-from pathlib import Path
 import signal
 import subprocess
 from types import SimpleNamespace
 
 import pytest
-
-
-path = Path(__file__).resolve().parents[3]/'tools/gazebo/process_shutdown.py'
-spec = importlib.util.spec_from_file_location('simulation_shutdown', path)
-shutdown = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(shutdown)
+from team43_gazebo import process_shutdown as shutdown
 
 
 class Process:

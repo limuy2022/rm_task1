@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(rm_task1_gazebo_controller LANGUAGES CXX)
+project(team43_gazebo_plugins LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 find_package(ignition-gazebo6 REQUIRED)
 find_package(ignition-plugin1 REQUIRED COMPONENTS register)

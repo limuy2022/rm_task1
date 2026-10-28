@@ -2,7 +2,8 @@
 
 2026-10-28 起，默认镜像使用固定提交的 Small Point-LIO 原始核心和项目接口层，
 不再运行旧版算法补丁；算法与场景选择见[雷达教程当前版本说明](Gazebo雷达惯性定位仿真.md)。
-标准回归须设置 `RM_LIO_WORLD=/workspace/tools/gazebo/lio_room_regression.sdf`；
+标准回归须在 source 工作区后设置
+`RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf"`；
 `room/features` 都以此原始房间为基础。自定义 Blender 场景不能沿用本页的几何验收。
 当前仅有Small Point-LIO后端，不提供旧版算法或模式切换。
 
@@ -66,12 +67,12 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e ROS_DOMAIN_ID=94 -e ROS_LOCALHOST_ONLY=1 \
   -e IGN_PARTITION=rm_task1_vision_01 -e LIBGL_ALWAYS_SOFTWARE=1 \
-  -e RM_LIO_WORLD=/workspace/tools/gazebo/lio_room_regression.sdf \
   rm-task1-gazebo-sim bash -c '
     source /opt/ros/humble/setup.bash &&
     colcon --log-base /tmp/clog build --build-base /tmp/cb \
            --install-base /tmp/ci --symlink-install &&
     source /tmp/ci/setup.bash &&
+    export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
     python3 -B tools/simulate_gazebo_vision.py \
       --output-dir build/offline/gazebo_vision_01 --record-bag'
 ```

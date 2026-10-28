@@ -59,11 +59,12 @@ COPY --from=livox-runtime /opt/livox /opt/livox
 COPY tools/ros_entrypoint.bash /team43_ros_entrypoint.bash
 ENTRYPOINT ["bash", "/team43_ros_entrypoint.bash"]
 # 该路径仅存放Gazebo运动插件；定位包本身不依赖它。
-COPY tools/gazebo/CMakeLists.txt tools/gazebo/force_controller.cpp /opt/gazebo_controller/
+COPY src/team43_gazebo/plugins/ /opt/gazebo_controller/
 RUN cmake -S /opt/gazebo_controller -B /tmp/gazebo_controller \
-      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/lio_sim \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/team43_gazebo \
  && cmake --build /tmp/gazebo_controller --parallel 2 \
  && cmake --install /tmp/gazebo_controller \
  && rm -rf /tmp/gazebo_controller
+ENV IGN_GAZEBO_SYSTEM_PLUGIN_PATH=/opt/team43_gazebo/lib
 
 FROM livox-runtime AS test
