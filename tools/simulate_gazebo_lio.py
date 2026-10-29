@@ -41,6 +41,7 @@ from team43_grid_mapper.pgm_io import read_pgm
 from team43_gazebo.sensor_config import use_si_acceleration
 from team43_gazebo.input_audit import audit_received_inputs
 from team43_gazebo.process_shutdown import stop_processes
+from team43_gazebo.simulation_startup import wait_for_sensor_readers
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -242,6 +243,9 @@ class GazeboLio(Node):
                     '--ros-args', '-r', '/model/lidar_rig/pose:='+NS+'/truth'])
         env = os.environ.copy()
         env.pop('DISPLAY', None)
+        # 启动进程不等于 DDS 订阅已经建立；先等待两个实际接收端，
+        # 防止高负载下 Gazebo 首批 IMU 比后端发现更早到达。
+        wait_for_sensor_readers(self, (NS+'/livox/lidar', NS+'/imu'), self.pump)
         self.launch('gazebo', ['ign', 'gazebo', '-s', '-r', '--headless-rendering', '-v', '3', str(self.output/'world.sdf')], env)
         if self.record_bag:
             self.launch('bag', ['ros2', 'bag', 'record', '-o', str(self.output/'sensor_bag'),
