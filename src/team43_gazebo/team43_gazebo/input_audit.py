@@ -27,7 +27,8 @@ def audit_received_inputs(report, output, lidar_stamps, imu_stamps):
                 for key, value in row.items()}
         data.update(lidar_published=len(lidar_stamps), imu_observed=len(imu_stamps),
                     lidar_published_max_gap_s=lidar_gap, imu_observed_max_gap_s=imu_gap,
-                    gap_comparison_tolerance_s=1e-6, sensor_qos_depth=200)
+                    gap_comparison_tolerance_s=1e-6, sensor_qos_depth=200,
+                    imu_qos_reliable=True)
         data.update(lidar_source_first_stamp_s=lidar_stamps[0],
                     lidar_source_last_stamp_s=lidar_stamps[-1],
                     imu_source_first_stamp_s=imu_stamps[0],

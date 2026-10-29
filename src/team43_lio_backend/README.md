@@ -33,6 +33,10 @@ ros2 launch team43_lio_backend lio.launch.py \
 指定自己的副本。默认 `acc_norm=1.0` 和 `satu_acc=3.0` 对应g单位；m/s²输入需要
 同时换算。雷达到IMU的固定外参必须符合实际安装。
 
+传感器接收默认使用 best-effort QoS。仅在输入发布端支持可靠传输时，才可在
+配置副本中设置 `imu_qos_reliable: true`；Gazebo 回归会显式启用此选项，
+避免共享 CPU 调度抖动导致 IMU 不可重传丢样。该选项不改变实机默认值或雷达 QoS。
+
 本包接口接收带逐点时间的Livox CustomMsg和IMU，按固定外参将点统一到IMU坐标系，
 核心使用单位外参，避免重复变换。输出为 `camera_init → body` 的IMU位姿和世界系
 点云；body不是底盘中心。核心源码保持原样，不依赖Gazebo。

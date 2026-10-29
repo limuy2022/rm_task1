@@ -111,6 +111,7 @@ class GazeboLio(Node):
         config = yaml.safe_load((backend_share/'config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
         params.update(use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
+                      imu_qos_reliable=True,
                       input_audit_path=str(self.output/'input_audit.csv'),
                       space_downsample_leaf_size=.15, map_resolution=.15, max_distance=15.)
         use_si_acceleration(params)
