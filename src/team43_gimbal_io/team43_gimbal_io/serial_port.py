@@ -4,7 +4,7 @@
 
 * ``serial.Serial(port, 921600, exclusive=True)``：独占打开；**被拒即报错退出，不静默重试**。
 * 8N1、无流控、raw 模式。
-* ``read_bytes()`` 非阻塞（timeout=read_timeout_s）读一块，供上层定时器轮询。
+* ``read_bytes()`` 只读取已经到达的字节，空缓冲立即返回，供上层定时器轮询。
 * ``write()`` 失败抛 :class:`SerialPortError`，由链路状态机转成故障。
 
 依赖 pyserial；缺少依赖直接报 ImportError。构造对象不会打开串口。
@@ -16,8 +16,6 @@ import serial
 from typing import Optional
 
 import serial
-
-__all__ = ['SerialPortError', 'SerialPort']
 
 
 class SerialPortError(RuntimeError):
@@ -113,8 +111,12 @@ class SerialPort:
         if not self.is_open:
             return b''
         try:
-            n = self._ser.in_waiting or self._read_chunk
-            data = self._ser.read(min(int(n), self._read_chunk) or self._read_chunk)
+            # 空缓冲不能调用带超时的 read：持续到达的 IMU 会让上层读空循环
+            # 反复等待新帧，占满单线程 executor，阻塞指令发送及订阅回调。
+            n = min(int(self._ser.in_waiting), self._read_chunk)
+            if n <= 0:
+                return b''
+            data = self._ser.read(n)
         except OSError as exc:
             # A disconnected TTY is a transport fault, not an empty normal read.
             self.read_errors += 1

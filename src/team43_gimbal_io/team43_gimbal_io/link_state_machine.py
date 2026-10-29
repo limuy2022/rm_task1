@@ -28,11 +28,6 @@ from collections import deque
 
 from team43_common.time_utils import now as _default_now
 
-__all__ = [
-    'IDLE', 'ACTIVE', 'FAULT_SILENT', 'SHUTDOWN',
-    'LINK_STATE_ID', 'STATE_NAME',
-    'LinkStateMachine',
-]
 
 IDLE: str = 'IDLE'
 ACTIVE: str = 'ACTIVE'
@@ -195,8 +190,16 @@ class LinkStateMachine:
         t = self._now() if t is None else float(t)
         if self._state != ACTIVE:
             return False
-        if self._t_last_cmd is None or (t - self._t_last_cmd) >= (self._cmd_period_s - _PERIOD_EPS_S):
+        if self._t_last_cmd is None:
             self._t_last_cmd = t
+            return True
+        elapsed = t - self._t_last_cmd
+        if elapsed >= (self._cmd_period_s - _PERIOD_EPS_S):
+            # 按既定相位推进，不能以实际回调时刻重新计周期：否则定时器
+            # 微小抖动就会导致下一拍被误判为未到期，持续漏发。
+            # 错过的周期直接跳过，不集中补发过期指令。
+            periods = max(1, int((elapsed + _PERIOD_EPS_S) / self._cmd_period_s))
+            self._t_last_cmd += periods * self._cmd_period_s
             return True
         return False
 

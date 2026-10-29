@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ['NoiseModel']
-
 
 class NoiseModel:
     """深度相关各向异性观测噪声模型。"""

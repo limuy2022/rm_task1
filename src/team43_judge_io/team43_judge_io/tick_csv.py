@@ -39,14 +39,6 @@ from typing import Sequence
 
 from team43_common import log_utils
 
-__all__ = [
-    'COLS9',
-    'N_COLS',
-    'V_STOP',
-    'format_row',
-    'header_line',
-    'TickCsvWriter',
-]
 
 #: 赛题一固定九列，不能省略评分时间戳。
 COLS9: List[str] = ['pred_x', 'pred_y', 'cur_x', 'cur_y', 'base_x', 'base_y',

@@ -40,36 +40,6 @@ import numpy as np
 from team43_common.frames import R_opt_from_link as _frames_R_opt_from_link
 from team43_common.frames import quat_to_mat as _frames_quat_to_mat
 
-__all__ = [
-    'DEFAULT_RMS_MAX_DEG',
-    'DEFAULT_ABS_MAX_DEG',
-    'DEFAULT_CONVERGENCE_S',
-    'DEFAULT_DURATION_S',
-    'DEFAULT_MIN_SAMPLES',
-    'DEFAULT_SAMPLE_RATE_HZ',
-    'DEFAULT_POST_CONVERGENCE_SKIP_S',
-    'DEFAULT_CONVERGENCE_TOL_DEG',
-    'ErrorSample',
-    'EvalThresholds',
-    'EvalResult',
-    'unit_vec',
-    'optical_axis_world',
-    'target_direction',
-    'angle_error_deg',
-    'bearing_azimuth_rad',
-    'swing_rad',
-    'swing_deg',
-    'rms',
-    'rms_deg',
-    'max_deg',
-    'mean_deg',
-    'convergence_time',
-    'bucket_rms',
-    'evaluate',
-    'samples_from_arrays',
-    'values_from_samples',
-    'format_report_md',
-]
 
 # ---------------------------------------------------------------------------
 # 默认判据（DESIGN §6.13 `debug.*` + hardware_spec §5）

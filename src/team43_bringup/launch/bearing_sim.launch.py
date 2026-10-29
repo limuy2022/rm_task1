@@ -100,6 +100,10 @@ def _setup(context) -> list:
         actions.append(node if i == 0 else TimerAction(period=i * step, actions=[node]))
 
     if eval_enabled:
+        # 评估器不会创建父目录；启动阶段检查路径，避免跑完后才发现无法落盘。
+        for output_path in (eval_output, series_output):
+            if output_path:
+                os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         evaluator = Node(
             package='virtual_gimbal', executable='e2e_evaluator', name='e2e_evaluator',
             output='screen', parameters=[{

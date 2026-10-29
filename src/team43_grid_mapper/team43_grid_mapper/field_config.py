@@ -47,16 +47,6 @@ import numpy as np
 
 from team43_common.config_loader import load_yaml
 
-__all__ = [
-    'DEFAULT_FIELD',
-    'Obstacle',
-    'FieldConfig',
-    'point_in_polygon',
-    'rect_contains',
-    'circle_contains',
-    'segment_contains',
-    'masks_from_field',
-]
 
 # 显式测试/仿真场地；不能用来替代缺失或损坏的 field.yaml。
 DEFAULT_FIELD: Dict[str, Any] = {

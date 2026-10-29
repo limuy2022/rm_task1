@@ -20,7 +20,6 @@ from typing import Optional
 
 from team43_common.time_utils import now
 
-__all__ = ['RunMeta', 'DEFAULT_META_NAME']
 
 DEFAULT_META_NAME: str = 'run_meta.json'
 

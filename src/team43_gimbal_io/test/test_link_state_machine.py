@@ -94,6 +94,22 @@ def test_keepalive_zero_frames_are_legal_and_continuous():
 # --------------------------------------------------------------------------------------
 # 故障与恢复
 # --------------------------------------------------------------------------------------
+def test_command_schedule_keeps_phase_under_timer_jitter():
+    """相邻回调抖动不能导致持续漏拍；长时间停顿也不补发积压指令。"""
+    clk = FakeClock()
+    lsm = _make(clk, cmd_period_s=0.02)
+    lsm.on_imu_frame()
+    start = clk()
+    assert lsm.cmd_due(start)
+    for i in range(1, 101):
+        t = start + i * 0.02 + (0.0002 if i % 2 else 0.0001)
+        assert lsm.cmd_due(t), f'第 {i} 拍被回调抖动丢弃'
+        assert not lsm.cmd_due(t)
+    assert lsm.cmd_due(start + 10.001)
+    assert not lsm.cmd_due(start + 10.001)
+    assert lsm.cmd_due(start + 10.0201)
+
+
 def test_fault_silence_then_recover_after_0_6s():
     clk = FakeClock()
     lsm = _make(clk)

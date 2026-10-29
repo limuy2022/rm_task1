@@ -43,15 +43,6 @@ from team43_common.math_utils import accel_limit, clamp, lowpass
 
 from team43_common.time_utils import now
 
-__all__ = [
-    'V_MAX',
-    'D_SLOW',
-    'D_STOP',
-    'A_MAX',
-    'LP_CUTOFF_HZ',
-    'LOST_DECAY_S',
-    'VelocityLaw',
-]
 
 # 默认参数（DESIGN §6.13 `chassis.*`）
 V_MAX: float = 0.5

@@ -45,6 +45,7 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 
 from sensor_msgs.msg import JointState
 from std_msgs.msg import UInt64
@@ -275,17 +276,20 @@ class GimbalBearingNode(Node):
 
 def main(args=None) -> int:
     """节点入口。"""
-    rclpy.init(args=args)
+    # 保留 Python 的 SIGINT 处理，让停止指令先于 ROS context 关闭。
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = GimbalBearingNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:  # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
         pass
     finally:
-        node.publish_stop()
+        if rclpy.ok():
+            node.publish_stop()
         node.shutdown_summary()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 

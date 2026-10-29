@@ -36,13 +36,6 @@ from PIL import Image, ImageDraw
 from .grid_builder import GridMap
 from .pgm_io import grid_to_pgm_image
 
-__all__ = [
-    'world_to_pixel',
-    'base_image',
-    'draw_preview',
-    'draw_tracked',
-    'downsample',
-]
 
 # 配色（R, G, B）
 C_OCC = (0, 0, 0)

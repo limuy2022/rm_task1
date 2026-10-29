@@ -10,8 +10,6 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import yaml
 
-__all__ = ['ConfigError', 'load_yaml', 'deep_get', 'require_keys']
-
 
 class ConfigError(RuntimeError):
     """配置文件缺失或结构非法（按 DESIGN §8.4：配置文件缺失应 FATAL 退出）。"""

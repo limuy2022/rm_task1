@@ -26,13 +26,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-__all__ = [
-    'HEAD', 'ADDR_PC2MCU', 'ADDR_MCU2PC', 'FUNC_OMEGA_CMD', 'FUNC_IMU',
-    'LEN_OF_FUNC', 'MAX_DATA_LEN', 'MAX_FRAME_LEN', 'BUF_LIMIT',
-    'ACC_SCALE', 'GYRO_SCALE', 'Q_SCALE',
-    'calc_verify', 'pack_frame', 'frame_ok', 'encode_omega', 'encode_imu',
-    'ImuFrame', 'decode_imu', 'FrameParser', 'ImuStreamMonitor',
-]
 
 # --------------------------------------------------------------------------------------
 # 常量
