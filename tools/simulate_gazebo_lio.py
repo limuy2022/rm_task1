@@ -35,7 +35,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from livox_ros_driver2.msg import CustomMsg, CustomPoint
 
-from team43_common.qos_utils import latched_qos, sensor_qos
+from team43_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from team43_grid_mapper.cloud_grid import pointcloud2_xyz
 from team43_grid_mapper.pgm_io import read_pgm
 from team43_gazebo.sensor_config import use_si_acceleration
@@ -99,7 +99,8 @@ class GazeboLio(Node):
         self.cmd_pub = self.create_publisher(Twist, NS+'/cmd_vel', 10)
         self.lidar_pub = self.create_publisher(CustomMsg, NS+'/livox/lidar', sensor_qos(10))
         self.create_subscription(PointCloud2, NS+'/lidar/points', self.on_cloud, sensor_qos(100))
-        self.create_subscription(Imu, NS+'/imu', self.on_imu, sensor_qos(1000))
+        # 独立观察端也协商重传，避免用自身漏收的序列作为覆盖率分母。
+        self.create_subscription(Imu, NS+'/imu', self.on_imu, reliable_qos(1000))
         self.create_subscription(PoseArray, NS+'/truth', self.on_truth, sensor_qos(1000))
         self.create_subscription(Odometry, NS+'/lio/aft_mapped_to_init', self.on_estimate, sensor_qos(1000))
         self.create_subscription(OccupancyGrid, NS+'/map', self.on_map, latched_qos())

@@ -14,7 +14,8 @@ from rclpy.qos import ReliabilityPolicy
 
 
 @pytest.mark.parametrize('reliable', [False, True])
-def test_backend_imu_reliability_is_explicit_opt_in(reliable):
+def test_backend_imu_reliability_is_explicit_opt_in(reliable, monkeypatch):
+    monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
     domain = 170 + os.getpid() % 40
     context = Context()
     rclpy.init(context=context, domain_id=domain)
