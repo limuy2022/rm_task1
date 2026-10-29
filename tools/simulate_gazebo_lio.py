@@ -35,12 +35,13 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from livox_ros_driver2.msg import CustomMsg, CustomPoint
 
-from team43_common.qos_utils import latched_qos, sensor_qos
+from team43_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from team43_grid_mapper.cloud_grid import pointcloud2_xyz
 from team43_grid_mapper.pgm_io import read_pgm
 from team43_gazebo.sensor_config import use_si_acceleration
 from team43_gazebo.input_audit import audit_received_inputs
 from team43_gazebo.process_shutdown import stop_processes
+from team43_gazebo.simulation_startup import wait_for_sensor_readers
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = '/sim/gazebo'
@@ -98,7 +99,8 @@ class GazeboLio(Node):
         self.cmd_pub = self.create_publisher(Twist, NS+'/cmd_vel', 10)
         self.lidar_pub = self.create_publisher(CustomMsg, NS+'/livox/lidar', sensor_qos(10))
         self.create_subscription(PointCloud2, NS+'/lidar/points', self.on_cloud, sensor_qos(100))
-        self.create_subscription(Imu, NS+'/imu', self.on_imu, sensor_qos(1000))
+        # 独立观察端也协商重传，避免用自身漏收的序列作为覆盖率分母。
+        self.create_subscription(Imu, NS+'/imu', self.on_imu, reliable_qos(1000))
         self.create_subscription(PoseArray, NS+'/truth', self.on_truth, sensor_qos(1000))
         self.create_subscription(Odometry, NS+'/lio/aft_mapped_to_init', self.on_estimate, sensor_qos(1000))
         self.create_subscription(OccupancyGrid, NS+'/map', self.on_map, latched_qos())
@@ -110,6 +112,7 @@ class GazeboLio(Node):
         config = yaml.safe_load((backend_share/'config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
         params.update(use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
+                      imu_qos_reliable=True,
                       input_audit_path=str(self.output/'input_audit.csv'),
                       space_downsample_leaf_size=.15, map_resolution=.15, max_distance=15.)
         use_si_acceleration(params)
@@ -242,6 +245,9 @@ class GazeboLio(Node):
                     '--ros-args', '-r', '/model/lidar_rig/pose:='+NS+'/truth'])
         env = os.environ.copy()
         env.pop('DISPLAY', None)
+        # 启动进程不等于 DDS 订阅已经建立；先等待两个实际接收端，
+        # 防止高负载下 Gazebo 首批 IMU 比后端发现更早到达。
+        wait_for_sensor_readers(self, (NS+'/livox/lidar', NS+'/imu'), self.pump)
         self.launch('gazebo', ['ign', 'gazebo', '-s', '-r', '--headless-rendering', '-v', '3', str(self.output/'world.sdf')], env)
         if self.record_bag:
             self.launch('bag', ['ros2', 'bag', 'record', '-o', str(self.output/'sensor_bag'),
