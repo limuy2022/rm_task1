@@ -23,7 +23,6 @@ from launch_ros.actions import Node
 # 只有用户在命令行上给了值，才覆盖 yaml；留空表示沿用 yaml。
 _OVERRIDES = {
     'port': str,
-    'baudrate': int,
     'imu_topic': str,
     'publish_tf': lambda s: s.lower() in ('1', 'true', 'yes'),
     'subscribe_cmd_vel': lambda s: s.lower() in ('1', 'true', 'yes'),

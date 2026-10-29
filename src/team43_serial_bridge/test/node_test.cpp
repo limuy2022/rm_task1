@@ -390,10 +390,6 @@ TEST(BridgeNode, ExclusiveOpenAndBadParams)
     std::runtime_error);
   EXPECT_THROW(
     std::make_shared<BridgeNode>(bridgeOptions("/dev/does_not_exist", {})), std::runtime_error);
-  // 波特率不支持
-  EXPECT_THROW(
-    std::make_shared<BridgeNode>(bridgeOptions(pty2.slave, {rclcpp::Parameter("baudrate", 12345)})),
-    std::runtime_error);
 }
 
 TEST(BridgeNode, PortAutoUsesRmSimSerial)

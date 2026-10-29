@@ -10,7 +10,6 @@
     # （99-gimbal.rules 按芯片匹配，同型号多颗时 /dev/gimbal 指向后插的那颗）。
     # 实机建议直接写 /dev/serial/by-id/<云台适配器的名字>，见 README“选口诊断”。
     port: auto
-    baudrate: 921600          # 8N1，无流控（第 2 节）
 
     # IMU 发布话题。赛题一要求云台 IMU 发布在 /red_standard_robot1/gimbal。
     imu_topic: /red_standard_robot1/gimbal

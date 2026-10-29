@@ -35,7 +35,7 @@ def _setup(context):
     if LaunchConfiguration('with_bridge').perform(context).lower() == 'true':
         nodes.append(Node(package='team43_serial_bridge', executable='robo_bridge_node',
             name='robo_bridge', output='screen', parameters=[{
-                'port': LaunchConfiguration('port').perform(context), 'baudrate': 921600,
+                'port': LaunchConfiguration('port').perform(context),
                 'subscribe_cmd_vel': True, 'publish_tf': False,
                 'imu_topic': '/red_standard_robot1/gimbal',
                 'cmd_vel_topic': '/team43_tracking/cmd_vel',

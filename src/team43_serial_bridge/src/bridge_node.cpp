@@ -20,6 +20,9 @@ namespace gimbal_serial
 namespace
 {
 
+// 通信契约第 2 节固定为 921600 bps、8N1、无流控。
+constexpr int kBaudrate = 921600;
+
 std::int64_t steadyNowNs()
 {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -54,7 +57,6 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader co
 : rclcpp::Node("robo_bridge", options), serial_(std::move(counter_reader))
 {
   const std::string port_param = declare_parameter<std::string>("port", "auto");
-  const int baud = static_cast<int>(declare_parameter<int>("baudrate", 921600));
   publish_tf_ = declare_parameter<bool>("publish_tf", true);
   const bool sub_cmd = declare_parameter<bool>("subscribe_cmd_vel", false);
   imu_topic_ = declare_parameter<std::string>("imu_topic", "/red_standard_robot1/gimbal");
@@ -82,7 +84,7 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader co
       choice.path.c_str(), env_port.c_str());
   }
   std::string err;
-  if (!serial_.open(choice.path, baud, err)) {
+  if (!serial_.open(choice.path, kBaudrate, err)) {
     throw SerialOpenError(
             "打开串口失败：" + err, SerialPort::isDeviceAbsentErrno(serial_.lastErrno()));
   }
@@ -97,7 +99,7 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader co
     get_logger(), "串口 %s（来源 %s）-> %s%s，%d 8N1，已独占。imu_axis_sign=(%g, %g, %g)",
     choice.path.c_str(), choice.source.c_str(),
     identity.resolved.empty() ? choice.path.c_str() : identity.resolved.c_str(),
-    identity_note.c_str(), baud, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
+    identity_note.c_str(), kBaudrate, axis_sign_[0], axis_sign_[1], axis_sign_[2]);
   if (identity.rule_chip_by_ids.size() >= 2) {
     std::string listing;
     for (const auto & name : identity.rule_chip_by_ids) {listing += " " + name;}

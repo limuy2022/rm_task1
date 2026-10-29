@@ -22,7 +22,7 @@ RM_SIM_SERIAL=/tmp/ttyVGIMBAL ros2 launch team43_serial_bridge gimbal_serial.lau
 ros2 launch team43_serial_bridge gimbal_serial.launch.py subscribe_cmd_vel:=true
 ```
 
-launch 参数留空就沿用 `config/bridge.yaml`。串口打不开时节点直接报错退出，launch 默认不重启（`respawn:=false`）。`respawn:=true` 只在设备文件还不存在（节点退出码 3）时每秒重试一次；端口被占用（EBUSY、EWOULDBLOCK）或参数非法（退出码 1）一律不重试，避免抢走别的节点刚释放的串口。
+串口按协议固定为 921600 bps、8N1、无流控，不提供波特率配置。launch 参数留空就沿用 `config/bridge.yaml`。串口打不开时节点直接报错退出，launch 默认不重启（`respawn:=false`）。`respawn:=true` 只在设备文件还不存在（节点退出码 3）时每秒重试一次；端口被占用（EBUSY、EWOULDBLOCK）或参数非法（退出码 1）一律不重试，避免抢走别的节点刚释放的串口。
 
 ## 赛题一对接
 
@@ -60,7 +60,6 @@ PTY 或驱动不支持该 ioctl 时只输出一次 INFO，继续串口收发；�
 ## 参数
 
 - `port`（默认 `auto`）：显式写路径时原样使用，此时 `RM_SIM_SERIAL` 被忽略，日志里会提醒。实机建议直接写 `/dev/serial/by-id/<云台适配器的名字>`，见上面的“选口诊断”。
-- `baudrate`（921600）：8N1，无流控，以 raw 配置为基础启用输入错误检查，见“UART 硬件错误诊断”。
 - `imu_topic`（`/red_standard_robot1/gimbal`）：IMU 发布话题，赛题一要求的名字。
 - `imu_axis_sign`（`[1, 1, 1]`）：只作用于 accel 和 gyro，不作用于 q。每项必须是 1 或 -1。
 - `publish_tf`（true）：TF 只能由 IMU 一方发布。
