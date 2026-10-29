@@ -23,10 +23,16 @@ def audit_received_inputs(report, output, lidar_stamps, imu_stamps):
             writer.writerows((t,) for t in lidar_stamps)
         with (output/'input_audit.csv').open() as stream:
             row = next(csv.DictReader(stream))
-        data = {key: float(value) if 'gap' in key else int(value) for key, value in row.items()}
+        data = {key: float(value) if 'gap' in key or 'stamp' in key else int(value)
+                for key, value in row.items()}
         data.update(lidar_published=len(lidar_stamps), imu_observed=len(imu_stamps),
                     lidar_published_max_gap_s=lidar_gap, imu_observed_max_gap_s=imu_gap,
-                    gap_comparison_tolerance_s=1e-6, sensor_qos_depth=200)
+                    gap_comparison_tolerance_s=1e-6, sensor_qos_depth=200,
+                    imu_qos_reliable=True)
+        data.update(lidar_source_first_stamp_s=lidar_stamps[0],
+                    lidar_source_last_stamp_s=lidar_stamps[-1],
+                    imu_source_first_stamp_s=imu_stamps[0],
+                    imu_source_last_stamp_s=imu_stamps[-1])
         checks = {
             'estimator_received_lidar': data['lidar_received'] >= .999*len(lidar_stamps),
             'estimator_received_imu': data['imu_received'] >= .999*len(imu_stamps),

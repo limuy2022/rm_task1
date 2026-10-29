@@ -85,7 +85,11 @@ class Backend : public rclcpp::Node {
         core_->on_point_cloud_callback(points);
         core_->handle_once();
       });
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(imu, qos,
+    // 实机默认仍使用传感器 QoS；离线仿真可与可靠桥接发布端协商重传，
+    // 避免共享 CPU 调度抖动造成不可重传的 IMU 丢样。
+    auto imu_qos = qos;
+    if (declare_parameter<bool>("imu_qos_reliable", false)) imu_qos.reliable();
+    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(imu, imu_qos,
       [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) {
         const double time = rclcpp::Time(msg->header.stamp).seconds();
         audit_.record(true, time);

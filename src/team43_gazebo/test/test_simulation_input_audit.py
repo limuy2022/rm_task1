@@ -27,6 +27,17 @@ def test_complete_input_with_source_jitter_passes(tmp_path):
         assert len(list(csv.DictReader(stream))) == 4
 
 
+def test_receiver_stamp_diagnostics_preserve_fractional_seconds(tmp_path):
+    report = run_audit(tmp_path, received={'imu_first_stamp_s': .005,
+                                          'imu_last_stamp_s': .015})
+    assert report['passed']
+    data = report['sensor_input_audit']
+    assert data['imu_first_stamp_s'] == .005
+    assert data['imu_last_stamp_s'] == .015
+    assert data['imu_source_first_stamp_s'] == 0.
+    assert data['imu_source_last_stamp_s'] == .015
+
+
 @pytest.mark.parametrize('received,failed', [
     ({'lidar_received': 3, 'lidar_max_gap_s': .226}, 'estimator_received_lidar'),
     ({'imu_received': 3}, 'estimator_received_imu'),
