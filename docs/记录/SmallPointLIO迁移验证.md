@@ -151,5 +151,5 @@ ros2 launch team43_lio_backend lio.launch.py
 原始算法数值没有修改；这轮验证聚焦原生构建、打包、环境依赖和启动，不代表真实
 MID360或比赛NUC已部署验收。
 
-`tools/visual_tracking/use_here.bash` 保留已加载的Livox环境，避免清除定位动态库。
+当时的 `tools/visual_tracking/use_here.bash` 保留已加载的Livox环境，避免清除定位动态库。该精简包入口现已移除，当前按[整体部署教程](../教程/整体部署.md)加载环境。
 测试容器只预装Livox依赖；定位包与其他项目源码一样通过colcon构建。

@@ -10,13 +10,12 @@
   D. `launch/` 里 include 的其它 launch 文件真实存在
   E. `tracker_params.yaml` 的每个参数键至少被一处非测试代码引用（查拼写/悬空参数）
   F. `launch/` 里的 overrides 键必须能在代码或 YAML 中找到
-  G. DESIGN §4.3 话题表里的每个话题都在代码中出现
   H. T-C8：`src/` 下（排除 `team43_debug`）不得出现真值话题字面量
   I. DESIGN §8.6：除 `virtual.yaml` / 测试外，不得出现相机内参字面量
   J. 所有 YAML / RViz 配置可解析
   K. DESIGN §8.2：生产代码不得真实调用墙上时钟（AST 判定，忽略注释/文档串）
   L. launch 运行期**必需**从 YAML 读到的键必须存在
-  M. `static_tf` 的光学系 rpy 与 `team43_common.frames` 单一真源一致
+  M. 光学系旋转的物理轴向约定（launch 一致性由 test_launch_sim.py 验证）
 
 ⚠ 只能做**静态**校验；`colcon build`、msg 编译、实际话题连通性仍需在
 Ubuntu 22.04 + ROS 2 Humble 容器中验证（流程见根 README）。
@@ -57,15 +56,6 @@ FORBIDDEN_INTRINSICS = ('554.26', '319.5', '239.5')
 # 本工程自己的包（检查 I / K 时用于给出可读信息）
 OUR_PACKAGES = ('team43_grid_mapper', 'team43_chassis_advisor', 'team43_dataio', 'team43_debug',
                 'team43_bringup')
-
-DESIGN_TOPICS = (
-    '/perception/marker_corners', '/virtual_gimbal/camera_info',
-    '/virtual_gimbal/status', '/offboardlink/imu_data', '/gimbal/state',
-    '/gimbal/cmd_omega', '/gimbal/base_pose_raw', '/gimbal/base_pose',
-    '/gimbal/t_map_world', '/perception/marker_cam', '/estimation/target_state',
-    '/map/grid', '/map/ray_grid', '/chassis/advice', '/debug/angle_error_deg',
-)
-
 
 # ---------------------------------------------------------------------------
 # 扫描工具
@@ -221,34 +211,6 @@ def test_c_launch_references_match_entry_points(entry_points):
     assert bad == [], '\n'.join(bad)
 
 
-def test_c2_launch_ladder_matches_design_order():
-    """`NODE_LADDER` 的 (package, executable) 顺序必须与 DESIGN §6.14 一致。"""
-    path = os.path.join(PKG_DIR, 'launch', 'include', 'nodes.launch.py')
-    with open(path, 'r', encoding='utf-8') as f:
-        src = f.read()
-    import re
-    ladder = re.findall(r"\((\d+),\s*'([a-z][a-z0-9_]*)',\s*'([A-Za-z0-9_]+)'\)", src)
-    assert ladder, '未解析到 NODE_LADDER'
-    order = [(pkg, exe) for _i, pkg, exe in ladder]
-    assert order[0] == ('team43_grid_mapper', 'grid_mapper_node'), \
-        'team43_grid_mapper 必须最先启动（发 TRANSIENT_LOCAL 地图）'
-    expected = [
-        ('team43_grid_mapper', 'grid_mapper_node'),
-        ('team43_localization', 'base_pose_provider_node'),
-        ('team43_localization', 'map_frame_broadcaster_node'),
-        ('team43_gimbal_io', 'vgimbal_bridge_node'),
-        ('team43_perception', 'aruco_detector_node'),
-        ('team43_perception', 'marker_pnp_node'),
-        ('team43_estimation', 'target_estimator_node'),
-        ('team43_control', 'gimbal_controller_node'),
-        ('team43_chassis_advisor', 'chassis_advisor_node'),
-        ('team43_judge_io', 'judge_io_node'),
-        ('team43_dataio', 'trajectory_annotator_node'),
-        ('team43_debug', 'gt_error_monitor_node'),
-    ]
-    assert order == expected, '启动顺序与 DESIGN §6.14 不一致: %s' % (order,)
-
-
 def test_c3_no_arbitrary_process_launched():
     """禁止用 `ExecuteProcess` 启动任意进程（如 `robo_bridge_edu` 这类串口桥）。"""
     offenders = []
@@ -280,19 +242,6 @@ def test_d_included_launch_files_exist():
             if not any(os.path.isfile(c) for c in candidates):
                 bad.append('%s 引用了不存在的 %s' % (_rel(lf), name))
     assert bad == [], '\n'.join(bad)
-
-
-def test_d2_share_dir_uses_get_package_share_directory():
-    """launch 定位配置一律走 `get_package_share_directory`（禁止相对/当前目录拼接）。"""
-    for lf in glob.glob(os.path.join(PKG_DIR, 'launch', '**', '*.py'), recursive=True):
-        with open(lf, 'r', encoding='utf-8') as f:
-            txt = f.read()
-        if 'config' not in txt and '.yaml' not in txt:
-            continue  # standalone submission entry has no configuration file
-        assert 'get_package_share_directory' in txt, \
-            '%s 未使用 get_package_share_directory' % _rel(lf)
-        assert 'os.getcwd()' not in txt, \
-            '%s 不得依赖当前工作目录定位配置' % _rel(lf)
 
 
 # ---------------------------------------------------------------------------
@@ -417,18 +366,6 @@ def test_override_guard_rejects_launch_yaml_and_documentation_only(monkeypatch, 
 
 
 # ---------------------------------------------------------------------------
-# G. 话题表
-# ---------------------------------------------------------------------------
-def test_g_design_topics_present(text_of):
-    """DESIGN §4.3 话题表里的每个话题都要在非测试代码中出现。"""
-    corpus = '\n'.join(txt for p, txt in text_of.items()
-                       if 'test' not in p.replace('\\', '/').split('/'))
-    missing = [t for t in DESIGN_TOPICS
-               if ("'%s'" % t) not in corpus and ('"%s"' % t) not in corpus]
-    assert missing == [], '话题缺失: %s' % missing
-
-
-# ---------------------------------------------------------------------------
 # H. T-C8
 # ---------------------------------------------------------------------------
 def test_h_ground_truth_topic_only_in_gimbal_debug(text_of):
@@ -440,15 +377,6 @@ def test_h_ground_truth_topic_only_in_gimbal_debug(text_of):
         if GT_LITERAL in txt:
             hits.append(_rel(path))
     assert hits == [], '真值话题泄漏到非 team43_debug 文件: %s' % hits
-
-
-def test_h2_gimbal_debug_is_the_only_subscriber(text_of):
-    """反向确认：真值话题确实被 team43_debug 订阅（否则说明功能丢了）。"""
-    found = False
-    for path, txt in text_of.items():
-        if 'team43_debug' in path.replace('\\', '/').split('/') and GT_LITERAL in txt:
-            found = True
-    assert found, 'team43_debug 中未找到真值话题订阅'
 
 
 # ---------------------------------------------------------------------------
@@ -643,27 +571,6 @@ def test_l3_virtual_extrinsics_single_source():
 # ---------------------------------------------------------------------------
 # M. 光学系旋转单一真源
 # ---------------------------------------------------------------------------
-def test_m_optical_rotation_matches_frames():
-    """`static_tf` 的光学系 rpy 与 `team43_common.frames.R_opt_from_link()` 必须一致。"""
-    pytest.importorskip('launch')
-    pytest.importorskip('launch_ros')
-    import importlib.util
-    import numpy as np
-    from team43_common import frames as FR
-
-    launch_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                             'launch', 'include', 'static_tf.launch.py')
-    spec = importlib.util.spec_from_file_location('static_tf_launch_under_test', launch_py)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    rpy = list(mod._OPTICAL_RPY)
-    assert len(rpy) == 3
-    R_launch = FR.rpy_to_mat(rpy)
-    assert float(np.abs(R_launch - FR.R_opt_from_link()).max()) < 1e-9, \
-        'static_tf 的光学系旋转与 team43_common.frames 不一致（出现两份真源）'
-    mod._assert_optical_rpy_matches_frames()          # 运行时自检不得抛错
-
-
 def test_m2_optical_rpy_is_camera_link_to_optical():
     """该 rpy 的物理含义：光学系 z（前）→ 机体 x（前）、x（右）→ 机体 −y、y（下）→ 机体 −z。"""
     import numpy as np

@@ -4,10 +4,10 @@
 
 当前已有独立图像跟踪程序：ArUco → 图像偏差 → P/PI/PD/PID → 两轴角速度 → C++ 串口桥。它不等待地图或底盘定位；默认运动关闭。云台通信已确认 ttyUSB0、IMU 轴 [1,1,1]；新相机 K/D 已更新。真实转动效果仍待 NUC 试验。
 
-按[云台跟踪教程](docs/教程/云台跟踪.md)将源码包装到自己的独立 NUC 目录后运行：
+按[整体部署教程](docs/教程/整体部署.md)上传完整项目并在本队独立目录编译，加载环境后可启动云台跟踪：
 
 ```bash
-bash "$HOME/ws_championship/src/43-visual-tracking/run_here.bash" target_id:=0
+ros2 launch team43_bringup visual_tracking.launch.py target_id:=0
 ```
 
 默认只看不动；真实串口模式加 `with_bridge:=true port:=/dev/ttyUSB0`，由人在参数终端开启 motion_enabled。停止在启动终端 Ctrl+C，或设置 motion_enabled=false。先做 3 秒单轴方向试验，再做两轴。参数默认值、调整现象和保存方法见[调参检查清单](docs/教程/上机调参检查清单.md)。
@@ -16,7 +16,7 @@ bash "$HOME/ws_championship/src/43-visual-tracking/run_here.bash" target_id:=0
 
 Gazebo 场景、网格模型与仿真辅助模块由 [`team43_gazebo`](src/team43_gazebo/README.md) 包安装；SDF 使用 `package://` 引用模型，source 工作区后自动配置资源搜索路径。运动插件仍只在可选 `gazebo-sim` 镜像中构建。
 
-本队队号为 **43**。自有软件包统一使用 `team43_<功能>`，源码目录、ROS 包名、Python 模块名保持一致；部署 ZIP 内也保留相同目录名。第三方子模块和 vendor 源码保留上游名称及许可证。
+本队队号为 **43**。自有软件包统一使用 `team43_<功能>`，源码目录、ROS 包名、Python 模块名保持一致；完整项目归档中也保留相同目录名。第三方子模块和 vendor 源码保留上游名称及许可证。
 
 | 软件包 | 职责 |
 |---|---|
@@ -36,7 +36,7 @@ Gazebo 场景、网格模型与仿真辅助模块由 [`team43_gazebo`](src/team4
 | `team43_debug` | 仿真调试与误差监测 |
 | `team43_bringup` | 启动配置与系统集成 |
 
-跟踪话题使用 `/team43_tracking/*`，建图话题使用 `/team43/*`；默认提交文件为 `43.csv` 和 `43_map.pgm/yaml`。迁移后应从源码重新构建并加载新安装空间，NUC 上仍按教程只构建自己的独立源码包。
+跟踪话题使用 `/team43_tracking/*`，建图话题使用 `/team43/*`；默认提交文件为 `43.csv` 和 `43_map.pgm/yaml`。迁移后应从源码重新构建并加载新安装空间，NUC 上按整体部署教程只构建本队独立目录中的 src。
 
 验证命令与产物位置见[测试运行指南](docs/教程/测试运行指南.md)；既有测试成绩见[回归历史](docs/记录/测试与控制回归历史.md)。原始实验产物不提交 Git。
 
@@ -44,7 +44,8 @@ Gazebo 场景、网格模型与仿真辅助模块由 [`team43_gazebo`](src/team4
 
 ## 文档导航
 
-- **[云台跟踪教程](docs/教程/云台跟踪.md)**：把源码包装到独立 NUC 目录运行；配套[上机调参检查清单](docs/教程/上机调参检查清单.md)（参数默认值、现象与保存方法）。
+- **[整体部署教程](docs/教程/整体部署.md)**：完整项目压缩、上传、独立构建与环境加载。
+- **[云台跟踪教程](docs/教程/云台跟踪.md)**：加载整体项目后进行云台试转；配套[上机调参检查清单](docs/教程/上机调参检查清单.md)（参数默认值、现象与保存方法）。
 - **[云台台架试转步骤](docs/教程/云台台架试转步骤.md)**：bearing_bench / bearing_hardware 台架与整车试转手册。
 - **[相机标定](docs/教程/相机标定.md)**与**[坐标外参与整车接入](docs/教程/坐标外参与整车接入.md)**：内参标定、外参测量与整车接入。
 - **[底盘定位与点云建图](docs/教程/底盘定位与点云建图.md)**：Point-LIO + cloud_mapping 建图流程。

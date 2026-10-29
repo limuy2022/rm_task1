@@ -11,7 +11,6 @@
 | 独立集成仿真 | `run_simulation_ci.sh`：`navigation` / `submission` / `gazebo_lio` / `gazebo_vision` |
 | CSV 格式检查 / 对照真值评分 | `check_csv.py` / `score_csv.py` |
 | 云台闭环产物评分 | `score_bearing_sim.py` |
-| 源码包生成 | `make_visual_tracking_bundle.py --output /tmp/43-visual-tracking.zip` |
 | 相机标定 / 标定比较 / 参考 PnP | `run_camera_calibration.py` / `compare_calibrations.py` / `run_reference_pnp.bash` |
 | 现场只读检查 / 判轴观察 | `inspect_nuc.py` / `watch_gimbal_axes.py` |
 | 预测精度 / 写盘时延基线 | `benchmark_prediction.py` / `benchmark_submission_realtime.py` |
@@ -23,7 +22,6 @@
 - `submission_test_source.py`、`observe_submission.py`：隔离域的合成提交源与独立 CSV 观察器；供 DDS 验收和现场教程调用。
 - `simulate_navigation.py`、`simulate_gazebo_lio.py`、`simulate_gazebo_vision.py`：不同输入层次的仿真运行器。
 - Gazebo 场景、模型、插件源码和辅助模块位于 [`src/team43_gazebo`](../src/team43_gazebo/README.md)，验收入口仍在本目录。
-- `visual_tracking/`：交付源码包中的编译、环境和启动脚本。
 - `verify_protocol_offline.cpp`：由同名 Python 入口编译，包含 sanitizer 与 PTY 核验。
 
 ## 维护约定
@@ -33,4 +31,3 @@
 运行的验收保留为工具入口。不要按整改日期继续增加模块测试脚本。
 
 2026-10-21 迁移的六个旧入口及其新位置见[迁移表](../docs/教程/测试运行指南.md)。
-源码包使用稳定目录 `43-visual-tracking`；实际 Git 基线、未提交状态和逐文件哈希写入 `manifest.json`。

@@ -19,16 +19,7 @@ B 先用自己的 GitHub 账号接受这个私有仓库的协作邀请。A 的 2
 
 B 在自己的 GitHub Desktop：已有本地 rm_task1 就 Fetch origin → Pull origin；没有就 File → Clone repository，填 `https://github.com/limuy2022/rm_task1.git`。下载后打开 docs/教程，当前先看云台跟踪.md 和上机调参检查清单.md；轮到建图/评分再打开对应独立教程。
 
-去实验室时，A 另把最新版 `43-visual-tracking.zip` 发给 B。B 用 Windows 上的 NoMachine 把它上传到 NUC，照云台跟踪教程解压/编译。这个 ZIP 由源码生成，不必提交进 Git；保留本机输出文件夹里的最新一个就够了。
-
-## 如需自己重新打包
-
-在个人电脑仓库根目录（不是公用 NUC）输入：
-
-```bash
-python3 tools/make_visual_tracking_bundle.py --output /tmp/43-visual-tracking.zip
-```
-
-Windows 的 Python 命令可能是 py，输出位置换自己能找到的路径。工具只打包源码和教程，不启动 ROS 或硬件。生成后再传 NUC；不要把 Mac 上的 build/install 当 Linux 可执行文件发送。
-
-源码包使用稳定目录名 `43-visual-tracking`。`manifest.json` 的 `source_base` 记录打包时的实际 Git 提交，`source_dirty` 表示是否包含未提交修改；逐文件 SHA256 对应实际打包内容。脱离 Git 的源码副本将两个版本字段记为 `null`，不冒用历史提交。旧包仍保留原目录，新包请按当前教程路径使用。
+去实验室时，A 将完整项目源码压缩后交给 B。按[整体部署教程](整体部署.md)
+准备归档、上传到 NUC 并在本队独立目录编译，不再生成专用精简源码包。
+归档需包含已检出的子模块与 vendor 源码，排除 build/install/log、缓存和实验产物。
+压缩包不提交 Git，也不传输个人电脑上的编译产物。

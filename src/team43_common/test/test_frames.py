@@ -291,7 +291,14 @@ def test_timeout_hold():
     assert to.update(True, t=0.4) is False
 
 
-def test_monotonic_now_is_monotonic():
-    a = T.now()
-    b = T.now()
-    assert b >= a
+def test_now_uses_monotonic_clock(monkeypatch):
+    """统一入口必须返回单调时钟读数，不能误用墙上时钟或固定值。"""
+    readings = iter((123.25, 123.75))
+    monkeypatch.setattr(T.time, 'monotonic', lambda: next(readings))
+
+    def forbidden_wall_clock():
+        pytest.fail('统一时钟不得读取 time.time()')
+
+    monkeypatch.setattr(T.time, 'time', forbidden_wall_clock)
+    assert T.now() == 123.25
+    assert T.now() == 123.75

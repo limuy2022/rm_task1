@@ -26,6 +26,7 @@ import importlib.util
 import json
 import math
 import os
+from pathlib import Path
 from typing import Any
 from typing import Dict
 from typing import List
@@ -312,6 +313,39 @@ def _shutdown_periods(entries: List[Any],
 def _arg_of(args: List[str], flag: str) -> str:
     """取 `--flag value` 里的 value。"""
     return args[args.index(flag) + 1]
+
+
+# ---------------------------------------------------------------------------
+# 已安装配置路径
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize('launch_file,params_arg', [
+    ('competition.launch.py', 'params_file'),
+    ('sim.launch.py', 'params_file'),
+    ('mapping.launch.py', 'params_file'),
+    ('include/nodes.launch.py', 'params_file'),
+    ('include/static_tf.launch.py', 'tracker_params'),
+])
+def test_default_configs_resolve_from_install_outside_workspace(
+        tmp_path, monkeypatch, launch_file, params_arg):
+    """从无关目录启动时，配置仍指向已安装包，忽略当前目录的同名文件。"""
+    from ament_index_python.packages import get_package_share_directory
+
+    decoy = tmp_path / 'config'
+    decoy.mkdir()
+    for name in ('tracker_params.yaml', 'virtual.yaml', 'field.yaml'):
+        (decoy / name).write_text('无效配置: [', encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+    mod = _load_launch_module(launch_file, 'lf_config_paths')
+    defaults = _declared_args(mod.generate_launch_description())
+    config = Path(get_package_share_directory('team43_bringup')) / 'config'
+    expected = {params_arg: 'tracker_params.yaml', 'virtual_yaml': 'virtual.yaml'}
+    if launch_file in ('competition.launch.py', 'sim.launch.py', 'mapping.launch.py'):
+        expected['field_yaml'] = 'field.yaml'
+    for argument, filename in expected.items():
+        path = Path(defaults[argument])
+        assert path.is_absolute()
+        assert path == config / filename
+        assert isinstance(yaml.safe_load(path.read_text(encoding='utf-8')), dict)
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(_SRC_DIR, 'team43_common'))
 
 from team43_common import config_loader as CL  # noqa: E402
 from team43_perception.marker_source import (  # noqa: E402
-    RawMarker, SingleTopicMarkerSource, make_marker_source,
+    SingleTopicMarkerSource, make_marker_source,
 )
 from team43_perception.noise_model import NoiseModel  # noqa: E402
 from team43_perception.pnp_solver import (  # noqa: E402
@@ -293,12 +293,6 @@ def test_marker_source_factory():
     # P1 源可实例化，但 poll 明确报未实现
     with pytest.raises(NotImplementedError):
         make_marker_source('multi_topic').poll()
-
-
-def test_raw_marker_defaults():
-    m = RawMarker()
-    assert m.n_corners == 4
-    assert m.valid
 
 
 # --------------------------------------------------------------------------------------

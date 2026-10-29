@@ -8,7 +8,7 @@ team43_interfaces 等生成的消息包）：
 |---|---|---|
 | `test_launch_sim.py` | `launch/*.launch.py` 的 `_launch_setup` | 真 launch 模块加载 + LaunchContext 内省生成的 action |
 | `test_node_itest.py` | `team43_debug/gt_error_monitor_node.py` | 真 rclpy/真消息类型 + 手动定时器注入节点 |
-| `test_consistency.py` | 全工程静态一致性 | 纯文本/AST 扫描（entry_points、话题、参数、禁用字面量、墙上时钟） |
+| `test_consistency.py` | 全工程静态一致性 | 纯文本/AST 扫描（entry_points、参数、禁用字面量、墙上时钟） |
 
 设计要点
 --------
