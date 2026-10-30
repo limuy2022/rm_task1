@@ -5,7 +5,7 @@
 ```
 读取 config/virtual.yaml（内参+外参）→ 传给 static_tf.launch.py 与 perception
 读取 config/field.yaml             → team43_grid_mapper
-读取 config/tracker_params.yaml    → 各节点
+读取各包 config/tracker_defaults.yaml + bringup/config/tracker_params.yaml → 各节点
 节点：team43_grid_mapper → base_pose_provider → map_frame_broadcaster → vgimbal_bridge
       → marker_pnp → target_estimator → gimbal_controller → team43_chassis_advisor
       → judge_io → trajectory_annotator [→ gt_error_monitor(可选)]
@@ -14,7 +14,7 @@ TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mis
 
 用法::
 
-    # 默认：参数全部取自 tracker_params.yaml（仿真/虚拟云台环境可直接跑通）
+    # 默认：功能包默认参数 + tracker_params.yaml 共享配置（仿真/虚拟云台环境可直接跑通）
     ros2 launch team43_bringup competition.launch.py
 
     # 正式赛机（串口在 /dev/gimbal、底盘位姿来自主办方 odom）
@@ -29,7 +29,7 @@ TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mis
         extra_params:="perception.marker_size_m=0.105;judge.team_id=T7"
 
 **单一数据源**：本文件刻意把大部分 launch 参数默认留空 = 「不覆盖」，
-即沿用 `config/tracker_params.yaml` 的值；只有场地文件路径与任务时长会被显式注入，
+即沿用各功能包默认值与 `config/tracker_params.yaml` 的共享值；只有场地文件路径与任务时长会被显式注入，
 以保证 launch 与节点看到同一份配置。
 
 运行环境：Ubuntu 22.04 / ROS2 Humble。
@@ -43,7 +43,7 @@ from typing import Any
 from typing import Dict
 from typing import List
 
-import yaml
+from team43_common.config_loader import load_ros_params
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -85,16 +85,6 @@ def _as_bool(text: Any, default: bool = False) -> bool:
     if s in ('0', 'false', 'no', 'off', 'n', 'f'):
         return False
     raise ValueError(f'非法布尔参数: {text!r}')
-
-
-def _flat_params(path: str) -> Dict[str, Any]:
-    """读取实际参数；缺文件、坏 YAML 和错误结构直接终止启动。"""
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
-    params = data['/**']['ros__parameters']
-    if not isinstance(params, dict):
-        raise ValueError('需要 /**: ros__parameters: 参数映射')
-    return params
 
 
 def _put_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
@@ -193,7 +183,7 @@ def _parse_extra_params(text: Any) -> Dict[str, Any]:
 def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[Any]:
     """读取 YAML、组装参数覆盖、include 节点清单。"""
     params_file = LaunchConfiguration('params_file').perform(context)
-    flat = _flat_params(params_file)
+    flat = load_ros_params(params_file)
 
     # ---- 路径类参数：launch 参数留空时，回退到 `tracker_params.yaml` 的 config.* 键
     #      （单一数据源；路径一律按 share/config 解析，不使用相对路径）
@@ -302,7 +292,7 @@ def generate_launch_description() -> LaunchDescription:
     """主入口 LaunchDescription。"""
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=_default_config('tracker_params.yaml'),
-                              description='§6.13 全表参数文件'),
+                              description='整车共享/自定义覆盖参数文件'),
         DeclareLaunchArgument('virtual_yaml', default_value=_default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源（空 = 用 config.virtual_yaml）'),
         DeclareLaunchArgument('field_yaml', default_value=_default_config('field.yaml'),

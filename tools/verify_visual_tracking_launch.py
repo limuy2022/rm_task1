@@ -5,6 +5,11 @@ from types import SimpleNamespace
 import os
 
 ROOT=Path(__file__).resolve().parents[1]
+
+def package_config(package, filename='tracker_defaults.yaml'):
+    path = ROOT/'src'/package/'config'/filename
+    assert path.is_file(), path
+    return str(path)
 class Action:
     def __init__(self,**kw): self.__dict__.update(kw)
 class Config:
@@ -14,7 +19,7 @@ class Config:
 def main():
     tree=ast.parse((ROOT/'src/team43_bringup/launch/visual_tracking.launch.py').read_text())
     tree.body=[n for n in tree.body if not isinstance(n,(ast.Import,ast.ImportFrom))]
-    ns=dict(os=os,get_package_share_directory=lambda _:str(ROOT/'src/team43_bringup'),
+    ns=dict(os=os,package_config=package_config,get_package_share_directory=lambda _:str(ROOT/'src/team43_bringup'),
         LaunchConfiguration=Config,Node=Action,RegisterEventHandler=lambda e:e,
         OnProcessExit=Action,EmitEvent=Action,Shutdown=Action,
         LaunchDescription=lambda x:x,DeclareLaunchArgument=lambda name,**kw:Action(name=name,**kw),

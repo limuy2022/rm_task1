@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import setup
 
 package_name = 'team43_gimbal_io'
@@ -10,6 +11,7 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     description='虚拟云台串口桥：收包解码 + 100Hz 指令下发 + 链路状态机。',

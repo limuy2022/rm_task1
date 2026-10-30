@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import setup
 
 package_name = 'team43_localization'
@@ -10,6 +11,7 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     description='底盘位姿源（odom/mock）+ map 系 t0 冻结与广播。',

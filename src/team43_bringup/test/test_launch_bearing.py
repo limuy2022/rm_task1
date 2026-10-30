@@ -107,20 +107,20 @@ def test_bench_node_set_and_injection():
     # 感知节点：tracker + bench + epoch/target 覆盖 + 相机内参覆盖
     for exe in ('aruco_detector_node', 'marker_pnp_node'):
         params = by_exe[exe]['parameters']
-        assert params[0].endswith(os.path.join('config', 'tracker_params.yaml'))
-        assert params[1].endswith(os.path.join('config', 'vehicle_bench.yaml'))
-        assert params[2] == {'kinematics.calibrated_epoch': 7,
+        assert params[1].endswith(os.path.join('config', 'tracker_params.yaml'))
+        assert params[2].endswith(os.path.join('config', 'vehicle_bench.yaml'))
+        assert params[3] == {'kinematics.calibrated_epoch': 7,
                              'perception.target_digit': 3}
-        assert params[3] == {'config.virtual_yaml': CAMERA_TEAM43}, \
+        assert params[4] == {'config.virtual_yaml': CAMERA_TEAM43}, \
             'camera_config 必须真正注入感知节点'
 
     # bearing 节点：开关覆盖键存在（值由 ParameterValue 延迟求值）
     bearing_params = by_exe['gimbal_bearing_node']['parameters']
-    assert set(bearing_params[3]) == {'control.bearing.enabled',
+    assert set(bearing_params[4]) == {'control.bearing.enabled',
                                       'control.bearing.geometry_verified'}
     # 其余节点只吃 tracker+bench+epoch/target
-    assert by_exe['gimbal_kinematics_node']['parameters'][:3] == \
-        by_exe['aruco_detector_node']['parameters'][:3]
+    assert by_exe['gimbal_kinematics_node']['parameters'][1:4] == \
+        by_exe['aruco_detector_node']['parameters'][1:4]
 
 
 def test_bench_rejects_bad_epoch_target_camera():
@@ -214,10 +214,10 @@ def test_hw_node_set_with_measured_config(tmp_path):
     by_exe = {exe: kw for _t, _p, exe, kw in got}
     for exe in ('aruco_detector_node', 'marker_pnp_node'):
         params = by_exe[exe]['parameters']
-        assert params[0].endswith(os.path.join('config', 'tracker_params.yaml'))
-        assert params[1] == cfg and params[1].endswith('vehicle_measured.yaml'), \
+        assert params[1].endswith(os.path.join('config', 'tracker_params.yaml'))
+        assert params[2] == cfg and params[2].endswith('vehicle_measured.yaml'), \
             '实测整车配置必须注入'
-        assert params[2] == {'config.virtual_yaml': CAMERA_TEAM43,
+        assert params[3] == {'config.virtual_yaml': CAMERA_TEAM43,
                              'perception.target_digit': 3}
 
 
@@ -231,7 +231,7 @@ def test_hw_rejects_bad_target(tmp_path):
 # 3. cloud_mapping.launch.py
 # ---------------------------------------------------------------------------
 def _cm_args(**over):
-    args = {'params_file': os.path.join(CONFIG_DIR, 'cloud_mapping.yaml'),
+    args = {'params_file': os.path.join(PKG_DIR, '..', 'team43_grid_mapper', 'config', 'cloud_mapping.yaml'),
             'lio_params_file': LIO_PARAMS, 'floor_z': '0.0',
             'floor_confirmed': 'false',
             'output_dir': '/tmp/cm_out'}
@@ -262,7 +262,7 @@ def test_cm_single_node_namespace_and_injection():
 
     params = view['parameters']
     assert len(params) == 2
-    assert SIM._perform(ctx, params[0]) == os.path.join(CONFIG_DIR, 'cloud_mapping.yaml')
+    assert SIM._perform(ctx, params[0]) == os.path.join(PKG_DIR, '..', 'team43_grid_mapper', 'config', 'cloud_mapping.yaml')
     over = params[1]
     assert over['sensor_origin_in_body'] == pytest.approx(offset), \
         '光心偏移必须来自 Point-LIO extrinsic_T，不得手抄'

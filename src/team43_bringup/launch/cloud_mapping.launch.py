@@ -1,6 +1,6 @@
 """Only cloud->grid; uses already running Point-LIO. No sensor/motor/TF node."""
 import os
-import yaml
+from team43_common.config_loader import load_ros_params
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -11,9 +11,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def _setup(context):
     lio_file=LaunchConfiguration('lio_params_file').perform(context)
-    with open(lio_file,encoding='utf-8') as f:
-        cfg=yaml.safe_load(f)['/**']['ros__parameters']
-    mapping=cfg
+    mapping=load_ros_params(lio_file)
     if bool(mapping.get('extrinsic_est_en',False)):
         raise ValueError('cloud mapper requires fixed LIO extrinsic_T; estimated extrinsic is not in Odometry')
     offset=[float(x) for x in mapping['extrinsic_T']]
@@ -29,7 +27,7 @@ def _setup(context):
 
 
 def generate_launch_description():
-    share=get_package_share_directory('team43_bringup')
+    share=get_package_share_directory('team43_grid_mapper')
     return LaunchDescription([
         DeclareLaunchArgument('params_file',default_value=os.path.join(share,'config','cloud_mapping.yaml')),
         DeclareLaunchArgument('lio_params_file',default_value=os.path.join(get_package_share_directory('team43_lio_backend'),'config','small_point_lio_mid360.yaml')),

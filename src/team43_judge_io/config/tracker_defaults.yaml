@@ -1,0 +1,18 @@
+# team43_judge_io 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- judge（赛题一输出契约）----------------
+    # 路径：~/ws_championship/output/<队伍编号>.csv 与 <队伍编号>_map.pgm/.yaml
+    judge.team_id: "43"
+    judge.output_dir: ~/ws_championship/output
+    judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
+    judge.enforce_v_floor: false        # advisor已保留非零速度；不把接近减速重新抬至0.30
+    judge.v_floor: 0.30
+    judge.stop_radius_m: 0.45
+    judge.watchdog_period_s: 0.2
+    judge.late_warn_s: 0.05             # 单行写盘耗时告警（官方作废线80ms；此项只测回调写盘耗时）
+    judge.map_save_period_s: 10.0       # 周期保存，防意外中断
+    judge.map_idle_save_s: 0.7          # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
+    judge.map_occupied_thresh: 0.65
+    judge.map_free_thresh: 0.196
+

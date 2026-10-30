@@ -23,7 +23,7 @@ from typing import Any
 from typing import List
 from typing import Sequence
 
-import yaml
+from team43_common.config_loader import load_yaml
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -70,17 +70,6 @@ def _as_bool(text: Any, default: bool = False) -> bool:
 def _num(v: Any) -> str:
     """数值转字符串（给 static_transform_publisher 的命令行参数用）。"""
     return repr(float(v))
-
-
-def _load_yaml_required(path: str) -> dict:
-    """加载 YAML；缺失/非法直接抛错（DESIGN §8.4：配置文件缺失 = FATAL）。"""
-    if not path or not os.path.isfile(path):
-        raise RuntimeError(f'配置文件缺失: {path!r}（DESIGN §8.4 规定为 FATAL）')
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
-    if not isinstance(data, dict):
-        raise RuntimeError(f'配置文件内容不是映射: {path!r}')
-    return data
 
 
 def _vec3(value: Any, label: str) -> List[float]:
@@ -145,7 +134,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 
     _assert_optical_rpy_matches_frames()
 
-    vcfg = _load_yaml_required(virtual_yaml)
+    vcfg = load_yaml(virtual_yaml, allow_empty=False)
     ex = vcfg.get('extrinsics')
     if not isinstance(ex, dict):
         raise RuntimeError(f'{virtual_yaml!r} 缺少 extrinsics 段（DESIGN §10）')
@@ -167,7 +156,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     ]
 
     if publish_mount:
-        tcfg = _load_yaml_required(tracker_params)
+        tcfg = load_yaml(tracker_params, allow_empty=False)
         params = tcfg.get('/**', {}).get('ros__parameters', {}) if isinstance(
             tcfg.get('/**'), dict) else {}
         mount = params.get('localization.gimbal_mount_xyz_rpy')

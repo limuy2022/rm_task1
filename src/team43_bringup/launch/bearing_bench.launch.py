@@ -62,6 +62,7 @@ docs/教程/云台台架试转步骤.md
 from __future__ import annotations
 
 import os
+from team43_bringup.parameter_files import package_config
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -115,18 +116,18 @@ def _setup(context):
     nodes = [
         hardware,
         Node(package='team43_localization', executable='base_pose_provider_node',
-             name='base_pose_provider_node', output='screen', parameters=common),
+             name='base_pose_provider_node', output='screen', parameters=[package_config('team43_localization'), *common]),
         Node(package='team43_perception', executable='aruco_detector_node',
              name='aruco_detector_node', output='screen',
-             parameters=common + [vision_overrides]),
+             parameters=[package_config('team43_perception'), *common] + [vision_overrides]),
         Node(package='team43_perception', executable='marker_pnp_node',
              name='marker_pnp_node', output='screen',
-             parameters=common + [vision_overrides]),
+             parameters=[package_config('team43_perception'), *common] + [vision_overrides]),
         Node(package='team43_localization', executable='gimbal_kinematics_node',
-             name='gimbal_kinematics_node', output='screen', parameters=common),
+             name='gimbal_kinematics_node', output='screen', parameters=[package_config('team43_localization'), *common]),
         Node(package='team43_control', executable='gimbal_bearing_node',
              name='gimbal_bearing_node', output='screen',
-             parameters=common + [bearing_overrides]),
+             parameters=[package_config('team43_control'), *common] + [bearing_overrides]),
     ]
     return [LogInfo(msg='[bearing_bench] 台架试转（静止底盘+真串口）：epoch=%d '
                         'target=%d；台架假设见 vehicle_bench.yaml 头注；四道开关'

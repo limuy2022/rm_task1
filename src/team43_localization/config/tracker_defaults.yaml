@@ -1,0 +1,23 @@
+# team43_localization 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- localization（底盘与 map 系）----------------
+    localization.base_pose_source: odom # mock | odom（正式赛用 odom）
+    localization.odom_topic: /odom
+    localization.odom_source: topic     # topic | tf（tf 为 P1）
+    localization.odom_timeout_s: 0.5
+    localization.publish_base_tf: true  # odom 模式下默认 false
+    localization.publish_map_odom: true # 静态 TF map->odom
+    localization.publish_world_odom: false
+    localization.mock_motion: static    # static | sine | circle
+    localization.mock_origin_xy: [0.0, 0.0]
+    localization.mock_yaw0: 0.0
+    localization.mock_amp_xy: [1.0, 0.5]
+    localization.mock_radius: 1.5
+    localization.mock_freq: 0.1
+    # 赛题一：给定点 = 回放起点（/judge/replay_start）时底盘的位姿
+    localization.origin_mode: judge_replay_start  # judge_replay_start | base_init(显式仿真)
+    localization.origin_timeout_s: 5.0            # 保留兼容参数，不做超时原点回退
+    localization.origin_settle_s: 0.5
+    localization.base_pose_rate_hz: 50.0
+

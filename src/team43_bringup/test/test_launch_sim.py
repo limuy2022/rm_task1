@@ -446,15 +446,16 @@ def test_static_tf_missing_yaml_is_fatal():
 def test_launch_rejects_missing_or_broken_parameter_file(tmp_path, launch_file):
     """配置读取失败必须终止；不能用空覆盖字典继续启动。"""
     mod = _load_launch_module(launch_file, 'lf_required_params_'+launch_file.split('.')[0])
-    with pytest.raises(FileNotFoundError):
-        mod._flat_params(str(tmp_path / 'missing.yaml'))
+    from team43_common.config_loader import ConfigError
+    with pytest.raises(ConfigError):
+        mod.load_ros_params(str(tmp_path / 'missing.yaml'))
     path = tmp_path / 'broken.yaml'
     path.write_text('/**: [broken', encoding='utf-8')
     with pytest.raises(yaml.YAMLError):
-        mod._flat_params(str(path))
+        mod.load_ros_params(str(path))
     path.write_text('/**:\n  ros__parameters: []\n', encoding='utf-8')
-    with pytest.raises(ValueError):
-        mod._flat_params(str(path))
+    with pytest.raises(ConfigError):
+        mod.load_ros_params(str(path))
 
 
 @pytest.mark.parametrize('launch_file', [
@@ -527,10 +528,13 @@ def test_nodes_inject_params_and_use_sim_time():
     entries, ctx = _nodes_setup('params')
     for _t, _pkg, _exe, kw in _collect_nodes(entries, ctx):
         params = kw['parameters']
-        assert params[0] == TRACKER_PARAMS
-        assert isinstance(params[1], dict)
-        assert params[1]['use_sim_time'] is False
-        assert params[1]['serial.port'] == '/dev/gimbal'
+        if _pkg != 'team43_dataio':
+            assert params[0].endswith('/%s/config/tracker_defaults.yaml' % _pkg)
+            assert os.path.isfile(params[0])
+        assert params[-2] == TRACKER_PARAMS
+        assert isinstance(params[-1], dict)
+        assert params[-1]['use_sim_time'] is False
+        assert params[-1]['serial.port'] == '/dev/gimbal'
         assert kw['name'] == kw['executable']
 
 
@@ -541,7 +545,7 @@ def test_nodes_gt_monitor_off_by_default():
     assert 'gt_error_monitor_node' not in [e for _t, _p, e, _kw in got]
     assert len(got) == len(EXPECTED_ORDER)
     for _t, _p, _e, kw in got:
-        assert kw['parameters'][1]['debug.enable_gt_monitor'] is False
+        assert kw['parameters'][-1]['debug.enable_gt_monitor'] is False
 
 
 def test_nodes_gt_monitor_and_rviz_on():
@@ -553,7 +557,7 @@ def test_nodes_gt_monitor_and_rviz_on():
     assert 'rviz2' in exes
     gt = [kw for _t, _p, e, kw in got if e == 'gt_error_monitor_node'][0]
     assert gt['package'] == 'team43_debug'
-    assert gt['parameters'][1]['debug.enable_gt_monitor'] is True
+    assert gt['parameters'][2]['debug.enable_gt_monitor'] is True
     rv = [kw for _t, _p, e, kw in got if e == 'rviz2'][0]
     assert rv['package'] == 'rviz2'
     assert rv['arguments'][0] == '-d'
@@ -740,8 +744,8 @@ def test_mapping_only_grid_mapper():
     assert len(nodes) == 1
     kw = nodes[0]
     assert (kw['package'], kw['executable']) == ('team43_grid_mapper', 'grid_mapper_node')
-    over = kw['parameters'][1]
-    assert kw['parameters'][0] == TRACKER_PARAMS
+    over = kw['parameters'][2]
+    assert kw['parameters'][1] == TRACKER_PARAMS
     assert over['grid.field_yaml'] == FIELD_YAML
     assert over['grid.map_source'] == 'config'
     assert over['use_sim_time'] is False
@@ -757,7 +761,7 @@ def test_mapping_exit_after_build_and_maps_dir():
     periods = _shutdown_periods(entries, ctx)
     assert periods and periods[-1][0] == pytest.approx(5.0)
     over = [_node_view(ctx, e) for e in entries
-            if isinstance(e, Node)][0]['parameters'][1]
+            if isinstance(e, Node)][0]['parameters'][2]
     assert over['grid.out_dir'] == 'maps_out'
 
 

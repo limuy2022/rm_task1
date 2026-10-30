@@ -1,15 +1,13 @@
 """Check explicit measured configuration before the data-processing launch."""
 from pathlib import Path
-import yaml
+from team43_common.config_loader import load_ros_params
 from team43_localization.gimbal_kinematics import GimbalKinematics
 from team43_localization.odometry_geometry import rigid_transform
 
 
 def load_vehicle_config(path):
     path = Path(path).expanduser().resolve()
-    with path.open(encoding='utf-8') as stream: data = yaml.safe_load(stream)
-    params = data['/**']['ros__parameters']
-    if not isinstance(params, dict): raise ValueError('参数必须为字典')
+    params = load_ros_params(path)
     for key in ('kinematics.calibration_confirmed', 'kinematics.joint_zero_known',
                 'kinematics.mounted_on_base_confirmed', 'localization.sensor_extrinsics_confirmed',
                 'localization.parent_transform_confirmed', 'estimation.geometry_confirmed'):

@@ -82,13 +82,14 @@ geometry_verified           相机-云台旋转外参实测确认后置 true
 kp 与 omega_max → 遮挡测试停止行为。每步通过判据见手册 B5 表格；
 仿真证据与坑（残留进程、延迟-增益稳定性、日志修复）见
 docs/验证/轴承闭环仿真验证.md。正式默认值集中在
-config/tracker_params.yaml 的 control.bearing.* 段；仿真专用参数隔离在
+team43_control/config/tracker_defaults.yaml 的 control.bearing.* 段；仿真专用参数隔离在
 config/vehicle_sim.yaml，不照抄到实机。
 """
 
 from __future__ import annotations
 
 import os
+from team43_bringup.parameter_files import package_config
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -141,15 +142,15 @@ def _setup(context):
         hardware,
         Node(package='team43_perception', executable='aruco_detector_node',
              name='aruco_detector_node', output='screen',
-             parameters=common + [vision_overrides]),
+             parameters=[package_config('team43_perception'), *common] + [vision_overrides]),
         Node(package='team43_perception', executable='marker_pnp_node',
              name='marker_pnp_node', output='screen',
-             parameters=common + [vision_overrides]),
+             parameters=[package_config('team43_perception'), *common] + [vision_overrides]),
         Node(package='team43_localization', executable='gimbal_kinematics_node',
-             name='gimbal_kinematics_node', output='screen', parameters=common),
+             name='gimbal_kinematics_node', output='screen', parameters=[package_config('team43_localization'), *common]),
         Node(package='team43_control', executable='gimbal_bearing_node',
              name='gimbal_bearing_node', output='screen',
-             parameters=common + [bearing_overrides]),
+             parameters=[package_config('team43_control'), *common] + [bearing_overrides]),
     ]
     return [LogInfo(msg='[bearing_hardware] 实机轴承闭环组合：开关默认全关，'
                         '按 D5 检查单分步打开 allow_command_subscription → '

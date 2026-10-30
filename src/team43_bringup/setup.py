@@ -28,7 +28,7 @@ setup(
         (os.path.join('share', PACKAGE_NAME, 'rviz'), glob('rviz/*.rviz')),
     ],
     install_requires=['setuptools'],
-    description='一键启动与本工程全部配置（launch / YAML / RViz）',
+    description='一键启动与整车共享配置（launch / YAML / RViz）',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={

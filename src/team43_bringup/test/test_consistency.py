@@ -89,7 +89,13 @@ def params_yaml() -> Dict[str, Any]:
     """`tracker_params.yaml` 的 `/**/ros__parameters`。"""
     with open(TRACKER_PARAMS, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    return data['/**']['ros__parameters']
+    params = data['/**']['ros__parameters']
+    from pathlib import Path
+    for path in Path(SRC_DIR).glob('team43_*/config/tracker_defaults.yaml'):
+        values = yaml.safe_load(path.read_text(encoding='utf-8'))['/**']['ros__parameters']
+        assert not params.keys() & values.keys(), '默认参数不应重复定义'
+        params.update(values)
+    return params
 
 
 @pytest.fixture(scope='module')

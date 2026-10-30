@@ -1,0 +1,19 @@
+# team43_debug 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- debug（仅自有仿真使用，正式比赛不启动）----------------
+    # 真值话题名只写在 team43_debug 内部常量里（DESIGN §8.7 / T-C8：
+    # `src/` 下除 team43_debug 之外不得出现该话题名字面量），故此处不设 gt_topic 键。
+    debug.convergence_window_s: 2.0     # 收敛「保持」窗口 = 收敛时间上限
+    debug.convergence_tol_deg: 2.0      # 收敛容差
+    debug.rms_max_deg: 2.0
+    debug.max_deg: 5.0
+    debug.duration_s: 30.0
+    debug.min_samples: 50
+    debug.sample_rate_hz: 100.0         # 采样与 /debug/angle_error_deg 发布频率
+    debug.post_convergence_skip_s: 2.0  # RMS/max 统计跳过收敛段（PRD §6.1）
+    debug.require_swing: false          # true 时摆幅 < 半视场判 invalid（hardware_spec §5）
+    debug.error_topic: /debug/angle_error_deg
+    debug.path_topic: /debug/target_path
+    debug.gimbal_origin_xyz: [0.0, 0.0, 0.0]   # 云台原点在 world 的位置（虚拟云台为原点）
+

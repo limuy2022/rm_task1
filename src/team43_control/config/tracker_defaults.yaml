@@ -1,0 +1,46 @@
+# team43_control 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- control（云台控制律）----------------
+    control.kp_yaw: 6.0
+    control.kp_pitch: 6.0
+    control.kd_yaw: 0.5
+    control.kd_pitch: 0.5
+    control.enabled: false
+    control.search_enabled: false
+    control.world_geometry_verified: false
+    control.ff_gain: 0.0
+    control.omega_max_yaw: 2.0
+    control.omega_max_pitch: 2.0
+    control.omega_slew: 15.0
+    control.rate_hz: 100.0
+    control.lost_timeout_s: 0.3
+    control.search_after_s: 0.5
+    control.search_amp_yaw: 0.25
+    control.search_freq: 0.5
+    control.wide_search_after_s: 5.0
+    control.wide_amp_yaw: 1.4
+    control.wide_search_freq: 0.25
+    control.wide_amp_pitch: 0.2
+    control.aim_mode: cur               # cur | pred
+    control.height_cutoff_hz: 8.0       # 目标高度 z 的低通截止（P0 辅助通道，见 T03 说明）
+    # 水平半视场：搜索幅值上限的来源。**不在此处写死内参**（DESIGN §8.6 单一数据源）。
+    # 0 = 自动从 config.virtual_yaml 的 camera.width/camera.fx 计算 atan(width/2/fx)；
+    # 两个都 >0 时才作为显式覆盖（调试用）。
+    control.camera_fx: 0.0
+    control.camera_width: 0.0
+    # --- control.bearing（相机方位闭环 gimbal_bearing_node；审计 P0 控制ROS接入）---
+    # 实机完整操作手册见 launch/bearing_hardware.launch.py 文件头（上机前置、
+    # 三步启动、四道安全开关、运行时调参速查）；仿真验证证据见
+    # docs/验证/轴承闭环仿真验证.md。
+    # 与 control.enabled（旧 world 控制器）互斥：两个节点同发 /gimbal/cmd_omega，
+    # launch 层保证同时只启动一个。
+    control.bearing.enabled: false            # ⚠ 操作员开关；上机按 D5 检查单分步打开
+    control.bearing.geometry_verified: false  # ⚠ 相机-云台旋转外参已实测确认的操作员断言
+    control.bearing.max_age_s: 0.15           # 观测最大龄（源 stamp 折算）
+    control.bearing.joint_timeout_s: 0.2      # 关节角最大龄（kinematics.max_age_s 同量级）
+    control.bearing.rate_hz: 50.0             # 指令频率（>20Hz 协议要求；50Hz 与适配器一致）
+
+
+    # 本包独占的云台限位/故障参数。
+    gimbal.limit_margin: 0.20

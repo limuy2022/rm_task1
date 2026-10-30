@@ -1,0 +1,27 @@
+# team43_chassis_advisor 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- chassis（底盘建议）----------------
+    chassis.v_max: 0.5
+    chassis.d_slow: 1.0
+    chassis.d_stop: 0.15
+    chassis.w_ang: 1.0
+    chassis.w_obs: 100.0
+    chassis.w_unk: 10.0
+    chassis.n_dirs: 13
+    chassis.dir_span_deg: 75.0
+    chassis.lookahead_m: 1.0
+    chassis.a_max: 1.0
+    chassis.lp_cutoff_hz: 5.0
+    chassis.lost_decay_s: 2.0
+    chassis.cmd_frame: map              # map | base_link
+    chassis.rate_hz: 50.0
+    # --- 赛题一方向项（权重 0.2，误差(度)/180）-------------------------
+    chassis.dir_mode: analytic          # analytic（连续解析）| quantized（旧 13 方向 12.5°）
+    chassis.dir_lookahead_m: 1.0        # 官方规定射线最长 1 m
+    chassis.dir_block_unknown: true     # 未观测区域不当作可通过空地
+    chassis.map_timeout_s: 0.0          # 静态锁存地图不失效；实时建图配置可设5秒
+    chassis.dir_use_pred: false         # false=朝目标当前位置，true=朝预测位置
+    chassis.v_floor: 0.30               # 远离目标时 |v| 下限（官方 <0.02 判停车记满分误差）
+    chassis.stop_radius_m: 0.45         # 与官方 0.5 m 判据留 0.05 m 余量
+

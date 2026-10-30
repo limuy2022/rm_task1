@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+from team43_bringup.parameter_files import package_config
 from typing import Any
 from typing import Dict
 from typing import List
@@ -192,7 +193,8 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
             name=exe,
             output='screen',
             emulate_tty=True,
-            parameters=_node_params(params_file, overrides, use_sim_time),
+            parameters=([package_config(pkg)] if pkg != 'team43_dataio' else [])
+                       + _node_params(params_file, overrides, use_sim_time),
         )
         if exe == _CRITICAL_EXECUTABLE:
             bridge_action = node
@@ -235,7 +237,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('params_file',
                               default_value=_default_config('tracker_params.yaml'),
-                              description='§6.13 全表参数文件（通过 /** 通配符注入所有节点）'),
+                              description='整车共享/自定义覆盖参数文件（通过 /** 通配符注入所有节点）'),
         DeclareLaunchArgument('virtual_yaml',
                               default_value=_default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),

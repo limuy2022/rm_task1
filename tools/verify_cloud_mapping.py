@@ -20,6 +20,8 @@ import yaml
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src/team43_grid_mapper'))
+sys.path.insert(0,str(ROOT/'src/team43_common'))
+from team43_common.config_loader import load_ros_params
 from team43_grid_mapper.cloud_grid import CloudGrid, PoseHistory, pointcloud2_xyz, rotation_xyzw
 from team43_grid_mapper.grid_builder import FREE, UNKNOWN, OCCUPIED
 from team43_grid_mapper.pgm_io import write_map, read_grid, read_pgm
@@ -279,7 +281,7 @@ def launch_check(tmp):
     class LC:
         def __init__(self,key):self.key=key
         def perform(self,context):return context[self.key]
-    scope={'yaml':yaml,'LaunchConfiguration':LC,'ParameterValue':lambda value,**kw:value,
+    scope={'load_ros_params':load_ros_params,'LaunchConfiguration':LC,'ParameterValue':lambda value,**kw:value,
            'Node':lambda **kw:kw}
     exec(compile(ast.Module(body=[function],type_ignores=[]),'cloud_mapping.launch.py','exec'),scope)
     original=ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml'

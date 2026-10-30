@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import os
+from team43_bringup.parameter_files import package_config
 from typing import List
 
 from ament_index_python.packages import get_package_share_directory
@@ -68,9 +69,9 @@ def _setup(context) -> list:
                                              'imu_ready_delay': 1.0,
                                              'gt_tf_rate_hz': 50.0, 'status_rate_hz': 10.0}])
     base_pose = Node(package='team43_localization', executable='base_pose_provider_node',
-                     name='base_pose_provider_node', output='screen', parameters=src_params)
+                     name='base_pose_provider_node', output='screen', parameters=[package_config('team43_localization'), *src_params])
     bridge = Node(package='team43_gimbal_io', executable='vgimbal_bridge_node',
-                  name='vgimbal_bridge_node', output='screen', parameters=src_params)
+                  name='vgimbal_bridge_node', output='screen', parameters=[package_config('team43_gimbal_io'), *src_params])
     vision = Node(package='virtual_gimbal', executable='virtual_vision', name='virtual_vision',
                   output='screen', parameters=[camera_config, {
                       'vision_mode': 'corners', 'synthetic_image': True,
@@ -82,14 +83,14 @@ def _setup(context) -> list:
                       'marker_size': 0.10, 'marker_id': target_id,
                       'rate_hz': 10.0, 'gt_rate_hz': 30.0}])
     detector = Node(package='team43_perception', executable='aruco_detector_node',
-                    name='aruco_detector_node', output='screen', parameters=src_params,
+                    name='aruco_detector_node', output='screen', parameters=[package_config('team43_perception'), *src_params],
                     remappings=[('/image_raw', '/virtual_gimbal/image_raw')])
     pnp = Node(package='team43_perception', executable='marker_pnp_node',
-               name='marker_pnp_node', output='screen', parameters=src_params)
+               name='marker_pnp_node', output='screen', parameters=[package_config('team43_perception'), *src_params])
     kinematics = Node(package='team43_localization', executable='gimbal_kinematics_node',
-                      name='gimbal_kinematics_node', output='screen', parameters=src_params)
+                      name='gimbal_kinematics_node', output='screen', parameters=[package_config('team43_localization'), *src_params])
     bearing = Node(package='team43_control', executable='gimbal_bearing_node',
-                   name='gimbal_bearing_node', output='screen', parameters=src_params)
+                   name='gimbal_bearing_node', output='screen', parameters=[package_config('team43_control'), *src_params])
 
     ladder: List[Node] = [mcu, base_pose, bridge, vision, detector, pnp, kinematics, bearing]
     actions: list = [LogInfo(msg='[bearing_sim] 轴承闭环仿真：目标 ID=%d，静态目标 '
@@ -129,7 +130,7 @@ def generate_launch_description():
     share = _share_dir('team43_bringup')
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=os.path.join(share, 'config',
-                            'tracker_params.yaml'), description='§6.13 全表参数'),
+                            'tracker_params.yaml'), description='整车共享/自定义覆盖参数'),
         DeclareLaunchArgument('vehicle_config', default_value=os.path.join(share, 'config',
                             'vehicle_sim.yaml'), description='仿真整车配置（标定开关=真值模型）'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share, 'config',

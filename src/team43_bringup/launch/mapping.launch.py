@@ -21,11 +21,12 @@
 from __future__ import annotations
 
 import os
+from team43_bringup.parameter_files import package_config
 from typing import Any
 from typing import Dict
 from typing import List
 
-import yaml
+from team43_common.config_loader import load_ros_params
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -57,16 +58,6 @@ def _share_config(name: str) -> str:
     return os.path.join(_share_dir(), 'config', os.path.basename(str(name)))
 
 
-def _flat_params(path: str) -> Dict[str, Any]:
-    """读取实际参数；缺文件、坏 YAML 和错误结构直接终止启动。"""
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
-    params = data['/**']['ros__parameters']
-    if not isinstance(params, dict):
-        raise ValueError('需要 /**: ros__parameters: 参数映射')
-    return params
-
-
 def _default_rviz() -> str:
     """share/rviz/gimbal_tracker.rviz 默认路径。"""
     return os.path.join(_share_dir(), 'rviz', 'gimbal_tracker.rviz')
@@ -87,7 +78,7 @@ def _as_bool(text: Any, default: bool = False) -> bool:
 def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[Any]:
     """组装 team43_grid_mapper 的独立建图流程。"""
     params_file = LaunchConfiguration('params_file').perform(context)
-    flat = _flat_params(params_file)
+    flat = load_ros_params(params_file)
 
     virtual_yaml = str(LaunchConfiguration('virtual_yaml').perform(context)).strip()
     if virtual_yaml == '':
@@ -128,7 +119,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
             name=_EXECUTABLE,
             output='screen',
             emulate_tty=True,
-            parameters=[params_file, over],
+            parameters=[package_config('team43_grid_mapper'), params_file, over],
         ),
     ]
 
@@ -154,7 +145,7 @@ def generate_launch_description() -> LaunchDescription:
     """建图入口 LaunchDescription。"""
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=_default_config('tracker_params.yaml'),
-                              description='§6.13 全表参数文件'),
+                              description='整车共享/自定义覆盖参数文件'),
         DeclareLaunchArgument('virtual_yaml', default_value=_default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),
         DeclareLaunchArgument('field_yaml', default_value=_default_config('field.yaml'),

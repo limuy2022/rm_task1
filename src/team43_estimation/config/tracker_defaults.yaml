@@ -1,0 +1,22 @@
+# team43_estimation 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- estimation（目标状态估计）----------------
+    estimation.jerk_std: 1.0
+    estimation.predict_dt: 0.1
+    estimation.max_dt: 0.5
+    estimation.nis_gate: 16.81
+    estimation.reinit_jump_m: 1.0
+    estimation.p_max_trace: 100.0
+    estimation.init_sigma_p: 0.05
+    estimation.init_sigma_v: 1.0
+    estimation.init_sigma_a: 5.0
+    estimation.rate_hz: 100.0
+    estimation.cv_degrade_enable: false # P1
+    # track_status 的观测新鲜度阶梯（DESIGN §4.2）：
+    #   age ≤ track_fresh_s → 1（新鲜）；≤ lost_timeout_s → 2（外推）；> → 0（丢失）
+    estimation.geometry_confirmed: false
+    estimation.max_observation_delay_s: 0.3
+    estimation.track_fresh_s: 0.1
+    estimation.lost_timeout_s: 0.5
+

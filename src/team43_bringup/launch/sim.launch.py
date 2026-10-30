@@ -50,7 +50,7 @@ def generate_launch_description() -> LaunchDescription:
     args: List[DeclareLaunchArgument] = [
         DeclareLaunchArgument('params_file',
                               default_value=_default_config('tracker_params.yaml'),
-                              description='§6.13 全表参数文件'),
+                              description='整车共享/自定义覆盖参数文件'),
         DeclareLaunchArgument('virtual_yaml',
                               default_value=_default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),

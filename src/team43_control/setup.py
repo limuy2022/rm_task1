@@ -1,5 +1,6 @@
 """ament_python 安装声明：team43_control。"""
 
+from glob import glob
 from setuptools import setup
 
 PACKAGE_NAME = 'team43_control'
@@ -11,6 +12,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + PACKAGE_NAME]),
         ('share/' + PACKAGE_NAME, ['package.xml']),
+        ('share/' + PACKAGE_NAME + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     description='云台控制：前馈+PD 控制律 + 限幅 + 搜索模式',

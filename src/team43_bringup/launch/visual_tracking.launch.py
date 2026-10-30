@@ -4,6 +4,7 @@ No drivers, LIO, TF, world controller, hardware adapter, Nav2 or judge output.
 with_bridge=true opens a serial port: only a person on the NUC should run it.
 """
 import os
+from team43_bringup.parameter_files import package_config
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, EmitEvent
@@ -23,9 +24,9 @@ def _setup(context):
         'perception.marker_corners_topic': '/team43_tracking/marker_corners',
         'perception.image_topic': '/image_raw', 'perception.camera_info_source': 'yaml'}]
     detector = Node(package='team43_perception', executable='aruco_detector_node',
-        name='aruco_detector_node', namespace='team43_tracking', parameters=common, output='screen')
+        name='aruco_detector_node', namespace='team43_tracking', parameters=[package_config('team43_perception'), *common], output='screen')
     pnp = Node(package='team43_perception', executable='marker_pnp_node', name='marker_pnp_node',
-        namespace='team43_tracking', parameters=common, output='screen',
+        namespace='team43_tracking', parameters=[package_config('team43_perception'), *common], output='screen',
         remappings=[('/perception/marker_cam', '/team43_tracking/marker_cam')])
     controller = Node(package='team43_control', executable='visual_servo_node',
         name='visual_servo_node', namespace='team43_tracking', output='screen',
@@ -58,7 +59,7 @@ def generate_launch_description():
         DeclareLaunchArgument('with_bridge', default_value='false'),
         DeclareLaunchArgument('with_debug', default_value='false'),
         DeclareLaunchArgument('debug_csv', default_value=''),
-        DeclareLaunchArgument('controller_params', default_value=os.path.join(share, 'config', 'visual_tracking.yaml')),
+        DeclareLaunchArgument('controller_params', default_value=package_config('team43_control', 'visual_tracking.yaml')),
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share, 'config', 'camera_team43.yaml')),
         OpaqueFunction(function=_setup)])
