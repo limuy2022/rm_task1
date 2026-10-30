@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/gazebosim/ros_gz",
+  "branch": "humble",
+  "commit": "28e586a3d41f80f4a91e81902b8618c9d506022c",
+  "url": "https://api.github.com/repos/gazebosim/ros_gz/tarball/28e586a3d41f80f4a91e81902b8618c9d506022c",
+  "archive_sha256": "bf88be8c6aac9de0abdf4fc7745a1dbbcf3fcb1b948ad656999cfe61f8fc56b6",
+  "patch": "ros_gz-shutdown.patch",
+  "patch_origin": "https://github.com/gazebosim/ros_gz/pull/977",
+  "patch_source_commit": "83e0aac02e7a2c6ad5a158e7273b0ae336335c2c",
+  "patch_sha256": "eb04a75899008d7c94caeb513a0f7cef0cd4d1512bfa86c7ec26be34f6df704a",
+  "说明": "上游原始源码归档，保留全部版权与许可证；仅在 gazebo-sim 镜像编译 ros_gz_bridge，包含 #956，并回移 #977 的 factory.hpp 和 parameter_bridge.cpp 修复"
+}

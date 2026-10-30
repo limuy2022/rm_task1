@@ -2,6 +2,8 @@
 *
 !archives/
 !archives/livox_ros_driver2.tar.gz
+!archives/ros_gz-humble.tar.gz
+!archives/ros_gz-shutdown.patch
 !tools/
 !tools/ros_entrypoint.bash
 !src/

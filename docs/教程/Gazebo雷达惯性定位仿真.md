@@ -14,6 +14,15 @@
 Livox驱动和消息单独归档于 `archives/livox_ros_driver2.tar.gz`，保留原始内容与
 许可证；镜像不启动硬件驱动。所有构建产物位于容器临时目录，不用pip覆盖系统库。
 
+可选 `gazebo-sim` 镜像从 `archives/ros_gz-humble.tar.gz` 编译桥接覆盖层，
+固定上游 Humble 提交 `28e586a3d41f80f4a91e81902b8618c9d506022c`，
+包含 [上游 #956](https://github.com/gazebosim/ros_gz/pull/956) 的节点循环引用修复，
+并用 `ros_gz-shutdown.patch` 回移 [#977](https://github.com/gazebosim/ros_gz/pull/977)
+的 ROS→Gazebo 回调引用修复与显式 shutdown。
+apt 0.244.25 在 SIGINT 收尾时可能因中间件未释放而段错误；仍要求所有进程
+退出码为零。归档来源与校验和见同目录 `.source.json`，入口自动加载
+`/opt/ros_gz/install/setup.bash`，不修改实机 ROS 环境。
+
 ## 2 标准场景与自定义场景
 
 标准回归使用 `src/team43_gazebo/worlds/lio_room_regression.sdf`：8×6m房间、地面、天花板、

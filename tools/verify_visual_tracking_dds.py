@@ -152,9 +152,13 @@ def main():
             report['checks']['disabled_is_silent'] = True
 
             probe.arm(True)
-            probe.wait(lambda: len(probe.commands) >= 8)
+            # 开启时控制器清空 PID，首条新观测算出速度前允许零速前缀。
+            # 仍须实际收到八条运动帧，并检查所有帧的方向、限幅及运动连续性。
+            probe.wait(lambda: sum(y != 0. or p != 0. for _, y, p in probe.commands) >= 8)
+            first_motion = next(i for i, (_, y, p) in enumerate(probe.commands)
+                                if y != 0. or p != 0.)
             assert all(y < 0 < p and max(abs(y), abs(p)) <= .250001
-                       for _, y, p in probe.commands), probe.commands
+                       for _, y, p in probe.commands[first_motion:]), probe.commands
             report['checks']['image_to_pnp_and_serial_direction'] = True
             for message in probe.observations:
                 if message.valid:

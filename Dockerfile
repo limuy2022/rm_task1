@@ -55,6 +55,20 @@ RUN apt-get update \
       libtbb-dev libglm-dev libomp-dev libgl1 libgl1-mesa-dri libegl1-mesa \
  && rm -rf /var/lib/apt/lists/*
 FROM gazebo-deps AS gazebo-sim
+# Humble apt 0.244.25 尚未包含上游 #956 的桥接节点循环引用修复；
+# 固定上游提交，并回移 #977 的回调引用与显式 shutdown 修复。
+COPY archives/ros_gz-humble.tar.gz /tmp/ros_gz-humble.tar.gz
+COPY archives/ros_gz-shutdown.patch /tmp/ros_gz-shutdown.patch
+RUN echo 'bf88be8c6aac9de0abdf4fc7745a1dbbcf3fcb1b948ad656999cfe61f8fc56b6  /tmp/ros_gz-humble.tar.gz' | sha256sum -c - \
+ && mkdir -p /opt/ros_gz/src \
+ && tar -xzf /tmp/ros_gz-humble.tar.gz -C /opt/ros_gz/src --strip-components=1 \
+ && git -C /opt/ros_gz/src apply /tmp/ros_gz-shutdown.patch \
+ && rm /tmp/ros_gz-humble.tar.gz /tmp/ros_gz-shutdown.patch \
+ && /bin/bash -c 'source /opt/ros/humble/setup.bash && \
+    MAKEFLAGS="-j2" colcon --log-base /tmp/ros_gz_log build --base-paths /opt/ros_gz/src/ros_gz_bridge \
+      --build-base /tmp/ros_gz_build --install-base /opt/ros_gz/install \
+      --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF' \
+ && rm -rf /tmp/ros_gz_build /tmp/ros_gz_log /opt/ros_gz/src
 COPY --from=livox-runtime /opt/livox /opt/livox
 COPY tools/ros_entrypoint.bash /team43_ros_entrypoint.bash
 ENTRYPOINT ["bash", "/team43_ros_entrypoint.bash"]
