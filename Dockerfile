@@ -14,7 +14,7 @@
 #              --install-base /tmp/ci --symlink-install &&
 #       source /tmp/ci/setup.bash &&
 #       colcon --log-base /tmp/clog test --build-base /tmp/cb \
-#              --install-base /tmp/ci --packages-select team43_serial_bridge &&
+#              --install-base /tmp/ci --packages-select team43_serial_bridge team43_lio_backend &&
 #       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
 #       python3 -B -m pytest -q src --import-mode=importlib &&
 #       python3 -B tools/verify_all_offline.py --skip-pytest'

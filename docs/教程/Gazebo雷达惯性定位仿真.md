@@ -3,6 +3,10 @@
 链路：Gazebo Fortress三维雷达和IMU → Livox消息 → Small Point-LIO原始核心
 → 世界系点云、IMU body位姿 → 生产建图节点。真值只用于评价，不输入定位算法。
 
+仿真默认使用 `--lidar-format pointcloud2`，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
+后端默认 `--backend-format auto` 自动识别并走 PointCloud2 接收路径；报告记录输入 `lidar_format` 与后端 `backend_format`。
+需要对比旧输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
+
 ## 1 算法与环境
 
 普通包 `src/team43_lio_backend` 直接包含 Small Point-LIO ROS 2 提交
@@ -65,7 +69,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
     source /tmp/ci/setup.bash &&
     export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
     python3 -B tools/simulate_gazebo_lio.py \
-      --output-dir build/offline/gazebo_lio_01 --record-bag'
+      --output-dir build/offline/gazebo_lio_01 --lidar-format pointcloud2 --record-bag'
 ```
 
 输出目录必须不存在，重复运行换新编号。软件渲染不传显卡或宿主显示器；不要

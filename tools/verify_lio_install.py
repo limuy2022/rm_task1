@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import struct
 import time
 
 import rclpy
@@ -15,13 +16,15 @@ from rclpy.qos import qos_profile_sensor_data
 from ament_index_python.packages import get_package_share_directory
 from livox_ros_driver2.msg import CustomMsg, CustomPoint
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Imu, PointCloud2
+from sensor_msgs.msg import Imu, PointCloud2, PointField
 import yaml
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--lidar-format', choices=('custom', 'pointcloud2'), default='custom')
+    parser.add_argument('--backend-format', choices=('auto', 'custom', 'pointcloud2'), default='auto')
     args = parser.parse_args()
     if os.environ.get('ROS_LOCALHOST_ONLY') != '1' or not os.environ.get('ROS_DOMAIN_ID'):
         parser.error('仅允许在ROS_LOCALHOST_ONLY=1及独立ROS_DOMAIN_ID的测试容器运行')
@@ -38,7 +41,8 @@ def main():
     poses, clouds = [], []
     node.create_subscription(Odometry, '/lio_install_test/aft_mapped_to_init', poses.append, qos_profile_sensor_data)
     node.create_subscription(PointCloud2, '/lio_install_test/cloud_registered', clouds.append, qos_profile_sensor_data)
-    lidar = node.create_publisher(CustomMsg, '/lio_install_test/lidar', qos_profile_sensor_data)
+    lidar_type = PointCloud2 if args.lidar_format == 'pointcloud2' else CustomMsg
+    lidar = node.create_publisher(lidar_type, '/lio_install_test/lidar', qos_profile_sensor_data)
     imu = node.create_publisher(Imu, '/lio_install_test/imu', qos_profile_sensor_data)
     points = []
     for a in range(-10, 11):
@@ -52,9 +56,11 @@ def main():
     log = (output/'launch.log').open('w')
     process = subprocess.Popen(['ros2', 'launch', 'team43_lio_backend', 'lio.launch.py',
                                'namespace:=lio_install_test', 'lidar_topic:=/lio_install_test/lidar',
+                               'lidar_format:='+args.backend_format,
                                'imu_topic:=/lio_install_test/imu', 'params_file:='+str(path)],
                               cwd=output, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    report = {'hardware_accessed': False, 'package_share': str(share)}
+    report = {'hardware_accessed': False, 'package_share': str(share), 'lidar_format': args.lidar_format,
+              'backend_format': args.backend_format}
     start = time.monotonic()
     next_imu = next_lidar = start
     try:
@@ -70,11 +76,29 @@ def main():
                 next_imu = now+.005
             if now >= next_lidar:
                 stamp = node.get_clock().now()
-                msg = CustomMsg()
-                msg.header.stamp = stamp.to_msg()
-                msg.timebase = stamp.nanoseconds
-                msg.points = points
-                msg.point_num = len(points)
+                if args.lidar_format == 'custom':
+                    msg = CustomMsg()
+                    msg.header.stamp = stamp.to_msg()
+                    msg.timebase = stamp.nanoseconds
+                    for i, point in enumerate(points):
+                        point.offset_time = i * 10000
+                    msg.points = points
+                    msg.point_num = len(points)
+                else:
+                    # 官方 packed PointXYZRTLT，timestamp 为绝对纳秒；非零逐点时差。
+                    msg = PointCloud2()
+                    msg.header.stamp = stamp.to_msg()
+                    msg.height = 1
+                    msg.width = len(points)
+                    msg.point_step = 26
+                    msg.row_step = msg.width * msg.point_step
+                    msg.fields = [PointField(name=name, offset=offset, datatype=datatype, count=1)
+                                  for name, offset, datatype in (
+                                      ('x', 0, 7), ('y', 4, 7), ('z', 8, 7), ('intensity', 12, 7),
+                                      ('tag', 16, 2), ('line', 17, 2), ('timestamp', 18, 8))]
+                    msg.data = b''.join(struct.pack('<ffffBBd', p.x, p.y, p.z, 100., p.tag, 0,
+                                                   float(stamp.nanoseconds + i * 10000))
+                                        for i, p in enumerate(points))
                 lidar.publish(msg)
                 next_lidar = now+.1
             rclpy.spin_once(node, timeout_sec=.001)

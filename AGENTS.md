@@ -25,7 +25,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
              --install-base /tmp/ci --symlink-install &&
       source /tmp/ci/setup.bash &&
       colcon --log-base /tmp/clog test --build-base /tmp/cb \
-             --install-base /tmp/ci --packages-select team43_serial_bridge &&
+             --install-base /tmp/ci --packages-select team43_serial_bridge team43_lio_backend &&
       colcon --log-base /tmp/clog test-result --test-result-base /tmp/cb --verbose &&
       python3 -B -m pytest -q src --import-mode=importlib &&
       python3 -B tools/verify_all_offline.py --skip-pytest'
@@ -36,7 +36,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 - 聚焦测试（交互式容器内：`docker run -it --rm -v "$PWD":/workspace -w /workspace --user "$(id -u):$(id -g)" -e HOME=/tmp rm-task1-humble-test bash`，先跑上面的 colcon build 并 `source /tmp/ci/setup.bash`）：
   - 只跑 pytest：`python3 -B -m pytest -q src --import-mode=importlib`
   - 单文件/单用例：`python3 -B -m pytest -q <测试文件>::<test_name> -v`
-  - C++ gtest：`colcon --log-base /tmp/clog test --build-base /tmp/cb --install-base /tmp/ci --packages-select team43_serial_bridge` + `test-result`
+  - C++ gtest：`colcon --log-base /tmp/clog test --build-base /tmp/cb --install-base /tmp/ci --packages-select team43_serial_bridge team43_lio_backend` + `test-result`
   - 瞄准鲁棒性快速档：`python3 -B tools/verify_aiming_robustness.py --quick`
 - 速查表与分层说明见 `docs/教程/测试运行指南.md`。
 

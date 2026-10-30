@@ -2,6 +2,7 @@
 # acc_norm=1.0、satu_acc=3.0 对应 g 输入；仿真只在副本中换成 m/s²。
 /**:
   ros__parameters:
+    lidar_format: auto # 自动识别点云发布者类型，也可手动 custom/pointcloud2
     lidar_topic: /livox/lidar
     imu_topic: /livox/imu
     world_frame: camera_init
