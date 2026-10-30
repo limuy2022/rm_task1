@@ -18,12 +18,13 @@
 from __future__ import annotations
 
 import math
-import os
 from typing import Any
 from typing import List
 from typing import Sequence
 
 from team43_common.config_loader import load_yaml
+from team43_bringup.launch_utils import as_bool
+from team43_bringup.launch_utils import default_config
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -31,7 +32,6 @@ from launch.actions import OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-_PACKAGE_NAME = 'team43_bringup'
 
 # camera_link -> camera_optical_frame 的固定光学系旋转（REP-105：x 右 / y 下 / z 前）。
 # 该值同时由 team43_common.frames._OPT_RPY 定义；下方 _launch_setup 会做一致性断言，
@@ -42,31 +42,6 @@ _OPTICAL_RPY: Sequence[float] = (-math.pi / 2.0, 0.0, -math.pi / 2.0)
 # ---------------------------------------------------------------------------
 # 工具
 # ---------------------------------------------------------------------------
-def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """从 ament 安装索引定位包的 share 目录。"""
-    from ament_index_python.packages import get_package_share_directory
-    return get_package_share_directory(package)
-
-
-def _default_config(name: str) -> str:
-    """share/config/<name> 的默认绝对路径。"""
-    return os.path.join(_share_dir(), 'config', name)
-
-
-def _as_bool(text: Any, default: bool = False) -> bool:
-    """字符串转布尔（`true/1/yes/on`）。"""
-    if text is None:
-        return default
-    s = str(text).strip().lower()
-    if s == '':
-        return default
-    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
-        return True
-    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
-        return False
-    raise ValueError(f'非法布尔参数: {text!r}')
-
-
 def _num(v: Any) -> str:
     """数值转字符串（给 static_transform_publisher 的命令行参数用）。"""
     return repr(float(v))
@@ -129,8 +104,8 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     """在 launch 时读取 YAML 并生成 static TF 节点。"""
     virtual_yaml = LaunchConfiguration('virtual_yaml').perform(context)
     tracker_params = LaunchConfiguration('tracker_params').perform(context)
-    publish_mount = _as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
-    use_sim_time = _as_bool(LaunchConfiguration('use_sim_time').perform(context), False)
+    publish_mount = as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
+    use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context), False)
 
     _assert_optical_rpy_matches_frames()
 
@@ -173,10 +148,10 @@ def generate_launch_description() -> LaunchDescription:
     """生成静态 TF 的 LaunchDescription。"""
     return LaunchDescription([
         DeclareLaunchArgument(
-            'virtual_yaml', default_value=_default_config('virtual.yaml'),
+            'virtual_yaml', default_value=default_config('virtual.yaml'),
             description='相机内参/外参的唯一数据源（DESIGN §8.6）'),
         DeclareLaunchArgument(
-            'tracker_params', default_value=_default_config('tracker_params.yaml'),
+            'tracker_params', default_value=default_config('tracker_params.yaml'),
             description='用于取 localization.gimbal_mount_xyz_rpy'),
         DeclareLaunchArgument(
             'publish_mount_tf', default_value='true',

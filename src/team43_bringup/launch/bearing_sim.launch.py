@@ -29,16 +29,13 @@ import os
 from team43_bringup.parameter_files import package_config
 from typing import List
 
-from ament_index_python.packages import get_package_share_directory
+from team43_bringup.launch_utils import share_dir
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, LogInfo, OpaqueFunction, \
     RegisterEventHandler, TimerAction
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch_ros.actions import Node
-
-def _share_dir(package: str) -> str:
-    return get_package_share_directory(package)
 
 
 def _as_bool(text) -> bool:
@@ -127,7 +124,7 @@ def _setup(context) -> list:
 
 
 def generate_launch_description():
-    share = _share_dir('team43_bringup')
+    share = share_dir('team43_bringup')
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=os.path.join(share, 'config',
                             'tracker_params.yaml'), description='整车共享/自定义覆盖参数'),

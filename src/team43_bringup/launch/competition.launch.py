@@ -44,6 +44,10 @@ from typing import Dict
 from typing import List
 
 from team43_common.config_loader import load_ros_params
+from team43_bringup.launch_utils import as_bool
+from team43_bringup.launch_utils import default_config
+from team43_bringup.launch_utils import share_config
+from team43_bringup.launch_utils import share_dir
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -53,40 +57,10 @@ from launch.actions import OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
-_PACKAGE_NAME = 'team43_bringup'
-
 
 # ---------------------------------------------------------------------------
 # 工具
 # ---------------------------------------------------------------------------
-def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """从 ament 安装索引定位包的 share 目录。"""
-    from ament_index_python.packages import get_package_share_directory
-    return get_package_share_directory(package)
-
-
-def _default_config(name: str) -> str:
-    """share/config/<name> 默认路径。"""
-    return os.path.join(_share_dir(), 'config', name)
-
-
-def _share_config(name: str) -> str:
-    """把（可能是包内相对名的）配置文件解析成 share/config 下的绝对路径。"""
-    return os.path.join(_share_dir(), 'config', os.path.basename(str(name)))
-
-
-def _as_bool(text: Any, default: bool = False) -> bool:
-    """字符串转布尔（空串 = default）。"""
-    s = str(text).strip().lower() if text is not None else ''
-    if s == '':
-        return default
-    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
-        return True
-    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
-        return False
-    raise ValueError(f'非法布尔参数: {text!r}')
-
-
 def _put_if_set(over: Dict[str, Any], key: str, text: Any) -> None:
     """把非空的字符串参数写入覆盖字典（用于数值以外的一般参数）。"""
     s = str(text).strip() if text is not None else ''
@@ -189,11 +163,11 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     #      （单一数据源；路径一律按 share/config 解析，不使用相对路径）
     virtual_yaml = str(LaunchConfiguration('virtual_yaml').perform(context)).strip()
     if virtual_yaml == '':
-        virtual_yaml = _share_config(str(flat.get('config.virtual_yaml', 'virtual.yaml')
+        virtual_yaml = share_config(str(flat.get('config.virtual_yaml', 'virtual.yaml')
                                          or 'virtual.yaml'))
     field_yaml = str(LaunchConfiguration('field_yaml').perform(context)).strip()
     if field_yaml == '':
-        field_yaml = _share_config(str(flat.get('config.field_yaml', 'field.yaml')
+        field_yaml = share_config(str(flat.get('config.field_yaml', 'field.yaml')
                                        or 'field.yaml'))
     maps_dir = str(LaunchConfiguration('maps_dir').perform(context)).strip()
     if maps_dir == '':
@@ -202,8 +176,8 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     if csv_out_dir == '':
         csv_out_dir = str(flat.get('config.outputs_dir', '') or '').strip()
 
-    enable_gt = _as_bool(LaunchConfiguration('enable_gt_monitor').perform(context), False)
-    rviz_enabled = _as_bool(LaunchConfiguration('rviz').perform(context), False)
+    enable_gt = as_bool(LaunchConfiguration('enable_gt_monitor').perform(context), False)
+    rviz_enabled = as_bool(LaunchConfiguration('rviz').perform(context), False)
 
     run_duration = str(LaunchConfiguration('run_duration_s').perform(context)).strip()
     if run_duration == '':
@@ -248,7 +222,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
                     LaunchConfiguration('grid_republish_period_s').perform(context))
     preview = str(LaunchConfiguration('grid_write_preview_png').perform(context)).strip()
     if preview != '':
-        over['grid.write_preview_png'] = _as_bool(preview, True)
+        over['grid.write_preview_png'] = as_bool(preview, True)
 
     # ---- 任意参数覆盖（最后应用 → 优先级最高）：`extra_params:="键=值;键=值"`
     extra_text = str(LaunchConfiguration('extra_params').perform(context)).strip()
@@ -271,7 +245,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
                        if over else '')),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(_share_dir(), 'launch', 'include', 'nodes.launch.py')),
+                os.path.join(share_dir(), 'launch', 'include', 'nodes.launch.py')),
             launch_arguments={
                 'params_file': params_file,
                 'virtual_yaml': virtual_yaml,
@@ -291,11 +265,11 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 def generate_launch_description() -> LaunchDescription:
     """主入口 LaunchDescription。"""
     return LaunchDescription([
-        DeclareLaunchArgument('params_file', default_value=_default_config('tracker_params.yaml'),
+        DeclareLaunchArgument('params_file', default_value=default_config('tracker_params.yaml'),
                               description='整车共享/自定义覆盖参数文件'),
-        DeclareLaunchArgument('virtual_yaml', default_value=_default_config('virtual.yaml'),
+        DeclareLaunchArgument('virtual_yaml', default_value=default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源（空 = 用 config.virtual_yaml）'),
-        DeclareLaunchArgument('field_yaml', default_value=_default_config('field.yaml'),
+        DeclareLaunchArgument('field_yaml', default_value=default_config('field.yaml'),
                               description='场地边界与障碍；显式注入 grid.field_yaml（空 = 用 config.field_yaml）'),
         DeclareLaunchArgument('maps_dir', default_value='',
                               description='地图输出目录（空 = 用参数文件 config.maps_dir / grid.out_dir）'),

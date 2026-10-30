@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 from typing import List
 
+from team43_bringup.launch_utils import default_config
+from team43_bringup.launch_utils import share_dir
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
@@ -31,31 +33,18 @@ from launch.actions import LogInfo
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
-_PACKAGE_NAME = 'team43_bringup'
-
-
-def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """从 ament 安装索引定位包的 share 目录。"""
-    from ament_index_python.packages import get_package_share_directory
-    return get_package_share_directory(package)
-
-
-def _default_config(name: str) -> str:
-    """share/config/<name> 默认路径。"""
-    return os.path.join(_share_dir(), 'config', name)
-
 
 def generate_launch_description() -> LaunchDescription:
     """仿真入口 LaunchDescription。"""
     args: List[DeclareLaunchArgument] = [
         DeclareLaunchArgument('params_file',
-                              default_value=_default_config('tracker_params.yaml'),
+                              default_value=default_config('tracker_params.yaml'),
                               description='整车共享/自定义覆盖参数文件'),
         DeclareLaunchArgument('virtual_yaml',
-                              default_value=_default_config('virtual.yaml'),
+                              default_value=default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),
         DeclareLaunchArgument('field_yaml',
-                              default_value=_default_config('field.yaml'),
+                              default_value=default_config('field.yaml'),
                               description='场地描述'),
         DeclareLaunchArgument('serial_port', default_value='/tmp/ttyVGIMBAL',
                               description='虚拟云台 pty 软链'),
@@ -75,7 +64,7 @@ def generate_launch_description() -> LaunchDescription:
 
     include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_share_dir(), 'launch', 'competition.launch.py')),
+            os.path.join(share_dir(), 'launch', 'competition.launch.py')),
         launch_arguments={
             'params_file': LaunchConfiguration('params_file'),
             'virtual_yaml': LaunchConfiguration('virtual_yaml'),

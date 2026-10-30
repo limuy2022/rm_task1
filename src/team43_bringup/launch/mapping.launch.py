@@ -20,13 +20,16 @@
 
 from __future__ import annotations
 
-import os
 from team43_bringup.parameter_files import package_config
 from typing import Any
 from typing import Dict
 from typing import List
 
 from team43_common.config_loader import load_ros_params
+from team43_bringup.launch_utils import as_bool
+from team43_bringup.launch_utils import default_config
+from team43_bringup.launch_utils import default_rviz
+from team43_bringup.launch_utils import share_config
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -38,41 +41,7 @@ from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-_PACKAGE_NAME = 'team43_bringup'
 _EXECUTABLE = 'grid_mapper_node'
-
-
-def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """从 ament 安装索引定位包的 share 目录。"""
-    from ament_index_python.packages import get_package_share_directory
-    return get_package_share_directory(package)
-
-
-def _default_config(name: str) -> str:
-    """share/config/<name> 默认路径。"""
-    return os.path.join(_share_dir(), 'config', name)
-
-
-def _share_config(name: str) -> str:
-    """把（可能是包内相对名的）配置文件解析成 share/config 下的绝对路径。"""
-    return os.path.join(_share_dir(), 'config', os.path.basename(str(name)))
-
-
-def _default_rviz() -> str:
-    """share/rviz/gimbal_tracker.rviz 默认路径。"""
-    return os.path.join(_share_dir(), 'rviz', 'gimbal_tracker.rviz')
-
-
-def _as_bool(text: Any, default: bool = False) -> bool:
-    """字符串转布尔。"""
-    s = str(text).strip().lower() if text is not None else ''
-    if s == '':
-        return default
-    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
-        return True
-    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
-        return False
-    raise ValueError(f'非法布尔参数: {text!r}')
 
 
 def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[Any]:
@@ -82,18 +51,18 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 
     virtual_yaml = str(LaunchConfiguration('virtual_yaml').perform(context)).strip()
     if virtual_yaml == '':
-        virtual_yaml = _share_config(str(flat.get('config.virtual_yaml', 'virtual.yaml')
+        virtual_yaml = share_config(str(flat.get('config.virtual_yaml', 'virtual.yaml')
                                          or 'virtual.yaml'))
     field_yaml = str(LaunchConfiguration('field_yaml').perform(context)).strip()
     if field_yaml == '':
-        field_yaml = _share_config(str(flat.get('config.field_yaml', 'field.yaml')
+        field_yaml = share_config(str(flat.get('config.field_yaml', 'field.yaml')
                                        or 'field.yaml'))
     maps_dir = str(LaunchConfiguration('maps_dir').perform(context)).strip()
     if maps_dir == '':
         maps_dir = str(flat.get('config.maps_dir', '') or '').strip() or 'maps'
 
     map_source = str(LaunchConfiguration('grid_map_source').perform(context)).strip()
-    rviz_enabled = _as_bool(LaunchConfiguration('rviz').perform(context), False)
+    rviz_enabled = as_bool(LaunchConfiguration('rviz').perform(context), False)
     exit_after = str(LaunchConfiguration('exit_after_build_s').perform(context)).strip()
 
     over: Dict[str, Any] = {
@@ -127,7 +96,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
         actions.append(TimerAction(period=2.0, actions=[
             Node(package='rviz2', executable='rviz2', name='rviz2',
                  output='screen', emulate_tty=True,
-                 arguments=['-d', _default_rviz()],
+                 arguments=['-d', default_rviz()],
                  parameters=[{'use_sim_time': False}]),
         ]))
 
@@ -144,11 +113,11 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
 def generate_launch_description() -> LaunchDescription:
     """建图入口 LaunchDescription。"""
     return LaunchDescription([
-        DeclareLaunchArgument('params_file', default_value=_default_config('tracker_params.yaml'),
+        DeclareLaunchArgument('params_file', default_value=default_config('tracker_params.yaml'),
                               description='整车共享/自定义覆盖参数文件'),
-        DeclareLaunchArgument('virtual_yaml', default_value=_default_config('virtual.yaml'),
+        DeclareLaunchArgument('virtual_yaml', default_value=default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),
-        DeclareLaunchArgument('field_yaml', default_value=_default_config('field.yaml'),
+        DeclareLaunchArgument('field_yaml', default_value=default_config('field.yaml'),
                               description='场地边界与障碍；显式注入 grid.field_yaml（空 = 用 config.field_yaml）'),
         DeclareLaunchArgument('maps_dir', default_value='',
                               description='地图输出目录（空 = 用参数文件 config.maps_dir，再退到 maps）'),

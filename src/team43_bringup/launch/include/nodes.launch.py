@@ -30,6 +30,10 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
+from team43_bringup.launch_utils import as_bool
+from team43_bringup.launch_utils import default_config
+from team43_bringup.launch_utils import default_rviz
+from team43_bringup.launch_utils import share_dir
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -46,7 +50,6 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-_PACKAGE_NAME = 'team43_bringup'
 
 # (阶梯序号, 包名, 可执行文件名)
 # 可执行文件名必须与各包 setup.py 的 console_scripts 完全一致。
@@ -72,36 +75,6 @@ _CRITICAL_EXECUTABLE = 'vgimbal_bridge_node'
 # ---------------------------------------------------------------------------
 # 工具
 # ---------------------------------------------------------------------------
-def _share_dir(package: str = _PACKAGE_NAME) -> str:
-    """从 ament 安装索引定位包的 share 目录。"""
-    from ament_index_python.packages import get_package_share_directory
-    return get_package_share_directory(package)
-
-
-def _default_config(name: str) -> str:
-    """share/config/<name> 默认路径。"""
-    return os.path.join(_share_dir(), 'config', name)
-
-
-def _default_rviz() -> str:
-    """share/rviz/gimbal_tracker.rviz 默认路径。"""
-    return os.path.join(_share_dir(), 'rviz', 'gimbal_tracker.rviz')
-
-
-def _as_bool(text: Any, default: bool = False) -> bool:
-    """字符串转布尔。"""
-    if text is None:
-        return default
-    s = str(text).strip().lower()
-    if s == '':
-        return default
-    if s in ('1', 'true', 'yes', 'on', 'y', 't'):
-        return True
-    if s in ('0', 'false', 'no', 'off', 'n', 'f'):
-        return False
-    raise ValueError(f'非法布尔参数: {text!r}')
-
-
 def _as_float(text: Any, default: float) -> float:
     """字符串转 float（空串用默认）。"""
     s = str(text).strip() if text is not None else ''
@@ -136,13 +109,13 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     """按阶梯生成节点动作 / 静态 TF / RViz / 收尾定时器。"""
     params_file = LaunchConfiguration('params_file').perform(context)
     virtual_yaml = LaunchConfiguration('virtual_yaml').perform(context)
-    use_sim_time = _as_bool(LaunchConfiguration('use_sim_time').perform(context), False)
+    use_sim_time = as_bool(LaunchConfiguration('use_sim_time').perform(context), False)
     startup_step = max(0.0, _as_float(LaunchConfiguration('startup_step_s').perform(context), 0.3))
-    enable_gt = _as_bool(LaunchConfiguration('enable_gt_monitor').perform(context), False)
-    rviz_enabled = _as_bool(LaunchConfiguration('rviz').perform(context), False)
+    enable_gt = as_bool(LaunchConfiguration('enable_gt_monitor').perform(context), False)
+    rviz_enabled = as_bool(LaunchConfiguration('rviz').perform(context), False)
     team_id = str(LaunchConfiguration('team_id').perform(context)).strip()
     output_dir = str(LaunchConfiguration('output_dir').perform(context)).strip()
-    mount_tf = _as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
+    mount_tf = as_bool(LaunchConfiguration('publish_mount_tf').perform(context), True)
     run_duration = _as_float(LaunchConfiguration('run_duration_s').perform(context), 30.0)
     shutdown_grace = _as_float(LaunchConfiguration('shutdown_grace_s').perform(context), 1.5)
 
@@ -174,7 +147,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
     # ---- 静态 TF（从 virtual.yaml 读外参）
     actions.append(IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_share_dir(), 'launch', 'include', 'static_tf.launch.py')),
+            os.path.join(share_dir(), 'launch', 'include', 'static_tf.launch.py')),
         launch_arguments={
             'virtual_yaml': virtual_yaml,
             'tracker_params': params_file,
@@ -208,7 +181,7 @@ def _launch_setup(context: LaunchContext, *_args: Any, **_kwargs: Any) -> List[A
         actions.append(TimerAction(period=3.0, actions=[
             Node(package='rviz2', executable='rviz2', name='rviz2',
                  output='screen', emulate_tty=True,
-                 arguments=['-d', _default_rviz()],
+                 arguments=['-d', default_rviz()],
                  parameters=[{'use_sim_time': use_sim_time}]),
         ]))
 
@@ -236,10 +209,10 @@ def generate_launch_description() -> LaunchDescription:
     """节点清单 LaunchDescription。"""
     return LaunchDescription([
         DeclareLaunchArgument('params_file',
-                              default_value=_default_config('tracker_params.yaml'),
+                              default_value=default_config('tracker_params.yaml'),
                               description='整车共享/自定义覆盖参数文件（通过 /** 通配符注入所有节点）'),
         DeclareLaunchArgument('virtual_yaml',
-                              default_value=_default_config('virtual.yaml'),
+                              default_value=default_config('virtual.yaml'),
                               description='相机内参/外参单一数据源'),
         DeclareLaunchArgument('startup_step_s', default_value='0.3',
                               description='阶梯启动步长（s）'),

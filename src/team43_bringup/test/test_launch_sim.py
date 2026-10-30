@@ -465,7 +465,7 @@ def test_launch_rejects_missing_or_broken_parameter_file(tmp_path, launch_file):
 def test_misspelled_boolean_does_not_silently_disable_a_feature(launch_file):
     mod = _load_launch_module(launch_file, 'lf_bool_'+launch_file.replace('/', '_').replace('.', '_'))
     with pytest.raises(ValueError):
-        mod._as_bool('ture')
+        mod.as_bool('ture')
 
 
 def test_broken_launch_overrides_are_not_ignored():
