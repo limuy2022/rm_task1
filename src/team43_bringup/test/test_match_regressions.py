@@ -216,7 +216,12 @@ def test_match_launch_has_one_perception_and_bridge_and_waits_before_controller(
     from launch_ros.utilities import evaluate_parameters
     configs = evaluate_parameters(context, controller._Node__parameters)
     overrides = configs[-1]
-    assert overrides['motion_enabled'] is False and overrides['operating_mode'] == 'match'
+    assert overrides['motion_enabled'] is True and overrides['continuous'] is True
+    assert overrides['operating_mode'] == 'match'
+    context.launch_configurations.update(motion_enabled='false', continuous='false')
+    stopped = next(x for x in mod._ready(context) if isinstance(x, Node))
+    stopped_overrides = evaluate_parameters(context, stopped._Node__parameters)[-1]
+    assert stopped_overrides['motion_enabled'] is False and stopped_overrides['continuous'] is False
     assert overrides['calibrated_epoch'] == 42
 
 

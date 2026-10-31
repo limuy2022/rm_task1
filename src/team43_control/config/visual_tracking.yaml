@@ -1,5 +1,5 @@
 # 独立图像跟踪的默认值，gain/频率/滤波/死区/限幅支持 ros2 param set。
-# motion_enabled 由 launch 强制 false，参数文件不能自动放行电机。
+# 比赛入口默认motion_enabled/continuous=true；台架入口强制关闭运动并保留试转预算。
 /**:
   ros__parameters:
     kp_yaw: 2.0

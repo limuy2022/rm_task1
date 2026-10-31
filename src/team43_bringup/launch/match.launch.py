@@ -10,6 +10,7 @@ from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 from team43_bringup.parameter_files import package_config
 from team43_bringup.deployment_config import load_vehicle_config
@@ -23,6 +24,8 @@ def _critical(node):
 
 def _ready(context):
     def value(name): return LaunchConfiguration(name).perform(context)
+    motion = ParameterValue(LaunchConfiguration('motion_enabled', default='true'), value_type=bool).evaluate(context)
+    continuous = ParameterValue(LaunchConfiguration('continuous', default='true'), value_type=bool).evaluate(context)
     snapshot = os.path.join(value('run_dir'), 'vehicle_verified.yaml')
     _, params = load_vehicle_config(snapshot)
     share = get_package_share_directory('team43_bringup')
@@ -33,12 +36,12 @@ def _ready(context):
     controller = Node(package='team43_control', executable='visual_servo_node',
         name='visual_servo_node', namespace='team43_tracking', output='screen',
         parameters=[value('controller_params'), {'camera_config': value('camera_config'),
-            'motion_enabled': False, 'operating_mode': 'match', 'axes': 'both',
+            'motion_enabled': motion, 'continuous': continuous, 'operating_mode': 'match', 'axes': 'both',
             'corners_topic': '/perception/marker_corners',
             'joint_limits_confirmed': True, 'calibrated_epoch': params['kinematics.calibrated_epoch'],
             'joint_yaw_limits_rad': params['kinematics.yaw_limits_rad'],
             'joint_pitch_limits_rad': params['kinematics.pitch_limits_rad']}])
-    return [LogInfo(msg='准备完成；运动仍关闭，请按比赛教程人工开启'), processing, _critical(controller), controller]
+    return [LogInfo(msg=f'准备完成；motion_enabled={str(motion).lower()}，continuous={str(continuous).lower()}'), processing, _critical(controller), controller]
 
 
 def _setup(context):
@@ -103,6 +106,8 @@ def generate_launch_description():
     share = get_package_share_directory('team43_bringup')
     return LaunchDescription([
         DeclareLaunchArgument('target_id'), DeclareLaunchArgument('vehicle_config'),
+        DeclareLaunchArgument('motion_enabled', default_value='true'),
+        DeclareLaunchArgument('continuous', default_value='true'),
         DeclareLaunchArgument('livox_config'), DeclareLaunchArgument('run_dir'),
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share, 'config', 'camera_team43.yaml')),

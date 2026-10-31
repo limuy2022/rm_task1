@@ -75,7 +75,7 @@ class MatchSessionGate(Node):
             finally:
                 os.unlink(temporary)
             self.ready = True
-            reason = '标定和源图就绪；启动比赛处理与控制，运动仍关闭'
+            reason = '标定和源图就绪；按比赛入口参数启动处理、控制和评分'
         except (ConfigError, OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
             reason = str(exc)
         msg = String()

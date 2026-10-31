@@ -51,4 +51,4 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 ## 约定
 
 - 文档、注释与 commit message 用中文；commit 走 conventional 前缀（`ci:` / `refactor:` / `test:` / `fix:` 等）。
-- 涉及真实电机/串口的改动保持运动默认关闭（`motion_enabled=false`），真实转动需人在参数终端显式开启。
+- 台架与独立节点保持运动默认关闭；按用户比赛操作要求，`start_match.bash`/`match.launch.py`在标定及源图就绪后默认`motion_enabled=true`、`continuous=true`。只读采样和标定必须显式传`motion_enabled:=false`，故障/反馈/限位保护继续生效。
