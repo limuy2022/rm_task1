@@ -22,6 +22,10 @@ DEFAULTS = {
     'kinematics.calibration_confirmed': False,
     'kinematics.require_confirmation': True,
     'kinematics.bind_current_epoch': False,
+    'kinematics.align_world_at_start': False,
+    'kinematics.startup_reference_joint_rad': [0., 0.],
+    'kinematics.startup_alignment_ready': False,
+    'kinematics.runtime_world_rotation': [1., 0., 0., 0., 1., 0., 0., 0., 1.],
     'kinematics.joint_zero_known': False,
     'kinematics.mounted_on_base_confirmed': False,
     'kinematics.calibrated_epoch': -1,
@@ -51,7 +55,9 @@ class GimbalKinematicsNode(Node):
             model = GimbalKinematics(c, require_confirmation=c['require_confirmation'])  # invalid/partial calibration is fatal, never identity
         self.sync = SynchronizedKinematics(model, calibrated_epoch=c['calibrated_epoch'],
                        max_age=c['max_age_s'], max_gap=c['max_gap_s'],
-                       bind_current_epoch=c['bind_current_epoch'])
+                       bind_current_epoch=c['bind_current_epoch'],
+                       startup_reference=(c['startup_reference_joint_rad'] if c['align_world_at_start'] else None))
+        self.alignment_reported = False
         self.dynamic = TransformBroadcaster(self); self.static = StaticTransformBroadcaster(self)
         self.sent_static = False; self.last_now = None
         best = sensor_qos(50)
@@ -67,7 +73,10 @@ class GimbalKinematicsNode(Node):
 
     def on_epoch(self, msg):
         self.sync.observe_epoch(msg.data)
-        if self.sync.fault: self._log.error(self.sync.last_error)
+        if self.sync.fault:
+            from rclpy.parameter import Parameter
+            self.set_parameters([Parameter('kinematics.startup_alignment_ready', value=False)])
+            self._log.error(self.sync.last_error)
 
     def on_base(self, msg):
         try:
@@ -101,7 +110,16 @@ class GimbalKinematicsNode(Node):
         if self.last_now is not None and now < self.last_now-.01:
             self.sync.fault = True; self.sync.base.clear(); self.sync.pending.clear()
         self.last_now = now
-        for item in self.sync.drain(now):
+        samples = self.sync.drain(now)
+        if self.sync.alignment_stamp is not None and not self.alignment_reported:
+            from rclpy.parameter import Parameter
+            rotation = self.sync.model.R_odom_world.reshape(-1).tolist()
+            self.set_parameters([Parameter('kinematics.runtime_world_rotation', value=rotation),
+                                 Parameter('kinematics.startup_alignment_ready', value=True)])
+            self._log.info(f'按启动水平朝前参考完成世界对齐：stamp={self.sync.alignment_stamp:.6f}，'
+                           f'epoch={self.sync.epoch}，R_odom_world={rotation}')
+            self.alignment_reported = True
+        for item in samples:
             from builtin_interfaces.msg import Time
             ns = round(item.stamp*1e9); time_msg = Time(sec=ns//1000000000, nanosec=ns%1000000000)
             chain = item.transforms

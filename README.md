@@ -8,7 +8,7 @@
 
 按题目与环境核对的已复现缺陷、部署缺口及待实测风险见[代码审查记录](docs/记录/题目与校内赛环境代码审查.md)。
 
-**比赛当天从[比赛启动与收尾](docs/教程/比赛启动与收尾.md)开始。**先运行`bash tools/start_match.bash`；裁判告知目标后执行`bash tools/set_target.bash ID`，确认跟踪后由裁判启动客户端。入口直接启动全链，不等待人工confirmed开关、旧epoch匹配或源图就绪；默认自动连续跟踪。实际测量数值须在vehicle43.yaml中，相机由赛事方启动。只读调试传`motion_enabled:=false`。
+**比赛当天从[比赛启动与收尾](docs/教程/比赛启动与收尾.md)开始。**先运行`bash tools/start_match.bash`；裁判告知目标后执行`bash tools/set_target.bash ID`，确认跟踪后由裁判启动客户端。入口直接启动全链，不等待人工confirmed开关、旧epoch匹配或源图就绪；默认自动连续跟踪。本轮尺寸及授权近似已接入随包vehicle_field.yaml；个人vehicle43.yaml可覆盖默认值。启动前保持底盘静止、相机水平朝车头，以首组同步数据自动对齐。相机由赛事方启动。只读调试传`motion_enabled:=false`。
 
 已确认串口 `/dev/ttyUSB0`、IMU 轴 `[1,1,1]`，新相机 K/D 已写入配置；用户确认现场可持续瞄准ArUco，实物码黑框外边长7.5cm（不含白边）。现用跟踪配置与覆盖范围需归档；最终装车几何、地图精度和NUC正式180秒端到端流程仍待现场验收。离线与仿真结果不代表实机成绩。
 

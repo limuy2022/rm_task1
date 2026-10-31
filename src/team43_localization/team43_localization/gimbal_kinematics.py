@@ -208,10 +208,15 @@ class SynchronizedKinematics:
     session ID; it does not estimate or change the configured world rotation.
     """
     def __init__(self, model=None, *, calibrated_epoch=-1, max_age=.2, max_gap=.1,
-                 future_tolerance=.01, bind_current_epoch=False):
+                 future_tolerance=.01, bind_current_epoch=False, startup_reference=None):
         self.model = model
         self.calibrated_epoch = int(calibrated_epoch)
         self.bind_current_epoch = bool(bind_current_epoch)
+        self.startup_reference = (None if startup_reference is None else
+                                  finite_vector(startup_reference, 2, 'startup reference joints'))
+        self.alignment_stamp = None
+        if self.startup_reference is not None and model is not None:
+            model.forward(*self.startup_reference)  # 参考姿态须在配置关节区间内。
         self.max_age, self.max_gap, self.future_tolerance = map(float, (max_age, max_gap, future_tolerance))
         if (not all(math.isfinite(v) for v in (self.max_age, self.max_gap, self.future_tolerance))
                 or self.max_age <= 0 or self.max_gap <= 0 or self.future_tolerance < 0):
@@ -283,6 +288,11 @@ class SynchronizedKinematics:
                 continue
             R_wg = self.pending.pop(stamp)
             try:
+                if self.startup_reference is not None and self.alignment_stamp is None:
+                    # 用户约定启动时的已知机械姿态；只求世界参考关系，不改安装尺寸。
+                    R_bg = self.model.forward(*self.startup_reference).base_gimbal[:3, :3]
+                    self.model.R_odom_world = T_ob[:3, :3] @ R_bg @ R_wg.T
+                    self.alignment_stamp = stamp
                 joints = self.model.inverse(T_ob[:3, :3], R_wg)
                 out.append(KinematicsSample(stamp, joints, self.model.forward(joints.yaw, joints.pitch)))
                 self.last_stamp = stamp

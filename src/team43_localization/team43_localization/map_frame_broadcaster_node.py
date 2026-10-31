@@ -103,7 +103,7 @@ class MapFrameBroadcasterNode:
             return
         if self._origin_stamp is not None:
             if abs(self._origin_stamp-stamp)>1e-6:
-                self._log.error('收到不同回放起点；本进程保留原轮次，请在新轮开始前重启输出/定位')
+                self._log.info('比赛起点已确定，忽略后到的不同起点；本进程不切换轮次')
             return
         self._freeze_requested=True;self._origin_stamp=stamp
         self._try_freeze()

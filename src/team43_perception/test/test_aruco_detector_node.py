@@ -82,6 +82,11 @@ def ros():
 @pytest.fixture()
 def detector(ros):
     node = NODE.ArucoDetectorNode()
+    # 本组测图像告警，必须选定目标；默认-1的待裁判阶段本来就不处理图像。
+    from rclpy.parameter import Parameter
+    node.set_parameters([Parameter('perception.target_digit', value=0)])
+    node._on_timer()  # 先完成ID切换，图像告警用例不混入清空旧目标缓存的周期。
+    reset_throttle()
     node._log = _RecordingLogger()  # 替换 logger 以录制告警
     yield node
     node.destroy_node()

@@ -1,6 +1,7 @@
 """真实DDS旧锁存起点回归：不接硬件，只使用/test话题和临时输出。"""
 import time
 
+import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import Header
@@ -11,7 +12,8 @@ from team43_localization.map_frame_broadcaster_node import MapFrameBroadcasterNo
 from team43_judge_io.judge_io_node import JudgeIoNode
 
 
-def test_old_latched_start_is_delivered_then_new_start_freezes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('replay_first', [True, False])
+def test_old_latched_start_then_explicit_start_in_either_topic_order(tmp_path, monkeypatch, replay_first):
     seen = {'map': [], 'judge': []}
     map_callback = MapFrameBroadcasterNode._on_origin_freeze
     judge_callback = JudgeIoNode._freeze_origin
@@ -55,7 +57,27 @@ def test_old_latched_start_is_delivered_then_new_start_freezes(tmp_path, monkeyp
         pose.header.frame_id = 'odom'; pose.child_frame_id = 'base_link'
         pose.pose.pose.orientation.w = 1.
         mapper._on_base_pose(pose)
-        publisher.publish(fresh)
+        from team43_common.qos_utils import reliable_qos
+        tick_pub = source.create_publisher(Header, '/test/replay_recovery/tick', reliable_qos())
+        deadline = time.monotonic()+5.
+        while tick_pub.get_subscription_count()<1 and time.monotonic()<deadline:
+            executor.spin_once(timeout_sec=.05)
+        assert tick_pub.get_subscription_count() >= 1
+        fresh.frame_id = 'record'
+        if replay_first:
+            publisher.publish(fresh)
+            deadline = time.monotonic()+5.
+            while not (mapper.frozen and judge._origin_frozen) and time.monotonic()<deadline:
+                executor.spin_once(timeout_sec=.05)
+        tick_pub.publish(Header(stamp=fresh.stamp, frame_id='0'))
+        deadline = time.monotonic()+5.
+        while judge._n_tick<1 and time.monotonic()<deadline:
+            executor.spin_once(timeout_sec=.05)
+        assert judge._n_tick == 1
+        if not replay_first:
+            assert not mapper.frozen and mapper._origin_stamp is None
+            assert not judge._origin_frozen
+            publisher.publish(fresh)
         deadline = time.monotonic()+5.
         while not (mapper.frozen and judge._origin_frozen) and time.monotonic()<deadline:
             executor.spin_once(timeout_sec=.05)

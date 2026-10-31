@@ -13,9 +13,10 @@ t_tick 为评分拍时间戳，固定六位小数；列数固定为九列。
 
 设计要点：
 
-- 打开用 ``'a'``（追加）。节点中途重启时不会覆盖已写行（覆盖=作废）。
+- 打开用 ``'a+'``（追加并校验同一文件）。节点中途重启时不会覆盖已写行（覆盖=作废）。
   先校验全部已有行并恢复最后六位时间；半行或损坏记录必须拒绝打开，不能修补。
-- 相同/倒序的六位时间不得再次提交；写/flush失败后锁存，直到关闭并重新校验文件。
+- 每拍核对当前路径；评分端删除、替换或截空时重开，不恢复已清理的旧轮次。
+- 同一文件相同/倒序的六位时间不得再次提交；写/flush失败后锁存，直到关闭并重新校验文件。
 - 非有限值用**上一次有效值**兜底（比写 NaN 记 1 更好：截断到 1 之前仍有得分机会）。
 - ``vx``/``vy`` 由调用方保证有限；``t_tick`` 非有限时**整行不写**（写了也匹配不上）。
 
@@ -102,6 +103,10 @@ class TickCsvWriter:
         self._last_tick: Optional[int] = None
         self._recovered_rows = 0
         self._failed = False
+        self._file_id = None
+        self._fd = None
+        self._file_size = 0
+        self._reopens = 0
 
     # -- 属性 -----------------------------------------------------------------
     @property
@@ -138,9 +143,10 @@ class TickCsvWriter:
             d = os.path.dirname(os.path.abspath(self.path))
             if d:
                 os.makedirs(d, exist_ok=True)
-            handle = open(self.path, 'a', encoding='utf-8', newline='\n')
+            handle = open(self.path, 'a+', encoding='utf-8', newline='\n')
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            last, tick, recovered = self._recover()
+            last, tick, recovered = self._recover(handle)
+            status = os.fstat(handle.fileno())
         except (OSError, ValueError, UnicodeError) as exc:
             # Lock/disk failure or corrupt existing bytes: refuse, never repair the submission.
             if handle is not None:
@@ -149,36 +155,67 @@ class TickCsvWriter:
             self._fh = None
             return False
         self._fh = handle
+        self._fd = handle.fileno()
+        self._file_id = (status.st_dev, status.st_ino)
+        self._file_size = status.st_size
         self._last, self._last_tick, self._recovered_rows = last, tick, recovered
         self._failed = False
         self._opened = True
         self._emit('info', 'CSV 已打开(追加): %s' % self.path)
         return True
 
-    def _recover(self):
-        """Return last committed values/time only if the complete file is valid."""
+    def _recover(self, handle):
+        """校验锁定的同一文件，不另开路径，以免读取到评分端刚替换的文件。"""
         last = [0.0] * 8
         tick = None
         recovered = 0
-        with open(self.path, 'rb') as source:
-            for number, raw in enumerate(source, 1):
-                if not raw.endswith(b'\n'):
-                    raise ValueError('incomplete CSV tail at line %d; no records modified' % number)
-                body = raw[:-1]
-                if body.endswith(b'\r'):
-                    body = body[:-1]
-                fields = body.decode('utf-8').split(',')
-                if len(fields) != N_COLS:
-                    raise ValueError('wrong CSV column count at line %d' % number)
-                values = [float(value) for value in fields[:8]]
-                if not all(math.isfinite(value) for value in values):
-                    raise ValueError('nonfinite existing data at line %d' % number)
-                current = _tick_key(fields[8])
-                if tick is not None and current <= tick:
-                    raise ValueError('duplicate/out-of-order existing tick at line %d' % number)
-                last, tick = values, current
-                recovered += 1
+        handle.seek(0)
+        for number, raw in enumerate(handle, 1):
+            if not raw.endswith('\n'):
+                raise ValueError('incomplete CSV tail at line %d; no records modified' % number)
+            body = raw[:-1]
+            if body.endswith('\r'):
+                body = body[:-1]
+            fields = body.split(',')
+            if len(fields) != N_COLS:
+                raise ValueError('wrong CSV column count at line %d' % number)
+            values = [float(value) for value in fields[:8]]
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError('nonfinite existing data at line %d' % number)
+            current = _tick_key(fields[8])
+            if tick is not None and current <= tick:
+                raise ValueError('duplicate/out-of-order existing tick at line %d' % number)
+            last, tick = values, current
+            recovered += 1
+        handle.seek(0, os.SEEK_END)
         return last, tick, recovered
+
+    def _path_changed(self):
+        # 测试注入的写入故障对象没有真实文件身份；真实open一定设置此字段。
+        if self._file_id is None:
+            return False
+        try:
+            current = os.stat(self.path)
+        except FileNotFoundError:
+            return True
+        return ((current.st_dev, current.st_ino) != self._file_id
+                or current.st_size < self._file_size)
+
+    def _refresh_path(self):
+        """评分端删除/替换/截空CSV后，重新打开当前路径；不复制旧轮次内容。"""
+        try:
+            changed = self._path_changed()
+        except OSError as exc:
+            self._emit('error', 'CSV路径状态查询失败: %r' % (exc,))
+            return False
+        if not changed:
+            return True
+        self.close()
+        self._emit('warning', 'CSV被外部删除、替换或截空，重新打开当前评分文件')
+        if not self.open():
+            return False
+        self._reopens += 1
+        return True
 
     def close(self) -> None:
         """flush + 关闭。"""
@@ -194,6 +231,8 @@ class TickCsvWriter:
                 self._fh.close()
             finally:
                 self._fh = None
+                self._fd = None
+                self._file_id = None
 
     # -- 写行 -----------------------------------------------------------------
     def write_tick(self,
@@ -209,6 +248,8 @@ class TickCsvWriter:
         Returns:
             bool：写入成功为 True。
         """
+        if self._fh is not None and not self._refresh_path():
+            return False
         if self._failed:
             self._emit('error', 'CSV上次写入失败；先关闭并校验文件，不继续追加')
             return False
@@ -247,16 +288,29 @@ class TickCsvWriter:
                        % self._n_guarded)
 
         line = format_row(out[0:2], out[2:4], out[4:6], out[6:8], t)
-        try:
-            payload = line + '\n'
-            if self._fh.write(payload) != len(payload):
-                raise OSError('short CSV write')
-            self._fh.flush()
-        except (OSError, ValueError) as exc:
-            # A failed flush may have exposed a whole or partial row. Never
-            # blindly retry it or append beyond it in this process.
-            self._failed = True
-            self._emit('error', 'CSV 写入/flush异常，停止追加，未计成功: %r' % (exc,))
+        payload = line + '\n'
+        # 路径若恰好在写/flush期间被清理，再向新文件补当前一拍；不补历史行。
+        for attempt in range(2):
+            try:
+                expected_size = self._file_size + len(payload.encode('utf-8'))
+                if self._fh.write(payload) != len(payload):
+                    raise OSError('short CSV write')
+                self._fh.flush()
+                if self._fd is not None:
+                    self._file_size = max(expected_size, os.fstat(self._fd).st_size)
+                if not self._path_changed():
+                    break
+            except (OSError, ValueError) as exc:
+                self._failed = True
+                self._emit('error', 'CSV 写入/flush异常，停止追加，未计成功: %r' % (exc,))
+                return False
+            if not self._refresh_path():
+                return False
+            if self._last_tick is not None and key <= self._last_tick:
+                self._n_dropped += 1
+                return False
+        else:
+            self._emit('error', 'CSV连续被外部清理，本拍无法确认路径可见')
             return False
         self._last = out
         self._last_tick = key
@@ -269,7 +323,8 @@ class TickCsvWriter:
         return {'path': self.path, 'rows': self._rows,
                 'n_guarded': self._n_guarded, 'n_dropped': self._n_dropped,
                 'opened': self._opened, 'n_cols': N_COLS,
-                'recovered_rows': self._recovered_rows, 'failed': self._failed}
+                'recovered_rows': self._recovered_rows, 'failed': self._failed,
+                'external_reopens': self._reopens}
 
     # -- 内部 -----------------------------------------------------------------
     @staticmethod

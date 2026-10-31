@@ -12,6 +12,13 @@ source /opt/ros/humble/setup.bash
 source "$TRACK_WS/.livox/env.bash"
 source "$TRACK_WS/install/local_setup.bash"
 
+# 个人装车配置优先；没有个人文件时直接使用随包安装的本轮近似配置。
+VEHICLE_CONFIG="$TRACK_WS/vehicle43.yaml"
+if [[ ! -f "$VEHICLE_CONFIG" ]]; then
+  VEHICLE_CONFIG="$(ros2 pkg prefix --share team43_bringup)/config/vehicle_field.yaml"
+fi
+printf '装车配置：%s\n' "$VEHICLE_CONFIG"
+
 export ROS_LOCALHOST_ONLY=1
 mkdir -p "$TRACK_WS/records" "$TRACK_WS/config"
 MATCH_RUN="$(mktemp -d "$TRACK_WS/records/match_XXXXXXXX")"
@@ -23,5 +30,5 @@ printf '%s\n' "本次记录目录：$MATCH_RUN" '直接启动全链，默认等�
 # 终端日志与配置放本队目录，不向正式输出写入调试文件。
 export ROS_LOG_DIR="$MATCH_RUN/ros_log"
 exec ros2 launch team43_bringup match.launch.py \
-  vehicle_config:="$TRACK_WS/vehicle43.yaml" livox_config:="$LIVOX_JSON" \
+  vehicle_config:="$VEHICLE_CONFIG" livox_config:="$LIVOX_JSON" \
   run_dir:="$MATCH_RUN" "$@"

@@ -303,3 +303,39 @@ def test_nonempty_legacy_eight_columns_cannot_resume_without_timestamp(tmp_path)
     recovered = TickCsvWriter(str(path))
     assert not recovered.open()
     assert path.read_bytes() == before
+
+
+def test_external_csv_delete_replace_and_truncate_reopen_current_path(tmp_path):
+    path = tmp_path/'43.csv'
+    writer = TickCsvWriter(str(path))
+    for t, action in ((100., None), (101., 'delete'), (102., 'replace'), (103., 'truncate')):
+        if action == 'delete': path.unlink()
+        elif action == 'replace':
+            replacement = tmp_path/'new.csv'
+            replacement.write_text('')
+            replacement.replace(path)
+        elif action == 'truncate': path.write_text('')
+        assert writer.write_tick((1,2), (3,4), (5,6), (.1,.2), t)
+        lines = path.read_text().splitlines()
+        assert len(lines) == 1
+        assert lines[0].split(',')[-1] == '%.6f' % t
+    assert writer.stats()['external_reopens'] == 3
+    writer.close()
+
+
+def test_external_delete_during_flush_rewrites_only_current_tick(tmp_path):
+    path = tmp_path/'43.csv'
+    writer = TickCsvWriter(str(path))
+    assert writer.write_tick((1,2), (3,4), (5,6), (.1,.2), 100.)
+    class DeleteDuringFlush:
+        def __init__(self, real): self.real = real; self.deleted = False
+        def write(self, text): return self.real.write(text)
+        def flush(self):
+            self.real.flush()
+            if not self.deleted:
+                path.unlink(); self.deleted = True
+        def close(self): self.real.close()
+    writer._fh = DeleteDuringFlush(writer._fh)
+    assert writer.write_tick((1,2), (3,4), (5,6), (.1,.2), 101.)
+    assert [r.split(',')[-1] for r in path.read_text().splitlines()] == ['101.000000']
+    writer.close()

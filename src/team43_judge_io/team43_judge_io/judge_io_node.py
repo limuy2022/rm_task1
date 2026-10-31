@@ -26,7 +26,7 @@ CSV只追加，进程重启不得归档/覆盖已提交行；新轮由主办方�
 目标和底盘按源stamp缓存，tick到来时外推到该tick及tick+0.1秒；过期或无效输入不继续
 冒充有效状态。建议只有来源有效时才使用，不在缺少绕障解时强造朝目标的速度。
 
-给定点（map 系原点）冻结：`/judge/replay_start` 到达时向
+给定点（map 系原点）冻结：使用赛事明确提供的`/judge/replay_start`，向
 `/gimbal/origin_freeze` 发一条锁存 `Header`，由 `map_frame_broadcaster_node`
 （`origin_mode=judge_replay_start`）执行冻结。
 """
@@ -113,8 +113,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             raise ValueError('禁止启动时改名既有提交；测试请选择新的output_dir，正式轮由主办方清理')
 
         self._writer = TickCsvWriter(self._csv_path, logger=self._log)
-        if not self._writer.open():
-            raise RuntimeError("CSV打不开，拒绝启动；不修改原有提交")
+        # 评分客户端在参赛程序启动后清理CSV；第一拍才打开，避免持有旧轮次文件。
+        # 后续路径被清理时，由写出器在当前拍重新创建/打开，不重启整条链。
 
         # --- 按源stamp缓存，tick选择不晚于自身时刻的状态 ------------------
         self._pred = np.zeros(2, dtype=float)
@@ -183,7 +183,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             return
         if self._origin_frozen:
             if abs(stamp-self._replay_stamp) > 1e-6:
-                self._log.error('收到不同回放起点；保留本轮提交，请在新轮前重启处理链')
+                self._log.info('比赛起点已确定，忽略后到的不同起点；本进程不切换轮次')
             return
         self._origin_frozen = True
         self._replay_stamp = stamp
@@ -206,9 +206,10 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._t_last_tick_mono = t0
         self._map_saved_final = False  # 节拍恢复后，下一次停拍仍须保存最终地图
 
-        # 第一拍不一定等于回放起点，不能擅自据此改变比赛原点。
-        if idx == 0 and not self._origin_frozen:
-            self._log.error('尚未收到replay_start；等待正式起点，不能用第一拍替代')
+        # 环境说明保证第0拍同时发布replay_start；两个话题的回调顺序不保证。
+        # 先到tick时仍按时写行，等待正式起点，不拿tick或最新位姿代替。
+        if self._n_tick == 1 and not self._origin_frozen:
+            self._log.info('等待本轮replay_start确定比赛原点；本拍CSV仍按时写出')
 
         t_tick = _stamp_to_sec(msg.stamp)
         received = self.get_clock().now().nanoseconds * 1e-9

@@ -10,7 +10,7 @@
     # 向量属于算法初始IMU世界系；不改变驱动及内部雷达↔IMU外参。
     output_world_up: [-0.0321952086, -0.6955923471, 0.7122368773]
     approximate_floor_from_height: true
-    lidar_height_m: 0.231 # 近似视为雷达光心高度，外壳测量起点偏差尚未校准
+    lidar_height_m: 0.2325 # 本轮同一银圈最高/最低点均值，按用户允许近似为光心高度
     sensor_qos_depth: 200
     input_audit_path: ''
     point_filter_num: 1

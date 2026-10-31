@@ -54,3 +54,7 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 - 台架与独立节点保持运动默认关闭；按用户比赛操作要求，`start_match.bash`/`match.launch.py`直接启动全链并默认`motion_enabled=true`、`continuous=true`。只读采样和标定必须显式传`motion_enabled:=false`，故障/反馈/限位保护继续生效。
 
 比赛流程：先运行`tools/start_match.bash`（默认target_id=-1），裁判给ID后运行`tools/set_target.bash ID`，确认跟踪后裁判启动客户端。比赛入口不使用match_session_gate，不等待confirmed开关或预填epoch匹配；沿用文件中的几何和旋转数值，首次反馈绑定当前epoch，运行中复位仍锁停。
+
+评分起点：校内赛环境说明保证赛题一第0拍同时发布`/judge/replay_start`（Header、transient_local、frame_id为record或replay）。以本轮有效replay_start的stamp冻结原点，不用tick替代。保留旧锁存起点过滤，并允许tick与replay_start以任意回调顺序到达；CSV仍逐tick立即写行。
+
+本轮vehicle_field.yaml已由data/现场外参记录.md生成用户授权的近似配置：镜头前端/银圈代理传感器原点，固定轴向采用理想模型。该配置开启kinematics.align_world_at_start；启动前底盘静止、相机水平朝车头，首组同步姿态自动求世界对齐，运行中复位保护继续生效。个人vehicle43.yaml可覆盖默认配置；不要把近似标成独立精度验收通过。

@@ -79,8 +79,9 @@ lidar_input_frame_definition: 厂家原始雷达系
 lidar_points_already_transformed: false
 lidar_acceleration_unit: g
 gimbal_acceleration_unit: m/s^2
-lidar_height_m: 0.231
+lidar_height_m: 0.2325
 adopted_floor_model: height_approximation
+adopted_vehicle_config: vehicle_field.yaml（本轮用户授权机械代理点和理想轴向近似）
 floor_model_basis: 静止重力方向调平，加光心偏移后减去近似光心离地高度；实际参数见live_parameters
 hardware_assembly: 相机和云台已装到底盘，几何尺寸尚未确认
 lidar_to_imu_R_row_major: null
@@ -193,7 +194,8 @@ def sample_indices(total, limit):
 
 
 def copy_source_configs(output):
-    paths = ['vehicle43.yaml','src/team43_bringup/config/camera_team43.yaml',
+    paths = ['vehicle43.yaml','src/team43_bringup/config/vehicle_field.yaml',
+             'src/team43_bringup/config/camera_team43.yaml',
              'src/team43_bringup/config/vehicle_template.yaml','src/team43_bringup/config/tracker_params.yaml',
              'src/team43_lio_backend/config/small_point_lio_mid360.yaml',
              'src/team43_grid_mapper/config/cloud_mapping.yaml','src/team43_control/config/visual_tracking.yaml',

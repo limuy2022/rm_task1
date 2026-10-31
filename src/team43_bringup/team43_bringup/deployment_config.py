@@ -20,7 +20,7 @@ def load_vehicle_config(path, *, require_confirmation=True):
                                  or params['kinematics.calibrated_epoch'] < 0):
         raise ValueError('必须填写本次IMU世界对齐所对应的calibrated_epoch')
     if params.get('localization.base_pose_source') != 'odom': raise ValueError('实车不能使用mock底盘')
-    if params.get('localization.origin_mode') != 'judge_replay_start': raise ValueError('实车原点必须来自replay_start')
+    if params.get('localization.origin_mode') != 'judge_replay_start': raise ValueError('实车原点必须来自赛事replay_start')
     if params.get('grid.map_source') != 'topic' or not params.get('grid.source_frame'):
         raise ValueError('必须使用自己的真实地图话题并注明source_frame')
     # The current node interfaces use these names, so reject partial renaming.

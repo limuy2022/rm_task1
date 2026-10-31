@@ -51,6 +51,9 @@ class KinematicsTests(unittest.TestCase):
                 max_age=node.cfg['max_age_s'], max_gap=node.cfg['max_gap_s'])
             node.dynamic = Broadcaster(); node.static = Broadcaster()
             node.sent_static = False; node.last_now = None
+            node.parameter_updates = []
+            node.set_parameters = lambda values: node.parameter_updates.extend(values)
+            node.alignment_reported = False
             node.pub = Publisher()
             return node
 
