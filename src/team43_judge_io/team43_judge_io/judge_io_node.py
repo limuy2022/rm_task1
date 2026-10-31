@@ -74,7 +74,7 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'judge.v_floor': 0.30,             # 距离目标较远时的建议速度大小（m/s）
     'judge.stop_radius_m': 0.45,       # 与官方 0.5 m 判据留 0.05 m 余量
     'judge.watchdog_period_s': 0.2,    # 迟到/丢拍看门狗周期
-    'judge.late_warn_s': 0.05,         # 单行写盘耗时告警阈值
+    'judge.late_warn_s': 0.05,         # tick源stamp到flush完成的端到端告警阈值
     # --- 地图落盘 -----------------------------------------------------------
     'judge.map_save_period_s': 10.0,   # 周期保存（防意外中断）
     'judge.map_idle_save_s': 0.7,      # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
@@ -194,12 +194,15 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._tick_index = idx
         self._n_tick += 1
         self._t_last_tick_mono = t0
+        self._map_saved_final = False  # 节拍恢复后，下一次停拍仍须保存最终地图
 
         # 第一拍不一定等于回放起点，不能擅自据此改变比赛原点。
         if idx == 0 and not self._origin_frozen:
             self._log.error('尚未收到replay_start；等待正式起点，不能用第一拍替代')
 
         t_tick = _stamp_to_sec(msg.stamp)
+        received = self.get_clock().now().nanoseconds * 1e-9
+        queue_age = received - t_tick
         snap = self._sampler.sample(t_tick)
         self._pred, self._cur, self._base, self._vel = (
             snap.prediction, snap.current, snap.base, snap.advice)
@@ -214,10 +217,16 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         ok = self._writer.write_tick(self._pred, self._cur, self._base, vel,
                                      t_tick)
         dt = time.monotonic() - t0
-        if dt > float(self._params['judge.late_warn_s']):
-            late_ms = float(self._params['judge.late_warn_s']) * 1e3
-            self._log.warning(f'第 {idx} 拍写盘耗时 {dt * 1e3:.1f} ms'
-                              f'（>{late_ms:.0f} ms，逼近 80 ms 作废线）')
+        completed = self.get_clock().now().nanoseconds * 1e-9
+        latency = completed - t_tick
+        self._last_tick_timing = {'queue_s': queue_age, 'callback_s': dt,
+                                  'stamp_to_flush_s': latency}
+        if not math.isfinite(latency) or queue_age < -.03 or completed < received:
+            self._log.error(f'第 {idx} 拍时钟异常：tick与本机ROS时间不一致，不能评估提交延迟')
+        elif latency > float(self._params['judge.late_warn_s']):
+            self._log.warning(f'第 {idx} 拍端到端 {latency*1e3:.1f} ms '
+                              f'（接收前 {queue_age*1e3:.1f} ms，回调 {dt*1e3:.1f} ms；'
+                              '80 ms作废线，含评分端轮询须留余量）')
         if not ok:
             self._log.error(f'第 {idx} 拍写盘失败')
 
@@ -273,15 +282,18 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             if raw.size != w*h or not np.all(np.isin(raw,[-1,0,100])):
                 raise ValueError('grid must have exactly width*height trinary cells')
             arr=raw.astype(np.int8).reshape((h,w)).T.copy()
-            self._grid = arr                       # (W, H)
-            self._grid_res = res
             yaw = math.atan2(float(R[1,0]), float(R[0,0]))
-            self._grid_yaw = yaw
             o = msg.info.origin.position
-            self._grid_origin = np.array([float(o.x), float(o.y)], dtype=float)
-            if not np.all(np.isfinite(self._grid_origin)):
-                self._grid=None
+            origin = np.array([float(o.x), float(o.y)], dtype=float)
+            if not np.all(np.isfinite(origin)):
                 raise ValueError('invalid map origin translation')
+            changed = (getattr(self, '_grid', None) is None
+                       or not np.array_equal(self._grid, arr)
+                       or self._grid_res != res or self._grid_yaw != yaw
+                       or not np.array_equal(self._grid_origin, origin))
+            self._grid, self._grid_res = arr, res
+            self._grid_yaw, self._grid_origin = yaw, origin
+            if changed: self._map_saved_final = False
         except (TypeError, ValueError) as exc:
             # Reject malformed external grid data instead of exporting a fake map.
             self._grid = None
@@ -327,10 +339,9 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         if self._grid is None:
             return False
         self._t_last_map_save = time.monotonic()
-        from team43_grid_mapper.pgm_io import write_map_yaml, write_pgm
+        from team43_grid_mapper.pgm_io import write_map_pair
         try:
-            write_pgm(self._map_pgm, self._grid)
-            write_map_yaml(self._map_yaml,
+            write_map_pair(self._map_pgm, self._map_yaml, self._grid,
                            image=self._map_image_name,
                            resolution=self._grid_res,
                            origin_xyz=(float(self._grid_origin[0]),

@@ -27,6 +27,7 @@ free_thresh: 0.196
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import Dict
 from typing import Optional
 from typing import Sequence
@@ -88,13 +89,7 @@ def write_pgm(path: str, grid: np.ndarray) -> str:
     Returns:
         str：实际写入的文件路径。
     """
-    _ensure_dir(os.path.dirname(os.path.abspath(path)))
-    w, h = int(np.asarray(grid).shape[0]), int(np.asarray(grid).shape[1])
-    with open(path, 'wb') as f:
-        f.write(b'P5\n')
-        f.write(('%d %d\n' % (w, h)).encode('ascii'))
-        f.write(b'255\n')
-        f.write(grid_to_pgm_bytes(grid))
+    _publish_files({path: _pgm_content(grid)})
     return path
 
 
@@ -121,7 +116,14 @@ def write_map_yaml(path: str,
     Returns:
         str：实际写入的文件路径。
     """
-    _ensure_dir(os.path.dirname(os.path.abspath(path)))
+    _publish_files({path: _yaml_content(image, resolution, origin_xyz, negate,
+                                       occupied_thresh, free_thresh, mode)})
+    return path
+
+
+def _yaml_content(image='map.pgm', resolution=.05, origin_xyz=(-6., -6., 0.),
+                  negate=DEFAULT_NEGATE, occupied_thresh=DEFAULT_OCCUPIED_THRESH,
+                  free_thresh=DEFAULT_FREE_THRESH, mode=DEFAULT_MODE):
     org = [float(origin_xyz[0]), float(origin_xyz[1]),
            float(origin_xyz[2]) if len(origin_xyz) > 2 else 0.0]
     lines = [
@@ -133,9 +135,7 @@ def write_map_yaml(path: str,
         'occupied_thresh: %s' % _fmt_num(float(occupied_thresh)),
         'free_thresh: %s' % _fmt_num(float(free_thresh)),
     ]
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines) + '\n')
-    return path
+    return ('\n'.join(lines) + '\n').encode('utf-8')
 
 
 def write_map(out_dir: str,
@@ -161,17 +161,78 @@ def write_map(out_dir: str,
     _ensure_dir(out_dir)
     pgm_path = os.path.join(out_dir, image_name)
     yaml_path = os.path.join(out_dir, yaml_name)
-    write_pgm(pgm_path, grid_map.grid)
     if origin_xyz is None:
         origin_xyz = (float(grid_map.origin_xy[0]),
                       float(grid_map.origin_xy[1]), float(grid_map.origin_yaw))
-    write_map_yaml(yaml_path,
-                   image=image_name,
-                   resolution=grid_map.resolution,
-                   origin_xyz=origin_xyz,
-                   occupied_thresh=occupied_thresh,
-                   free_thresh=free_thresh)
+    write_map_pair(pgm_path, yaml_path, grid_map.grid, image=image_name,
+                   resolution=grid_map.resolution, origin_xyz=origin_xyz,
+                   occupied_thresh=occupied_thresh, free_thresh=free_thresh)
     return {'pgm': pgm_path, 'yaml': yaml_path}
+
+
+def _pgm_content(grid):
+    image = grid_to_pgm_image(grid)
+    h, w = image.shape
+    return ('P5\n%d %d\n255\n' % (w, h)).encode('ascii') + image.tobytes()
+
+
+def _stage_bytes(path, content):
+    directory = os.path.dirname(os.path.abspath(path))
+    _ensure_dir(directory)
+    fd, temp = tempfile.mkstemp(prefix='.'+os.path.basename(path)+'.', dir=directory)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(content)
+        # mkstemp默认0600；正式地图须保留原权限，新文件可被评分端读取。
+        mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o644
+        os.chmod(temp, mode)
+        return temp
+    except BaseException:
+        os.unlink(temp)
+        raise
+
+
+def _publish_files(files):
+    """先完整暂存，再逐文件原子替换；可恢复的提交失败回滚旧文件。
+
+    两次rename并非跨文件原子事务；进程被强杀/断电仍有两文件版本不同的窗口。
+    """
+    staged, backups, committed = {}, {}, []
+    try:
+        for path, content in files.items():
+            staged[path] = _stage_bytes(path, content)
+        for path in files:
+            if os.path.exists(path):
+                backup = _stage_bytes(path, b'')
+                os.unlink(backup)
+                os.link(path, backup)
+                backups[path] = backup
+        try:
+            for path, temp in staged.items():
+                os.replace(temp, path)
+                committed.append(path)
+        except OSError:
+            for path in reversed(committed):
+                if path in backups:
+                    backup = backups[path]
+                    try:
+                        os.replace(backup, path)
+                    except OSError as exc:
+                        # 恢复也失败时保留旧文件硬链接，不能在finally清掉唯一备份。
+                        del backups[path]
+                        raise OSError(f'地图恢复失败，上一完整文件保留在{backup}') from exc
+                    del backups[path]
+                else:
+                    os.unlink(path)
+            raise
+    finally:
+        for temp in list(staged.values()) + list(backups.values()):
+            if os.path.exists(temp): os.unlink(temp)
+
+
+def write_map_pair(pgm_path, yaml_path, grid, **metadata):
+    """准备两份完整内容后写出，磁盘写满时保留上一份完整提交。"""
+    _publish_files({pgm_path: _pgm_content(grid), yaml_path: _yaml_content(**metadata)})
 
 
 # ---------------------------------------------------------------------------

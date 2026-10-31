@@ -13,9 +13,8 @@
 静止目标时，目标的比赛坐标是否仍保持固定；旧观测是否会被拒绝，以及恢复
 新观测后是否能重新跟踪。
 
-仿真默认使用 `--lidar-format pointcloud2`，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
-后端默认 `--backend-format auto` 自动识别并走 PointCloud2 接收路径；报告记录输入 `lidar_format` 与后端 `backend_format`。
-测试CustomMsg输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
+仿真固定使用PointCloud2，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
+仿真与生产后端都固定使用PointCloud2，不提供输入格式或后端模式选择。
 
 ## 1 实际运行的链路
 
@@ -79,7 +78,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
     source /tmp/ci/setup.bash &&
     export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
     python3 -B tools/simulate_gazebo_vision.py \
-      --output-dir build/offline/gazebo_vision_01 --lidar-format pointcloud2 --record-bag'
+      --output-dir build/offline/gazebo_vision_01 --record-bag'
 ```
 
 输出目录必须不存在；重跑时换编号。`--record-bag` 可省略，开启后会录制图像、

@@ -1,0 +1,498 @@
+{
+  "collector_completed": true,
+  "interrupted": false,
+  "error": null,
+  "semantics_and_accuracy_verified": false,
+  "seconds_requested": 30.0,
+  "collector_uses_sim_time": false,
+  "streams": {
+    "lidar": {
+      "topic": "/red_standard_robot1/livox/lidar",
+      "expected": [
+        "sensor_msgs/msg/PointCloud2"
+      ],
+      "selected_type": "sensor_msgs/msg/PointCloud2",
+      "received": 299,
+      "valid_received": 299,
+      "header_samples": 299,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.74293,
+      "last_stamp_s": 1793432681.5426714,
+      "min_age_s": 0.10012705300000001,
+      "max_age_s": 0.10340328500000001,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "lidar_imu": {
+      "topic": "/red_standard_robot1/livox/imu",
+      "expected": [
+        "sensor_msgs/msg/Imu"
+      ],
+      "selected_type": "sensor_msgs/msg/Imu",
+      "received": 5983,
+      "valid_received": 5983,
+      "header_samples": 5983,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.817655,
+      "last_stamp_s": 1793432681.7274165,
+      "min_age_s": 9.951400000000001e-05,
+      "max_age_s": 0.012207582000000002,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "gimbal_imu": {
+      "topic": "/red_standard_robot1/gimbal",
+      "expected": [
+        "sensor_msgs/msg/Imu"
+      ],
+      "selected_type": "sensor_msgs/msg/Imu",
+      "received": 14913,
+      "valid_received": 14913,
+      "header_samples": 14913,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.8219616,
+      "last_stamp_s": 1793432681.7318063,
+      "min_age_s": 8.471000000000001e-05,
+      "max_age_s": 0.008554778,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "joint_states": {
+      "topic": "/gimbal/joint_states",
+      "expected": [
+        "sensor_msgs/msg/JointState"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "gimbal_state": {
+      "topic": "/gimbal/state",
+      "expected": [
+        "team43_interfaces/msg/GimbalState"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "lio_odom": {
+      "topic": "/red_standard_robot1/aft_mapped_to_init",
+      "expected": [
+        "nav_msgs/msg/Odometry"
+      ],
+      "selected_type": "nav_msgs/msg/Odometry",
+      "received": 299,
+      "valid_received": 299,
+      "header_samples": 299,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.8420496,
+      "last_stamp_s": 1793432681.6415572,
+      "min_age_s": 0.003912723,
+      "max_age_s": 0.010715725,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "base_raw": {
+      "topic": "/gimbal/base_pose_raw",
+      "expected": [
+        "nav_msgs/msg/Odometry"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "base_map": {
+      "topic": "/gimbal/base_pose",
+      "expected": [
+        "nav_msgs/msg/Odometry"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "corners": {
+      "topic": "/team43_tracking/marker_corners",
+      "expected": [
+        "team43_interfaces/msg/MarkerCorners"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "processing_corners": {
+      "topic": "/perception/marker_corners",
+      "expected": [
+        "team43_interfaces/msg/MarkerCorners"
+      ],
+      "selected_type": "team43_interfaces/msg/MarkerCorners",
+      "received": 718,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "marker": {
+      "topic": "/perception/marker_cam",
+      "expected": [
+        "team43_interfaces/msg/MarkerObservation"
+      ],
+      "selected_type": "team43_interfaces/msg/MarkerObservation",
+      "received": 718,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "tracking_marker": {
+      "topic": "/team43_tracking/marker_cam",
+      "expected": [
+        "team43_interfaces/msg/MarkerObservation"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "target": {
+      "topic": "/estimation/target_state",
+      "expected": [
+        "team43_interfaces/msg/TargetState"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "advice": {
+      "topic": "/chassis/advice",
+      "expected": [
+        "team43_interfaces/msg/ChassisAdvice"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "epoch": {
+      "topic": "/task1/gimbal_reset_epoch",
+      "expected": [
+        "std_msgs/msg/UInt64"
+      ],
+      "selected_type": "std_msgs/msg/UInt64",
+      "received": 1,
+      "valid_received": 1,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "tracking_status": {
+      "topic": "/team43_tracking/status",
+      "expected": [
+        "std_msgs/msg/String"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "mapping_status": {
+      "topic": "/team43/cloud_mapping/status",
+      "expected": [
+        "std_msgs/msg/String"
+      ],
+      "selected_type": "std_msgs/msg/String",
+      "received": 30,
+      "valid_received": 30,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "source_map": {
+      "topic": "/team43/slam_map",
+      "expected": [
+        "nav_msgs/msg/OccupancyGrid"
+      ],
+      "selected_type": "nav_msgs/msg/OccupancyGrid",
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "map": {
+      "topic": "/map/grid",
+      "expected": [
+        "nav_msgs/msg/OccupancyGrid"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "camera_info": {
+      "topic": "/camera_info",
+      "expected": [
+        "sensor_msgs/msg/CameraInfo"
+      ],
+      "selected_type": "sensor_msgs/msg/CameraInfo",
+      "received": 721,
+      "valid_received": 721,
+      "header_samples": 721,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.8287477,
+      "last_stamp_s": 1793432681.6896744,
+      "min_age_s": 0.001295408,
+      "max_age_s": 0.006957142,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "image": {
+      "topic": "/image_raw",
+      "expected": [
+        "sensor_msgs/msg/Image"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": false,
+      "status": "not_requested"
+    },
+    "tick": {
+      "topic": "/judge/tick",
+      "expected": [
+        "std_msgs/msg/Header"
+      ],
+      "selected_type": "std_msgs/msg/Header",
+      "received": 299,
+      "valid_received": 299,
+      "header_samples": 299,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793432651.9013135,
+      "last_stamp_s": 1793432681.7012954,
+      "min_age_s": 0.000140755,
+      "max_age_s": 0.0014484670000000002,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "replay_start": {
+      "topic": "/judge/replay_start",
+      "expected": [
+        "std_msgs/msg/Header"
+      ],
+      "selected_type": "std_msgs/msg/Header",
+      "received": 1,
+      "valid_received": 1,
+      "header_samples": 1,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": 1793431898.4010563,
+      "last_stamp_s": 1793431898.4010563,
+      "min_age_s": 753.439535154,
+      "max_age_s": 753.439535154,
+      "enabled": true,
+      "status": "subscribed"
+    },
+    "tf": {
+      "topic": "/tf",
+      "expected": [
+        "tf2_msgs/msg/TFMessage"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    },
+    "tf_static": {
+      "topic": "/tf_static",
+      "expected": [
+        "tf2_msgs/msg/TFMessage"
+      ],
+      "selected_type": null,
+      "received": 0,
+      "valid_received": 0,
+      "header_samples": 0,
+      "backwards": 0,
+      "duplicates": 0,
+      "first_stamp_s": null,
+      "last_stamp_s": null,
+      "min_age_s": null,
+      "max_age_s": null,
+      "enabled": true,
+      "status": "waiting_for_publisher"
+    }
+  },
+  "not_received": [
+    "joint_states",
+    "gimbal_state",
+    "base_raw",
+    "base_map",
+    "corners",
+    "tracking_marker",
+    "target",
+    "advice",
+    "tracking_status",
+    "source_map",
+    "map",
+    "tf",
+    "tf_static"
+  ],
+  "parameter_nodes_not_seen": [
+    "/base_pose_provider_node",
+    "/chassis_advisor_node",
+    "/gimbal_bearing_node",
+    "/gimbal_controller_node",
+    "/gimbal_kinematics_node",
+    "/grid_mapper_node",
+    "/judge_io_node",
+    "/livox_driver_node",
+    "/livox_lidar_publisher",
+    "/map_frame_broadcaster_node",
+    "/target_estimator_node",
+    "/team43_tracking/aruco_detector_node",
+    "/team43_tracking/marker_pnp_node",
+    "/team43_tracking/visual_servo_node"
+  ],
+  "limitations": [
+    "采到消息不证明精度、真实同步、量程、尺寸或机械限位",
+    "Humble Python回调不提供逐条TF的发布者GID，边归属须另确认",
+    "best-effort观察到tick不证明正式reliable订阅匹配",
+    "源码配置快照不等于已运行节点的参数；以live_parameters为运行读数",
+    "时间单位的纳秒计算仅为官方格式假设，不自动确认设备时钟"
+  ]
+}

@@ -7,6 +7,8 @@
 
 | 用途 | 入口 |
 |---|---|
+| 实机比赛一键启动 | `bash tools/start_match.bash target_id:=本轮ID`，见[比赛启动与收尾](../docs/教程/比赛启动与收尾.md)；实验室按[统一验证](../docs/教程/实验室统一验证.md)验收 |
+| NUC本队Livox驱动构建 | `bash tools/build_livox.bash`；网络配置用`ros2 run team43_bringup configure_livox`生成，见[整体部署](../docs/教程/整体部署.md#雷达驱动由谁启动) |
 | 全量离线核验 | `verify_all_offline.py`；标准流程先跑 `pytest src`，再加 `--skip-pytest` |
 | 独立集成仿真 | `run_simulation_ci.sh`：`navigation` / `submission` / `gazebo_lio` / `gazebo_vision` |
 | CSV 格式检查 / 对照真值评分 | `check_csv.py` / `score_csv.py` |
@@ -20,7 +22,7 @@
 
 - `verify_*.py`：独立算法流水线、节点回调、launch、DDS 或退化场景验收，由全量入口编排。
 - `aim_sim.py`：可复用的合成图像渲染库。
-- `submission_test_source.py`、`observe_submission.py`：隔离域的合成提交源与独立 CSV 观察器；供 DDS 验收和现场教程调用。
+- `submission_test_source.py`、`observe_submission.py`：隔离域的合成提交源与独立 CSV 观察器（真实整机轮次用`--live-state`）；供 DDS 验收和现场教程调用。
 - `simulate_navigation.py`、`simulate_gazebo_lio.py`、`simulate_gazebo_vision.py`：不同输入层次的仿真运行器。
 - Gazebo 场景、模型、插件源码和辅助模块位于 [`src/team43_gazebo`](../src/team43_gazebo/README.md)，验收入口仍在本目录。
 - `verify_protocol_offline.cpp`：由同名 Python 入口编译，包含 sanitizer 与 PTY 核验。

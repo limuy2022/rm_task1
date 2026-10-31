@@ -13,9 +13,8 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import ReliabilityPolicy
 
 
-@pytest.mark.parametrize('lidar_format', ['custom', 'pointcloud2'])
 @pytest.mark.parametrize('reliable', [False, True])
-def test_backend_imu_reliability_is_explicit_opt_in(reliable, lidar_format, monkeypatch):
+def test_backend_imu_reliability_is_explicit_opt_in(reliable, monkeypatch):
     monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
     domain = 170 + os.getpid() % 40
     context = Context()
@@ -28,8 +27,7 @@ def test_backend_imu_reliability_is_explicit_opt_in(reliable, lidar_format, monk
                '--ros-args', '--params-file', str(config),
                '-r', '__node:=qos_backend', '-r', '__ns:=/test/lio_qos',
                '-p', 'imu_topic:=/test/lio_qos/imu',
-               '-p', 'lidar_topic:=/test/lio_qos/lidar',
-               '-p', 'lidar_format:='+lidar_format]
+               '-p', 'lidar_topic:=/test/lio_qos/lidar']
     if reliable:
         command += ['-p', 'imu_qos_reliable:=true']
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -49,7 +47,7 @@ def test_backend_imu_reliability_is_explicit_opt_in(reliable, lidar_format, monk
         expected = ReliabilityPolicy.RELIABLE if reliable else ReliabilityPolicy.BEST_EFFORT
         assert endpoints['imu'][0].qos_profile.reliability == expected
         assert endpoints['lidar'][0].qos_profile.reliability == ReliabilityPolicy.BEST_EFFORT
-        expected_type = 'sensor_msgs/msg/PointCloud2' if lidar_format == 'pointcloud2' else 'livox_ros_driver2/msg/CustomMsg'
+        expected_type = 'sensor_msgs/msg/PointCloud2'
         assert endpoints['lidar'][0].topic_type == expected_type
     finally:
         if process.poll() is None:
@@ -65,12 +63,10 @@ def test_backend_imu_reliability_is_explicit_opt_in(reliable, lidar_format, monk
     assert process.returncode == 0, output
 
 
-@pytest.mark.parametrize('lidar_format', ['custom', 'pointcloud2'])
-def test_backend_produces_static_localization_with_both_formats(lidar_format, tmp_path):
+def test_backend_produces_static_localization_with_pointcloud2(tmp_path):
     """合成点云经真实 DDS/外参/算法核心输出位姿和地图，防止只接通端点。"""
     script = Path(__file__).resolve().parents[3] / 'tools/verify_lio_install.py'
-    result = subprocess.run(['python3', '-B', str(script), '--lidar-format', lidar_format,
-                             '--output-dir', str(tmp_path / lidar_format)],
+    result = subprocess.run(['python3', '-B', str(script), '--output-dir', str(tmp_path / 'pointcloud2')],
                             env=dict(os.environ, ROS_DOMAIN_ID=str(170 + os.getpid() % 40),
                                      ROS_LOCALHOST_ONLY='1'),
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=45.)

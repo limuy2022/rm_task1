@@ -8,7 +8,7 @@
   用 SensorDataQoS（best-effort）在 50 fps 下只能收到约 21 Hz，丢掉一半以上。
 - **不要在回调里做重活**：回调只保存最新帧的引用，检测在定时器里做，
   并按 `detect_rate_hz` 节流（评分是 10 Hz，30 Hz 检测绰绰有余）。
-- 码用 `DICT_4X4_50`，边长 0.1 m。
+- 码用 `DICT_4X4_50`，边长 0.075 m。
 
 输出：``team43_interfaces/MarkerCorners``，ID和角点携带同一图像stamp。
 保持ArUco解码后的规范角点顺序，不按图像左上重新排序。

@@ -1,4 +1,4 @@
-# 全部零值是未测占位！相机/云台未上底盘时不要将确认项改为true。
+# 几何零值是未测占位；相机/云台已装车，但装车不等于外参和零位已测。
 # 当前processing入口不发送电机指令；控制闭环仍需单独实机验证。
 # 外参唯一运行配置：复制此文件填写，不在launch/其它节点再写另一份安装尺寸。
 # 单位：xyz为米，rpy为弧度；R=Rz(yaw)*Ry(pitch)*Rx(roll)。
@@ -7,7 +7,7 @@
 # camera_link到camera_optical_frame的固定O/C旋转已在frames.py，不重复测绘。
 # 相机已知新K/D单独读取camera_team43.yaml，不能把内参当成安装外参。
 # Point-LIO自带雷达↔IMU内参读取small_point_lio_mid360.yaml；此处sensor_in_base是IMU body↔底盘。
-# 目前云台未装到底盘：底盘安装尺寸与机械零位保持未确认，不填“测量通过”。
+# 装配照片已确认安装；安装尺寸、机械零位和本次世界对齐仍保持未确认。
 /**:
   ros__parameters:
     use_sim_time: false
@@ -31,6 +31,7 @@
     localization.publish_world_odom: false
     kinematics.calibration_confirmed: false
     kinematics.joint_zero_known: false
+    kinematics.joint_limits_confirmed: false # 已验证且留余量的工作区间，不要求撞机械端点
     kinematics.mounted_on_base_confirmed: false
     kinematics.calibrated_epoch: -1
     kinematics.odom_frame: odom

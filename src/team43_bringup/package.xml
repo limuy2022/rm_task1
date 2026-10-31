@@ -17,6 +17,11 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
 
   <!-- 被一键启动的业务包 -->
   <exec_depend>team43_common</exec_depend>

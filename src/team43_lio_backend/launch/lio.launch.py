@@ -11,10 +11,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     share = get_package_share_directory('team43_lio_backend')
     return LaunchDescription([
-        DeclareLaunchArgument('lidar_topic', default_value='/livox/lidar'),
-        DeclareLaunchArgument('lidar_format', default_value='auto',
-                              description='auto 自动识别发布者类型；也可手动 custom 或 pointcloud2'),
-        DeclareLaunchArgument('imu_topic', default_value='/livox/imu'),
+        DeclareLaunchArgument('lidar_topic', default_value='/red_standard_robot1/livox/lidar'),
+        DeclareLaunchArgument('imu_topic', default_value='/red_standard_robot1/livox/imu'),
         DeclareLaunchArgument('namespace', default_value='red_standard_robot1'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('params_file', default_value=os.path.join(share, 'config', 'small_point_lio_mid360.yaml')),
@@ -22,7 +20,6 @@ def generate_launch_description():
              namespace=LaunchConfiguration('namespace'), output='screen',
              parameters=[LaunchConfiguration('params_file'), {
                  'lidar_topic': ParameterValue(LaunchConfiguration('lidar_topic'), value_type=str),
-                 'lidar_format': ParameterValue(LaunchConfiguration('lidar_format'), value_type=str),
                  'imu_topic': ParameterValue(LaunchConfiguration('imu_topic'), value_type=str),
                  'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
              }]),

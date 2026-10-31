@@ -1,0 +1,524 @@
+{
+  "/robo_bridge": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "cmd_vel_topic": {
+        "type": 4,
+        "value": "/team43_tracking/cmd_vel"
+      },
+      "imu_axis_sign": {
+        "type": 7,
+        "value": [
+          1,
+          1,
+          1
+        ]
+      },
+      "imu_topic": {
+        "type": 4,
+        "value": "/red_standard_robot1/gimbal"
+      },
+      "imu_wait_warn_s": {
+        "type": 3,
+        "value": 15.0
+      },
+      "pitch_sign": {
+        "type": 2,
+        "value": 1
+      },
+      "port": {
+        "type": 4,
+        "value": "/dev/ttyUSB0"
+      },
+      "publish_tf": {
+        "type": 1,
+        "value": false
+      },
+      "qos_overrides./parameter_events.publisher.depth": {
+        "type": 2,
+        "value": 1000
+      },
+      "qos_overrides./parameter_events.publisher.durability": {
+        "type": 4,
+        "value": "volatile"
+      },
+      "qos_overrides./parameter_events.publisher.history": {
+        "type": 4,
+        "value": "keep_last"
+      },
+      "qos_overrides./parameter_events.publisher.reliability": {
+        "type": 4,
+        "value": "reliable"
+      },
+      "subscribe_cmd_vel": {
+        "type": 1,
+        "value": true
+      },
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      },
+      "yaw_sign": {
+        "type": 2,
+        "value": 1
+      }
+    }
+  },
+  "/aruco_detector_node": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "perception.aruco_dict": {
+        "type": 4,
+        "value": "DICT_4X4_50"
+      },
+      "perception.corners_frame_id": {
+        "type": 4,
+        "value": "camera_optical_frame"
+      },
+      "perception.detect_rate_hz": {
+        "type": 3,
+        "value": 30.0
+      },
+      "perception.do_subpix": {
+        "type": 1,
+        "value": true
+      },
+      "perception.image_timeout_s": {
+        "type": 3,
+        "value": 0.2
+      },
+      "perception.image_topic": {
+        "type": 4,
+        "value": "/image_raw"
+      },
+      "perception.marker_corners_topic": {
+        "type": 4,
+        "value": "/perception/marker_corners"
+      },
+      "perception.max_corners": {
+        "type": 2,
+        "value": 4
+      },
+      "perception.publish_empty_on_lost": {
+        "type": 1,
+        "value": true
+      },
+      "perception.subpix_win": {
+        "type": 2,
+        "value": 3
+      },
+      "perception.target_digit": {
+        "type": 2,
+        "value": 0
+      },
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      }
+    }
+  },
+  "/marker_pnp_node": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "config.field_yaml": {
+        "type": 4,
+        "value": "field.yaml"
+      },
+      "config.maps_dir": {
+        "type": 4,
+        "value": "maps"
+      },
+      "config.outputs_dir": {
+        "type": 4,
+        "value": "outputs"
+      },
+      "config.virtual_yaml": {
+        "type": 4,
+        "value": "/home/dut0bug/ws_championship/src/rm_task1/src/install/team43_bringup/share/team43_bringup/config/camera_team43.yaml"
+      },
+      "csv.out_dir": {
+        "type": 4,
+        "value": "outputs"
+      },
+      "csv.run_id": {
+        "type": 4,
+        "value": "latest"
+      },
+      "debug.enable_gt_monitor": {
+        "type": 1,
+        "value": false
+      },
+      "gimbal.pitch_limits": {
+        "type": 8,
+        "value": [
+          -0.5,
+          0.35
+        ]
+      },
+      "gimbal.pitch_sign": {
+        "type": 3,
+        "value": -1.0
+      },
+      "gimbal.yaw_limits": {
+        "type": 8,
+        "value": [
+          -2.8,
+          2.8
+        ]
+      },
+      "localization.gimbal_mount_xyz_rpy": {
+        "type": 8,
+        "value": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "localization.world_odom_xyz_rpy": {
+        "type": 8,
+        "value": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mission.run_duration_s": {
+        "type": 3,
+        "value": 210.0
+      },
+      "mission.shutdown_grace_s": {
+        "type": 3,
+        "value": 5.0
+      },
+      "perception.aruco_dict": {
+        "type": 4,
+        "value": "DICT_4X4_50"
+      },
+      "perception.camera_info_source": {
+        "type": 4,
+        "value": "yaml"
+      },
+      "perception.camera_info_topic": {
+        "type": 4,
+        "value": "/camera_info"
+      },
+      "perception.corner_noise_px": {
+        "type": 3,
+        "value": 0.5
+      },
+      "perception.corners_frame_id": {
+        "type": 4,
+        "value": "camera_optical_frame"
+      },
+      "perception.depth_max": {
+        "type": 3,
+        "value": 30.0
+      },
+      "perception.depth_min": {
+        "type": 3,
+        "value": 0.05
+      },
+      "perception.detect_rate_hz": {
+        "type": 3,
+        "value": 30.0
+      },
+      "perception.do_subpix": {
+        "type": 1,
+        "value": true
+      },
+      "perception.force_k_depth": {
+        "type": 3,
+        "value": 0.0
+      },
+      "perception.force_k_lat": {
+        "type": 3,
+        "value": 0.0
+      },
+      "perception.id_filter_mode": {
+        "type": 4,
+        "value": "off"
+      },
+      "perception.image_topic": {
+        "type": 4,
+        "value": "/image_raw"
+      },
+      "perception.k_depth_floor": {
+        "type": 3,
+        "value": 0.004
+      },
+      "perception.k_lat_floor": {
+        "type": 3,
+        "value": 0.0005
+      },
+      "perception.marker_corners_topic": {
+        "type": 4,
+        "value": "/perception/marker_corners"
+      },
+      "perception.marker_size_m": {
+        "type": 3,
+        "value": 0.075
+      },
+      "perception.publish_empty_on_lost": {
+        "type": 1,
+        "value": true
+      },
+      "perception.r_min_sigma": {
+        "type": 3,
+        "value": 0.002
+      },
+      "perception.reproj_max_px": {
+        "type": 3,
+        "value": 2.0
+      },
+      "perception.subpix_win": {
+        "type": 2,
+        "value": 3
+      },
+      "perception.target_digit": {
+        "type": 2,
+        "value": 0
+      },
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      }
+    }
+  },
+  "/team43/cloud_mapping_node": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "angle_bin_deg": {
+        "type": 3,
+        "value": 0.5
+      },
+      "autosave_seconds": {
+        "type": 3,
+        "value": 10.0
+      },
+      "cloud_topic": {
+        "type": 4,
+        "value": "/red_standard_robot1/cloud_registered"
+      },
+      "file_prefix": {
+        "type": 4,
+        "value": "43_slam_map"
+      },
+      "floor_confirmed": {
+        "type": 1,
+        "value": false
+      },
+      "floor_z": {
+        "type": 3,
+        "value": 0.0
+      },
+      "ground_tolerance": {
+        "type": 3,
+        "value": 0.08
+      },
+      "height_m": {
+        "type": 3,
+        "value": 20.0
+      },
+      "max_cloud_age": {
+        "type": 3,
+        "value": 0.5
+      },
+      "max_range": {
+        "type": 3,
+        "value": 20.0
+      },
+      "min_range": {
+        "type": 3,
+        "value": 0.5
+      },
+      "obstacle_max": {
+        "type": 3,
+        "value": 1.8
+      },
+      "obstacle_min": {
+        "type": 3,
+        "value": 0.15
+      },
+      "odom_topic": {
+        "type": 4,
+        "value": "/red_standard_robot1/aft_mapped_to_init"
+      },
+      "origin_model_confirmed": {
+        "type": 1,
+        "value": true
+      },
+      "origin_xy": {
+        "type": 8,
+        "value": [
+          -10.0,
+          -10.0
+        ]
+      },
+      "output_dir": {
+        "type": 4,
+        "value": "/home/dut0bug/ws_championship/src/rm_task1/records/match_UhDdKoj9/source_map"
+      },
+      "pose_child_frame": {
+        "type": 4,
+        "value": "body"
+      },
+      "pose_max_delta": {
+        "type": 3,
+        "value": 0.04
+      },
+      "publish_hz": {
+        "type": 3,
+        "value": 1.0
+      },
+      "resolution": {
+        "type": 3,
+        "value": 0.05
+      },
+      "sensor_origin_in_body": {
+        "type": 8,
+        "value": [
+          -0.011,
+          -0.02329,
+          0.04412
+        ]
+      },
+      "source_frame": {
+        "type": 4,
+        "value": "lio_world"
+      },
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      },
+      "width_m": {
+        "type": 3,
+        "value": 20.0
+      }
+    }
+  },
+  "/red_standard_robot1/team43_small_point_lio": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "body_frame": {
+        "type": 4,
+        "value": "body"
+      },
+      "extrinsic_R": {
+        "type": 8,
+        "value": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "extrinsic_T": {
+        "type": 8,
+        "value": [
+          -0.011,
+          -0.02329,
+          0.04412
+        ]
+      },
+      "extrinsic_est_en": {
+        "type": 1,
+        "value": false
+      },
+      "imu_qos_reliable": {
+        "type": 1,
+        "value": false
+      },
+      "imu_topic": {
+        "type": 4,
+        "value": "/red_standard_robot1/livox/imu"
+      },
+      "input_audit_path": {
+        "type": 4,
+        "value": ""
+      },
+      "lidar_topic": {
+        "type": 4,
+        "value": "/red_standard_robot1/livox/lidar"
+      },
+      "qos_overrides./parameter_events.publisher.depth": {
+        "type": 2,
+        "value": 1000
+      },
+      "qos_overrides./parameter_events.publisher.durability": {
+        "type": 4,
+        "value": "volatile"
+      },
+      "qos_overrides./parameter_events.publisher.history": {
+        "type": 4,
+        "value": "keep_last"
+      },
+      "qos_overrides./parameter_events.publisher.reliability": {
+        "type": 4,
+        "value": "reliable"
+      },
+      "sensor_qos_depth": {
+        "type": 2,
+        "value": 200
+      },
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      },
+      "world_frame": {
+        "type": 4,
+        "value": "lio_world"
+      }
+    }
+  },
+  "/red_standard_robot1/livox_lidar_publisher": {
+    "status": "collected",
+    "source": "live_parameter_service",
+    "parameters": {
+      "use_sim_time": {
+        "type": 1,
+        "value": false
+      },
+      "xfer_format": {
+        "type": 2,
+        "value": 0
+      },
+      "multi_topic": {
+        "type": 2,
+        "value": 0
+      },
+      "frame_id": {
+        "type": 4,
+        "value": "livox_frame"
+      },
+      "publish_freq": {
+        "type": 3,
+        "value": 10.0
+      },
+      "user_config_path": {
+        "type": 4,
+        "value": "/home/dut0bug/ws_championship/src/rm_task1/config/livox_mid360.json"
+      }
+    }
+  },
+  "/hik_camera": {
+    "status": "read_error",
+    "source": "live_parameter_service",
+    "error": "参数响应数量与请求不一致"
+  }
+}

@@ -1,0 +1,37 @@
+# Small Point-LIO 原始核心的项目接口配置。实机使用前核对 IMU 单位、量程和外参。
+# acc_norm=1.0、satu_acc=3.0 对应 g 输入；仿真只在副本中换成 m/s²。
+/**:
+  ros__parameters:
+    lidar_topic: /red_standard_robot1/livox/lidar
+    imu_topic: /red_standard_robot1/livox/imu
+    world_frame: lio_world
+    body_frame: body
+    sensor_qos_depth: 200
+    input_audit_path: ''
+    point_filter_num: 1
+    min_distance: 0.5
+    max_distance: 1000.0
+    space_downsample: true
+    space_downsample_leaf_size: 0.2
+    gravity: [0.0, 0.0, -9.81]
+    fix_gravity_direction: true
+    check_satu: true
+    satu_acc: 3.0
+    satu_gyro: 35.0
+    acc_norm: 1.0
+    map_resolution: 0.2
+    init_map_size: 10
+    extrinsic_est_en: false
+    extrinsic_T: [-0.011, -0.02329, 0.04412]
+    extrinsic_R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    laser_point_cov: 0.01
+    imu_meas_acc_cov: 0.01
+    imu_meas_omg_cov: 0.01
+    velocity_cov: 20.0
+    acceleration_cov: 500.0
+    omg_cov: 1000.0
+    ba_cov: 0.0001
+    bg_cov: 0.0001
+    plane_threshold: 0.1
+    match_sqaured: 81.0
+    publish_odometry_without_downsample: false

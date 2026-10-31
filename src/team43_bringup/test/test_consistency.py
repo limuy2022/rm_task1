@@ -192,6 +192,15 @@ def test_c_launch_references_match_entry_points(entry_points):
         for m in re.finditer(r"\(\d+,\s*'([a-z][a-z0-9_]*)',\s*'([A-Za-z0-9_]+)'\)", txt):
             pairs.add((m.group(1), m.group(2)))
         for pkg, exe in sorted(pairs):
+            if (pkg, exe) == ('livox_ros_driver2', 'livox_ros_driver2_node'):
+                # 第三方C++驱动由配套归档提供，本队只配置和启动。
+                import tarfile
+                with tarfile.open(os.path.join(WS_DIR, 'archives', 'livox_ros_driver2.tar.gz')) as archive:
+                    cmake = archive.extractfile('livox_ros_driver2/CMakeLists.txt').read().decode()
+                assert 'EXECUTABLE ${PROJECT_NAME}_node' in cmake
+                manifest = ET.parse(os.path.join(PKG_DIR, 'package.xml'))
+                assert pkg in [element.text for element in manifest.findall('exec_depend')]
+                continue
             if exe in ('static_transform_publisher', 'rviz2'):
                 continue                      # 来自 tf2_ros / rviz2，不属于本工程
             if (pkg, exe) == ('team43_lio_backend', 'small_point_lio_node'):

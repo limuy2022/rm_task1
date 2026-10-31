@@ -1,0 +1,219 @@
+{
+  "lidar": {
+    "topic": "/red_standard_robot1/livox/lidar",
+    "publishers": [
+      {
+        "node": "/red_standard_robot1/livox_lidar_publisher",
+        "type": "sensor_msgs/msg/PointCloud2",
+        "gid": "010f668f8513da7c00000000000013030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "lidar_imu": {
+    "topic": "/red_standard_robot1/livox/imu",
+    "publishers": [
+      {
+        "node": "/red_standard_robot1/livox_lidar_publisher",
+        "type": "sensor_msgs/msg/Imu",
+        "gid": "010f668f8513da7c00000000000012030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "gimbal_imu": {
+    "topic": "/red_standard_robot1/gimbal",
+    "publishers": [
+      {
+        "node": "/robo_bridge",
+        "type": "sensor_msgs/msg/Imu",
+        "gid": "010f668f87131e3600000000000012030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "joint_states": {
+    "topic": "/gimbal/joint_states",
+    "publishers": []
+  },
+  "gimbal_state": {
+    "topic": "/gimbal/state",
+    "publishers": []
+  },
+  "lio_odom": {
+    "topic": "/red_standard_robot1/aft_mapped_to_init",
+    "publishers": [
+      {
+        "node": "/red_standard_robot1/team43_small_point_lio",
+        "type": "nav_msgs/msg/Odometry",
+        "gid": "010f668f891389f300000000000013030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "base_raw": {
+    "topic": "/gimbal/base_pose_raw",
+    "publishers": []
+  },
+  "base_map": {
+    "topic": "/gimbal/base_pose",
+    "publishers": []
+  },
+  "corners": {
+    "topic": "/team43_tracking/marker_corners",
+    "publishers": []
+  },
+  "processing_corners": {
+    "topic": "/perception/marker_corners",
+    "publishers": [
+      {
+        "node": "/aruco_detector_node",
+        "type": "team43_interfaces/msg/MarkerCorners",
+        "gid": "010f668f8d135ad400000000000012030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "marker": {
+    "topic": "/perception/marker_cam",
+    "publishers": [
+      {
+        "node": "/marker_pnp_node",
+        "type": "team43_interfaces/msg/MarkerObservation",
+        "gid": "010f668f8f13fb4400000000000011030000000000000000",
+        "reliability": "BEST_EFFORT",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "tracking_marker": {
+    "topic": "/team43_tracking/marker_cam",
+    "publishers": []
+  },
+  "target": {
+    "topic": "/estimation/target_state",
+    "publishers": []
+  },
+  "advice": {
+    "topic": "/chassis/advice",
+    "publishers": []
+  },
+  "epoch": {
+    "topic": "/task1/gimbal_reset_epoch",
+    "publishers": [
+      {
+        "node": "/robo_bridge",
+        "type": "std_msgs/msg/UInt64",
+        "gid": "010f668f87131e3600000000000013030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "TRANSIENT_LOCAL",
+        "depth": 0
+      }
+    ]
+  },
+  "tracking_status": {
+    "topic": "/team43_tracking/status",
+    "publishers": []
+  },
+  "mapping_status": {
+    "topic": "/team43/cloud_mapping/status",
+    "publishers": [
+      {
+        "node": "/team43/cloud_mapping_node",
+        "type": "std_msgs/msg/String",
+        "gid": "010f668f8b13c3ab00000000000012030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "source_map": {
+    "topic": "/team43/slam_map",
+    "publishers": [
+      {
+        "node": "/team43/cloud_mapping_node",
+        "type": "nav_msgs/msg/OccupancyGrid",
+        "gid": "010f668f8b13c3ab00000000000011030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "TRANSIENT_LOCAL",
+        "depth": 0
+      }
+    ]
+  },
+  "map": {
+    "topic": "/map/grid",
+    "publishers": []
+  },
+  "camera_info": {
+    "topic": "/camera_info",
+    "publishers": [
+      {
+        "node": "/hik_camera",
+        "type": "sensor_msgs/msg/CameraInfo",
+        "gid": "010f668fe50b55b000000000000016030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "image": {
+    "topic": "/image_raw",
+    "publishers": [
+      {
+        "node": "/hik_camera",
+        "type": "sensor_msgs/msg/Image",
+        "gid": "010f668fe50b55b000000000000014030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "tick": {
+    "topic": "/judge/tick",
+    "publishers": [
+      {
+        "node": "/task1_run",
+        "type": "std_msgs/msg/Header",
+        "gid": "010f668f710cbe2500000000000011030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "VOLATILE",
+        "depth": 0
+      }
+    ]
+  },
+  "replay_start": {
+    "topic": "/judge/replay_start",
+    "publishers": [
+      {
+        "node": "/task1_run",
+        "type": "std_msgs/msg/Header",
+        "gid": "010f668f710cbe2500000000000012030000000000000000",
+        "reliability": "RELIABLE",
+        "durability": "TRANSIENT_LOCAL",
+        "depth": 0
+      }
+    ]
+  },
+  "tf": {
+    "topic": "/tf",
+    "publishers": []
+  },
+  "tf_static": {
+    "topic": "/tf_static",
+    "publishers": []
+  }
+}

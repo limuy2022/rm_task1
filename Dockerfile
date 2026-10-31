@@ -32,7 +32,7 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-# 测试容器提供比赛机已有的Livox依赖；算法源码直接位于src普通ROS包中。
+# 测试容器构建与本队NUC部署相同的Livox归档；算法源码位于src普通ROS包中。
 FROM ros-base AS livox-runtime
 COPY archives/livox_ros_driver2.tar.gz /tmp/livox_ros_driver2.tar.gz
 RUN echo 'b438683b99951c2a962df0919106476baf00f3281a50e5691203dc510dd24d23  /tmp/livox_ros_driver2.tar.gz' | sha256sum -c - \

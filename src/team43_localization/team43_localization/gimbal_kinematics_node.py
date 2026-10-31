@@ -31,7 +31,8 @@ DEFAULTS = {
     'kinematics.joint_zero_rad': [0.]*2,
     'kinematics.yaw_limits_rad': [-2.8, 2.8],
     'kinematics.pitch_limits_rad': [-.5, .35],
-    'kinematics.max_age_s': .2, 'kinematics.max_gap_s': .1,
+    # 10Hz位姿的100ms周期允许20ms调度抖动；超过120ms仍拒绝插值。
+    'kinematics.max_age_s': .2, 'kinematics.max_gap_s': .12,
     'kinematics.imu_topic': '/red_standard_robot1/gimbal',
     'kinematics.odom_frame': 'odom', 'kinematics.base_frame': 'base_link',
 }

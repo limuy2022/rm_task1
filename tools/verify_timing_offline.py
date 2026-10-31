@@ -175,6 +175,7 @@ def judge_node(output_dir):
     """Real JudgeIoNode with paths/writer/sampler wired to a temp directory."""
     app = JudgeIoNode.__new__(JudgeIoNode)
     app._log = LOG
+    app.get_clock = lambda: NS(now=lambda: NS(nanoseconds=1000200000000))
     params = dict(judge_module.PARAM_DEFAULTS)
     params.update({'judge.output_dir': output_dir, 'judge.enforce_v_floor': False})
     app._params = params

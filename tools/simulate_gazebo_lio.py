@@ -33,7 +33,6 @@ from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import Imu, PointCloud2, PointField
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
-from livox_ros_driver2.msg import CustomMsg, CustomPoint
 
 from team43_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from team43_grid_mapper.cloud_grid import pointcloud2_xyz
@@ -81,7 +80,7 @@ def envelope(t, duration=4., ramp=.5):
 
 
 class GazeboLio(Node):
-    def __init__(self, output, timeout, real_time_factor, record_bag, scan_lines, lidar_format="pointcloud2", backend_format="auto"):
+    def __init__(self, output, timeout, real_time_factor, record_bag, scan_lines):
         super().__init__('gazebo_lio_trial', parameter_overrides=[Parameter('use_sim_time', value=True)])
         self.output, self.timeout = output, timeout
         self.processes, self.logs = [], []
@@ -89,7 +88,6 @@ class GazeboLio(Node):
         self.cloud_batches, self.batch_stamps = [], []
         self.measurement_samples = []
         self.scan_lines = scan_lines
-        self.lidar_format = lidar_format
         self.published_frames, self.published_points = 0, 0
         self.published_lidar_stamps = []
         self.raw_scans, self.raw_bad, self.offset_spans = 0, 0, []
@@ -98,8 +96,7 @@ class GazeboLio(Node):
         self.last_raw_stamp, self.last_truth_stamp, self.last_estimate_stamp = -1, -1, -1
         self.out_of_order = {'raw_cloud': 0, 'truth': 0, 'estimate': 0, 'imu': 0}
         self.cmd_pub = self.create_publisher(Twist, NS+'/cmd_vel', 10)
-        lidar_type = PointCloud2 if lidar_format == 'pointcloud2' else CustomMsg
-        self.lidar_pub = self.create_publisher(lidar_type, NS+'/livox/lidar', sensor_qos(10))
+        self.lidar_pub = self.create_publisher(PointCloud2, NS+'/livox/lidar', sensor_qos(10))
         self.create_subscription(PointCloud2, NS+'/lidar/points', self.on_cloud, sensor_qos(100))
         # 独立观察端也协商重传，避免用自身漏收的序列作为覆盖率分母。
         self.create_subscription(Imu, NS+'/imu', self.on_imu, reliable_qos(1000))
@@ -113,8 +110,7 @@ class GazeboLio(Node):
         backend_share = Path(get_package_share_directory('team43_lio_backend'))
         config = yaml.safe_load((backend_share/'config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
-        params.update(use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
-                      lidar_format=backend_format,
+        params.update(output_world_up=[0., 0., 1.], approximate_floor_from_height=False, use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
                       imu_qos_reliable=True,
                       input_audit_path=str(self.output/'input_audit.csv'),
                       space_downsample_leaf_size=.15, map_resolution=.15, max_distance=15.)
@@ -188,41 +184,26 @@ class GazeboLio(Node):
         if any(not 0 <= t-base < 150_000_000 for t in self.batch_stamps):
             raise ValueError('Gazebo 扫描时间存在超大间隔，不能拼成正常 Livox 帧')
         point_count = sum(len(frame) for frame in self.cloud_batches)
-        if self.lidar_format == 'pointcloud2':
-            # 官方 packed PointXYZRTLT（26字节）；逐点时间来自各快照的真实采样时刻。
-            packed = np.empty(point_count, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4'),
-                              ('intensity', '<f4'), ('tag', 'u1'), ('line', 'u1'), ('timestamp', '<f8')])
-            start = 0
-            for frame, t in zip(self.cloud_batches, self.batch_stamps):
-                batch = packed[start:start+len(frame)]
-                batch['x'], batch['y'], batch['z'] = frame.T
-                batch['intensity'], batch['tag'] = 100., 0x10
-                batch['line'] = (np.arange(len(frame))//180) % self.scan_lines
-                batch['timestamp'] = float(t)  # 绝对纳秒，不是相对 base 的偏移。
-                start += len(frame)
-            out = PointCloud2()
-            out.height, out.width = 1, point_count
-            out.point_step, out.row_step = packed.dtype.itemsize, packed.nbytes
-            out.is_bigendian, out.is_dense = False, True
-            out.fields = [PointField(name=name, offset=offset, datatype=datatype, count=1)
-                          for name, offset, datatype in (
-                              ('x', 0, 7), ('y', 4, 7), ('z', 8, 7), ('intensity', 12, 7),
-                              ('tag', 16, 2), ('line', 17, 2), ('timestamp', 18, 8))]
-            out.data = packed.tobytes()
-        else:
-            out = CustomMsg()
-            out.timebase, out.lidar_id = base, 0
-            points = []
-            for frame, t in zip(self.cloud_batches, self.batch_stamps):
-                for i, xyz in enumerate(frame):
-                    point = CustomPoint()
-                    point.x, point.y, point.z = map(float, xyz)
-                    point.offset_time = t-base
-                    # 去除无效回波后不宣称保留实物通道。
-                    point.line = (i//180) % self.scan_lines
-                    point.tag, point.reflectivity = 0x10, 100
-                    points.append(point)
-            out.point_num, out.points = len(points), points
+        # 官方 packed PointXYZRTLT（26字节）；逐点时间来自各快照的真实采样时刻。
+        packed = np.empty(point_count, dtype=[('x', '<f4'), ('y', '<f4'), ('z', '<f4'),
+                          ('intensity', '<f4'), ('tag', 'u1'), ('line', 'u1'), ('timestamp', '<f8')])
+        start = 0
+        for frame, t in zip(self.cloud_batches, self.batch_stamps):
+            batch = packed[start:start+len(frame)]
+            batch['x'], batch['y'], batch['z'] = frame.T
+            batch['intensity'], batch['tag'] = 100., 0x10
+            batch['line'] = (np.arange(len(frame))//180) % self.scan_lines
+            batch['timestamp'] = float(t)  # 绝对纳秒，不是相对 base 的偏移。
+            start += len(frame)
+        out = PointCloud2()
+        out.height, out.width = 1, point_count
+        out.point_step, out.row_step = packed.dtype.itemsize, packed.nbytes
+        out.is_bigendian, out.is_dense = False, True
+        out.fields = [PointField(name=name, offset=offset, datatype=datatype, count=1)
+                      for name, offset, datatype in (
+                          ('x', 0, 7), ('y', 4, 7), ('z', 8, 7), ('intensity', 12, 7),
+                          ('tag', 16, 2), ('line', 17, 2), ('timestamp', 18, 8))]
+        out.data = packed.tobytes()
         out.header.frame_id = 'livox_frame'
         out.header.stamp.sec, out.header.stamp.nanosec = divmod(base, 1_000_000_000)
         self.lidar_pub.publish(out)
@@ -496,9 +477,6 @@ def main():
     parser.add_argument('--timeout', type=float, default=600.)
     parser.add_argument('--real-time-factor', type=float, default=.5)
     parser.add_argument('--record-bag', action='store_true')
-    parser.add_argument('--backend-format', choices=['auto', 'custom', 'pointcloud2'], default='auto')
-    parser.add_argument('--lidar-format', choices=['custom', 'pointcloud2'], default='pointcloud2',
-                        help='送入生产定位接收层的消息格式，默认覆盖实机 PointCloud2 路径')
     parser.add_argument('--scan-lines', type=int, choices=[16, 32], default=16,
                         help='修改 Gazebo 雷达实际垂直光束数')
     args = parser.parse_args()
@@ -510,14 +488,14 @@ def main():
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
     rclpy.init()
-    app = GazeboLio(output, args.timeout, args.real_time_factor, args.record_bag, args.scan_lines, args.lidar_format, args.backend_format)
+    app = GazeboLio(output, args.timeout, args.real_time_factor, args.record_bag, args.scan_lines)
     report = {'kind': 'gazebo_raw_lidar_imu_point_lio', 'ground_truth_used_as_odometry_input': False,
               'point_lio_image_build': point_lio_image_build(),
               'world_source': str(app.world_source), 'world_source_sha256': app.world_source_sha256,
               'generated_world_sha256': hashlib.sha256((output/'world.sdf').read_bytes()).hexdigest(),
               'hardware_accessed': False, 'imu_model': 'imu_measurement_update', 'scan_lines': args.scan_lines,
-              'lidar_format': args.lidar_format, 'backend_format': args.backend_format,
-              'source_archive_role': 'livox_messages_only',
+              'lidar_format': 'pointcloud2',
+              'source_archive_role': 'hardware_driver_not_started',
               'source_archive_sha256': hashlib.sha256((ROOT/'archives/livox_ros_driver2.tar.gz').read_bytes()).hexdigest(),
               'limitations': ['悬浮刚性平台，不模拟轮胎或悬架', '规则多线雷达，不是MID360非重复扫描模式',
                               '当前场景没有额外注入传感器噪声、偏置或时延',

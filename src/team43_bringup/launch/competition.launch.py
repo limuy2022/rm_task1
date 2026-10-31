@@ -1,38 +1,6 @@
-"""`competition.launch.py` — **主入口**：一键启动全部节点 + 静态 TF + 30s 自动收尾。
+"""离线虚拟云台算法演示入口，带定时收尾。
 
-对应 DESIGN §3.13 / §6.14 / §7-T05。流程：
-
-```
-读取 config/virtual.yaml（内参+外参）→ 传给 static_tf.launch.py 与 perception
-读取 config/field.yaml             → team43_grid_mapper
-读取各包 config/tracker_defaults.yaml + bringup/config/tracker_params.yaml → 各节点
-节点：team43_grid_mapper → base_pose_provider → map_frame_broadcaster → vgimbal_bridge
-      → marker_pnp → target_estimator → gimbal_controller → team43_chassis_advisor
-      → judge_io → trajectory_annotator [→ gt_error_monitor(可选)]
-TimerAction(period = run_duration_s + shutdown_grace_s) → Shutdown(reason='mission complete')
-```
-
-用法::
-
-    # 默认：功能包默认参数 + tracker_params.yaml 共享配置（仿真/虚拟云台环境可直接跑通）
-    ros2 launch team43_bringup competition.launch.py
-
-    # 正式赛机（串口在 /dev/gimbal、底盘位姿来自主办方 odom）
-    ros2 launch team43_bringup competition.launch.py \
-        serial_port:=/dev/gimbal base_pose_source:=odom
-
-    # 带 RViz 与调试评估
-    ros2 launch team43_bringup competition.launch.py rviz:=true enable_gt_monitor:=true
-
-    # 临时覆盖**任意**参数（不改 tracker_params.yaml；值按 JSON 猜类型）
-    ros2 launch team43_bringup competition.launch.py \
-        extra_params:="perception.marker_size_m=0.105;judge.team_id=T7"
-
-**单一数据源**：本文件刻意把大部分 launch 参数默认留空 = 「不覆盖」，
-即沿用各功能包默认值与 `config/tracker_params.yaml` 的共享值；只有场地文件路径与任务时长会被显式注入，
-以保证 launch 与节点看到同一份配置。
-
-运行环境：Ubuntu 22.04 / ROS2 Humble。
+实机比赛使用 tools/start_match.bash；本入口不代表正式传感器和评分链。
 """
 
 from __future__ import annotations

@@ -1,0 +1,39 @@
+# 整车共享参数与任务配置；各功能包的专属参数见其 config/tracker_defaults.yaml。
+# 加载顺序：功能包默认值 → 本文件/整车场景文件 → 显式启动覆盖。
+/**:
+  ros__parameters:
+    # ---------------- gimbal（云台限位与故障判据）----------------
+    gimbal.pitch_sign: -1.0             # ⚠ 修正 1：唯一入口
+    gimbal.yaw_limits: [-2.8, 2.8]
+    gimbal.pitch_limits: [-0.5, 0.35]   # 协议域（低头为正）
+
+    # 整车安装外参，同时用于静态 TF 与定位节点。
+    localization.gimbal_mount_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # ---------------- mission（任务窗口）----------------
+    # 赛题一 tick 持续 180 s，评分节点启动后约 3 s 才发第 0 拍，
+    # 最后一拍后 1 s 才复制 CSV 与地图 → 必须活过 184 s。
+    mission.run_duration_s: 210.0
+    mission.shutdown_grace_s: 5.0
+
+    # 跨包启动开关。
+    debug.enable_gt_monitor: false
+
+    # ---------------- 配置文件路径（相对于 bringup 包 share 目录）----------------
+    config.virtual_yaml: virtual.yaml
+    config.field_yaml: field.yaml
+    config.maps_dir: maps
+    config.outputs_dir: outputs
+
+    # ---------------- 时钟（DESIGN §8.2 第 4 条）----------------
+    use_sim_time: false
+
+    # 跨包共享参数。
+    perception.r_min_sigma: 0.002
+
+    # 跨包共享参数。
+    localization.world_odom_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # 跨包共享参数。
+    csv.out_dir: outputs
+    csv.run_id: latest

@@ -1,0 +1,30 @@
+{
+  "start_utc": "2026-10-31T07:44:11.591768+00:00",
+  "hostname": "dut0bug-NUC12WSKi7",
+  "python": "3.10.12 (main, May 27 2025, 17:12:29) [GCC 11.4.0]",
+  "environment": {
+    "ROS_DISTRO": "humble",
+    "ROS_DOMAIN_ID": null,
+    "ROS_LOCALHOST_ONLY": "1",
+    "RMW_IMPLEMENTATION": null
+  },
+  "source_configs": [
+    "src/team43_bringup/config/camera_team43.yaml",
+    "src/team43_bringup/config/vehicle_template.yaml",
+    "src/team43_bringup/config/tracker_params.yaml",
+    "src/team43_lio_backend/config/small_point_lio_mid360.yaml",
+    "src/team43_grid_mapper/config/cloud_mapping.yaml",
+    "src/team43_control/config/visual_tracking.yaml",
+    "src/team43_perception/config/tracker_defaults.yaml"
+  ],
+  "operations": [
+    "DDS订阅",
+    "图发现",
+    "ListParameters",
+    "GetParameters",
+    "本队文件快照"
+  ],
+  "opens_serial": false,
+  "starts_driver_or_controller": false,
+  "publishes_control_or_judge": false
+}

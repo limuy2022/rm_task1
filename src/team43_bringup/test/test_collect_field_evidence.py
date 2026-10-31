@@ -11,6 +11,7 @@ import sys
 import tarfile
 import time
 
+import yaml
 import pytest
 import rclpy
 from rclpy.context import Context
@@ -18,7 +19,6 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import TransformStamped
-from livox_ros_driver2.msg import CustomMsg, CustomPoint
 from sensor_msgs.msg import PointCloud2, PointField, Imu
 from tf2_msgs.msg import TFMessage
 from std_msgs.msg import UInt64
@@ -47,7 +47,7 @@ def make_cloud(big_endian=False):
 
 @pytest.mark.parametrize('big_endian',[False,True])
 def test_cloud_snapshot_keeps_raw_units_coordinates_and_padded_layout(big_endian):
-    result=collector.cloud_snapshot(make_cloud(big_endian),'sensor_msgs/msg/PointCloud2')
+    result=collector.cloud_snapshot(make_cloud(big_endian))
     assert result['required_schema_matches_official']
     assert not result['time_semantics_confirmed']
     assert [p['x'] for p in result['points']]==[1.,2.]
@@ -55,7 +55,7 @@ def test_cloud_snapshot_keeps_raw_units_coordinates_and_padded_layout(big_endian
     assert result['points'][0]['timestamp']==100000000000.
     msg=make_cloud(big_endian)
     msg.data=msg.data[:-1]
-    assert 'sample_error' in collector.cloud_snapshot(msg,'sensor_msgs/msg/PointCloud2')
+    assert 'sample_error' in collector.cloud_snapshot(msg)
 
 
 def test_cloud_snapshot_does_not_hide_nonfinite_or_invent_missing_time():
@@ -63,24 +63,25 @@ def test_cloud_snapshot_does_not_hide_nonfinite_or_invent_missing_time():
     data=bytearray(msg.data)
     struct.pack_into('<d',data,18,float('nan'))
     msg.data=data
-    result=collector.cloud_snapshot(msg,'sensor_msgs/msg/PointCloud2')
+    result=collector.cloud_snapshot(msg)
     assert result['nonfinite_sampled_times']==1
     assert result['points'][0]['timestamp'] is None
     msg.fields=[f for f in msg.fields if f.name!='timestamp']
-    result=collector.cloud_snapshot(msg,'sensor_msgs/msg/PointCloud2')
+    result=collector.cloud_snapshot(msg)
     assert not result['required_schema_matches_official']
     assert 'assumed_ns_span_s' not in result
 
 
 @pytest.fixture
-def source():
+def source(monkeypatch):
+    # 父进程与采样子进程必须使用同一通信范围，不能依赖外部shell的设置。
+    monkeypatch.setenv('ROS_LOCALHOST_ONLY', '1')
     domain=170+os.getpid()%40
     context=Context()
     rclpy.init(context=context,domain_id=domain)
     # 使用明确允许读取的后端节点名，只有测试参数服务，不启动定位算法。
     node=rclpy.create_node('team43_small_point_lio',namespace='/red_standard_robot1',context=context)
     node.declare_parameter('extrinsic_T',[.1,.2,.3])
-    node.declare_parameter('lidar_format','auto')
     node.declare_parameter('test_bytes',[b'x',b'y'])
     executor=SingleThreadedExecutor(context=context)
     executor.add_node(node)
@@ -92,10 +93,9 @@ def source():
         context.shutdown()
 
 
-@pytest.mark.parametrize('kind',['pointcloud2','custom'])
-def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path,kind):
+def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path):
     node,executor,domain=source
-    output=tmp_path/kind
+    output=tmp_path/'pointcloud2'
     process=subprocess.Popen([sys.executable,'-B',str(SCRIPT),'--seconds','3.5','--output-dir',str(output)],
         env=dict(os.environ,ROS_DOMAIN_ID=str(domain),ROS_LOCALHOST_ONLY='1'),
         stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
@@ -104,7 +104,7 @@ def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path
     try:
         while process.poll() is None and time.monotonic()-started<12.:
             if publishers is None and time.monotonic()-started>.8:
-                lidar=node.create_publisher(PointCloud2 if kind=='pointcloud2' else CustomMsg,
+                lidar=node.create_publisher(PointCloud2,
                     '/red_standard_robot1/livox/lidar',qos_profile_sensor_data)
                 imu=node.create_publisher(Imu,'/red_standard_robot1/gimbal',qos_profile_sensor_data)
                 tf=node.create_publisher(TFMessage,'/tf',10)
@@ -114,12 +114,7 @@ def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path
                 publishers=(lidar,imu,tf,epoch)
             if publishers:
                 now=node.get_clock().now()
-                if kind=='pointcloud2':
-                    msg=make_cloud()
-                else:
-                    msg=CustomMsg(timebase=100000000000,point_num=2)
-                    msg.header.stamp.sec=100
-                    msg.points=[CustomPoint(x=1.,y=2.,z=3.,tag=16,offset_time=i*1000000) for i in range(2)]
+                msg=make_cloud()
                 lidar.publish(msg)
                 im=Imu()
                 im.header.stamp=now.to_msg()
@@ -146,8 +141,7 @@ def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path
             for p in publishers: node.destroy_publisher(p)
     summary=json.loads((output/'summary.json').read_text())
     assert summary['collector_completed'] and not summary['semantics_and_accuracy_verified']
-    expected='sensor_msgs/msg/PointCloud2' if kind=='pointcloud2' else 'livox_ros_driver2/msg/CustomMsg'
-    assert summary['streams']['lidar']['selected_type']==expected
+    assert summary['streams']['lidar']['selected_type']=='sensor_msgs/msg/PointCloud2'
     assert summary['streams']['lidar']['received']>0
     assert summary['streams']['image']['status']=='not_requested'
     assert 'tick' in summary['not_received']
@@ -161,7 +155,13 @@ def test_collects_late_publishers_live_parameters_tf_and_archive(source,tmp_path
     assert any(e['role']=='epoch' and e['data']['data']==123456789 for e in events)
     with (output/'tf_edges.csv').open() as f:
         assert any(r['child']=='evidence_sensor' and float(r['x'])==.12 for r in csv.DictReader(f))
-    assert 'marker_black_outer_side_m: null' in (output/'manual_measurements.yaml').read_text()
+    manual=yaml.safe_load((output/'manual_measurements.yaml').read_text())
+    assert manual['marker_black_outer_side_m']==.075
+    assert manual['lidar_points_already_transformed'] is False
+    assert manual['adopted_floor_model']=='height_approximation'
+    assert manual['body_imu_in_base_xyz_m'] is None
+    assert manual['joint_zero_rad'] is None
+    assert 'floor_three_points_and_lio_session' not in manual
     with tarfile.open(str(output)+'.tar.gz') as tar:
         assert output.name+'/summary.json' in tar.getnames()
         assert output.name+'/manual_measurements.yaml' in tar.getnames()

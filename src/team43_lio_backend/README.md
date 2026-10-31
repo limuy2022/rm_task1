@@ -17,8 +17,7 @@ source install/local_setup.bash
 ros2 launch team43_lio_backend lio.launch.py
 ```
 
-只编译本包，不构建整个项目。不启动雷达驱动或电机。若编译提示找不到
-`livox_ros_driver2`，先加载比赛机已有Livox工作区的 `install/setup.bash`。
+此命令只编译并启动定位后端，不启动电机。硬件雷达驱动须先用`ros2 launch team43_bringup livox.launch.py config_file:=实际JSON路径`独立启动。硬件驱动的构建和环境加载见[整体部署](../../docs/教程/整体部署.md)。定位包本身仅依赖标准ROS传感器消息。
 不使用 `sudo`、不自动安装依赖，不修改 `.bashrc`。
 
 默认输入为 `/livox/lidar`、`/livox/imu`，输出为
@@ -27,7 +26,6 @@ ros2 launch team43_lio_backend lio.launch.py
 
 ```bash
 ros2 launch team43_lio_backend lio.launch.py \
-  lidar_format:=auto \
   lidar_topic:=/red_standard_robot1/livox/lidar \
   imu_topic:=/red_standard_robot1/livox/imu
 ```
@@ -40,26 +38,30 @@ ros2 launch team43_lio_backend lio.launch.py \
 配置副本中设置 `imu_qos_reliable: true`；Gazebo 回归会显式启用此选项，
 避免共享 CPU 调度抖动导致 IMU 不可重传丢样。该选项不改变实机默认值或雷达 QoS。
 
-`lidar_format` 默认为 `auto`，按配置话题的实际发布者类型选择 `custom` 或 `pointcloud2`；
-也可手动指定后二者。只识别消息格式，仍使用你指定的 `lidar_topic`。
-自动模式用墙钟轮询，驱动晚启动或 `/clock` 尚未发布时继续等待；连续两次发现结果一致才锁定。
-使用展开并 remap 后的话题名，不把订阅者声明的类型误当发布者类型。
-识别前不积压 IMU；无发布者时等待，同一类型恢复后继续。
-选定前遇到不支持类型/多类型冲突会等待修正；选定后发现类型冲突或改变则停止向核心送入
-点云和 IMU，日志提示重启定位并重建地图/坐标关联，不把不同流接入已有状态。
-`lio.launch.py` 与 bringup 的 `lio_only.launch.py` 均支持此参数。
+本队驱动固定发布PointCloud2，定位端直接订阅，不提供格式选择或自动识别参数。
+ROS负责发布者晚启动及话题remap；首帧有效点云到达前有界缓存IMU，
+收到点云后保留原始时间顺序送入核心，缓存容量沿用`sensor_qos_depth`。
 PointCloud2 按 [Livox 官方发布实现](https://github.com/Livox-SDK/livox_ros_driver2/blob/master/src/lddc.cpp)
 读取 x/y/z（float32）、tag（uint8）和 timestamp（float64，绝对纳秒→秒），不再加 header 时间。
 按 fields 的偏移解析，支持非对齐、端序及行填充；缺字段、类型/长度错误拒收整帧并报错，
 非有限坐标/时间与无效回波跳过，不以帧时间替代缺失的逐点时间。强度和线号不参与当前定位。
 
-两种输入共用固定外参将点统一到IMU坐标系，
+输入点通过固定外参统一到IMU坐标系，
 核心使用单位外参，避免重复变换。输出为 `lio_world → body` 的IMU位姿和世界系
 点云；body不是底盘中心。核心源码保持原样，不依赖Gazebo。
 
 ## 接收与回归测试
 
-C++ gtest 覆盖官方时间单位、字节布局、端序、行填充及坏消息拒收；pytest 通过真实 DDS
-验证两种输入类型、QoS、晚启动、remap、类型冲突与恢复；分别自动识别两种合成点云，
-经 IMU 驱动原始核心，检查位姿与地图输出。
+C++ gtest覆盖官方时间单位、字节布局、端序、行填充及坏消息拒收；pytest通过真实DDS
+验证PointCloud2的QoS、晚启动、remap、坏帧拒收及恢复。合成点云与IMU驱动原始核心，
+检查位姿和地图输出。
 运行命令统一见[测试指南](../../docs/教程/测试运行指南.md)，不代表真实 NUC 精度已验收。
+
+
+## 本场斜装输出调平与近似地面
+
+`output_world_up`是算法初始世界系中的向上方向；适配层用最短旋转将其变为+z，同时旋转发布的body位姿和注册点云。默认参数为[0,0,1]；本场实机YAML按2026-10-31静止包填写[-0.0321952086,-0.6955923471,0.7122368773]，原始驱动数据和内部雷达↔IMU外参不变。航向不是仅靠重力测得，底盘朝向仍依赖安装外参和比赛起点。
+
+用户授权跳过点地面，`approximate_floor_from_height=true`和`lidar_height_m=0.231`供配套cloud_mapping入口推导近似地面，floor_z约−0.182833m；不是直接−0.231m，因为世界原点为内部IMU，需计入光心偏移。近似来源写入status及源地图YAML，不能当作实测地面精度。
+
+仿真平台已水平，Gazebo和合成安装验证显式使用output_world_up=[0,0,1]，不套用本场斜装参数。另可在隔离容器运行`tools/verify_lio_install.py --field-alignment --output-dir 新目录`，用合成输入验证非单位输出旋转同时作用于点云和位姿；不连接硬件。

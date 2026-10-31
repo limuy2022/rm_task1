@@ -52,7 +52,9 @@ class TimeBuffer:
         if i == 0 or i == len(self.times):
             return None
         a, b = self.times[i-1], self.times[i]
-        if b - a > float(max_gap):
+        # 时间转为epoch浮点秒后，两个端点各有至多一个ULP的舍入误差。
+        tolerance = math.ulp(a) + math.ulp(b)
+        if b - a > float(max_gap) + tolerance:
             return None
         return self.values[i-1], self.values[i], (t-a)/(b-a)
 

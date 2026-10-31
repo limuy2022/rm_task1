@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 import yaml
 from launch.launch_context import LaunchContext
+from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node as LaunchNodeAction
 from launch_ros.utilities import evaluate_parameters
 from verify_timing_offline import ROOT
@@ -25,6 +26,8 @@ def setup_actions(args):
     description = module.generate_launch_description()
     context = LaunchContext()
     context.launch_configurations.update(args)
+    for action in description.entities:
+        if isinstance(action, DeclareLaunchArgument): action.execute(context)
     opaque = next(entity for entity in description.entities
                   if type(entity).__name__ == 'OpaqueFunction')
     return opaque._OpaqueFunction__function(context)

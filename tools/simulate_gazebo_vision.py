@@ -61,8 +61,8 @@ def box(link, name, xyz, size, color):
 
 
 class GazeboVision(GazeboLio):
-    def __init__(self, output, timeout, factor, record_bag, scan_lines, scene, sigma_floor, lidar_format="pointcloud2", backend_format="auto"):
-        super().__init__(output, timeout, factor, record_bag, scan_lines, lidar_format, backend_format)
+    def __init__(self, output, timeout, factor, record_bag, scan_lines, scene, sigma_floor):
+        super().__init__(output, timeout, factor, record_bag, scan_lines)
         self.scene = scene
         self.sigma_floor = sigma_floor
         self.images, self.infos, self.observations, self.states = [], [], [], []
@@ -404,8 +404,6 @@ def main():
     parser.add_argument('--timeout', type=float, default=600.)
     parser.add_argument('--real-time-factor', type=float, default=.5)
     parser.add_argument('--record-bag', action='store_true')
-    parser.add_argument('--backend-format', choices=['auto', 'custom', 'pointcloud2'], default='auto')
-    parser.add_argument('--lidar-format', choices=['custom', 'pointcloud2'], default='pointcloud2')
     parser.add_argument('--scan-lines', type=int, choices=[16, 32], default=16)
     parser.add_argument('--scene', choices=['room', 'features'], default='features',
                         help='两箱体房间，或增加不同方位近距离结构的对照场景')
@@ -421,16 +419,16 @@ def main():
     output = args.output_dir.resolve(); output.mkdir(parents=True, exist_ok=False)
     rclpy.init(args=['--ros-args', '-r', '/tf:='+NS+'/tf', '-r', '/tf_static:='+NS+'/tf_static'])
     app = GazeboVision(output, args.timeout, args.real_time_factor, args.record_bag,
-                       args.scan_lines, args.scene, args.observation_sigma_floor, args.lidar_format, args.backend_format)
+                       args.scan_lines, args.scene, args.observation_sigma_floor)
     report = {'kind': 'gazebo_rgb_lidar_imu_target_estimation',
               'point_lio_image_build': point_lio_image_build(),
               'world_source': str(app.world_source), 'world_source_sha256': app.world_source_sha256,
               'generated_world_sha256': hashlib.sha256((output/'world.sdf').read_bytes()).hexdigest(),
-              'source_archive_role': 'livox_messages_only',
+              'source_archive_role': 'hardware_driver_not_started',
               'ground_truth_used_as_estimator_input': False, 'hardware_accessed': False,
               'imu_model': 'imu_measurement_update', 'scan_lines': args.scan_lines, 'scene': args.scene,
               'observation_sigma_floor_m': args.observation_sigma_floor,
-              'lidar_format': args.lidar_format, 'backend_format': args.backend_format,
+              'lidar_format': 'pointcloud2',
               'source_archive_sha256': hashlib.sha256((ROOT/'archives/livox_ros_driver2.tar.gz').read_bytes()).hexdigest(),
               'limitations': ['固定相机，未覆盖云台关节、视觉控制器或真实电机',
                               '针孔无畸变相机，0.1m静止ArUco；未覆盖运动目标预测精度',

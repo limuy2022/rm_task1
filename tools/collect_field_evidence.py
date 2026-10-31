@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import struct
 import sys
@@ -23,9 +24,10 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 # 只观察赛题一相关的既有接口；名称可通过 --topic 逐项覆盖。
 STREAMS = {
-    'lidar': ('/red_standard_robot1/livox/lidar', ('sensor_msgs/msg/PointCloud2', 'livox_ros_driver2/msg/CustomMsg')),
+    'lidar': ('/red_standard_robot1/livox/lidar', ('sensor_msgs/msg/PointCloud2',)),
     'lidar_imu': ('/red_standard_robot1/livox/imu', ('sensor_msgs/msg/Imu',)),
     'gimbal_imu': ('/red_standard_robot1/gimbal', ('sensor_msgs/msg/Imu',)),
+    'joint_states': ('/gimbal/joint_states', ('sensor_msgs/msg/JointState',)),
     'gimbal_state': ('/gimbal/state', ('team43_interfaces/msg/GimbalState',)),
     'lio_odom': ('/red_standard_robot1/aft_mapped_to_init', ('nav_msgs/msg/Odometry',)),
     'base_raw': ('/gimbal/base_pose_raw', ('nav_msgs/msg/Odometry',)),
@@ -58,19 +60,29 @@ OWN_NODES = (
 )
 # 现场驱动仅查询与输入解释直接相关的公开参数，不打开参数指向的文件。
 DRIVER_NODES = {
+    '/red_standard_robot1/livox_lidar_publisher': ['use_sim_time','xfer_format','multi_topic','frame_id','publish_freq','user_config_path'],
     '/livox_driver_node': ['use_sim_time','xfer_format','multi_topic','frame_id','publish_freq','user_config_path'],
     '/livox_lidar_publisher': ['use_sim_time','xfer_format','multi_topic','frame_id','publish_freq','user_config_path'],
     '/hik_camera': ['use_sim_time','camera_info_url','camera_frame','frame_id','mfs_path','exposure_time','gain'],
 }
 SCALARS = {1: ('b',1), 2: ('B',1), 3: ('h',2), 4: ('H',2), 5: ('i',4), 6: ('I',4), 7: ('f',4), 8: ('d',8)}
 MANUAL = '''# 此文件仅供补充实测记录，不能作为ROS参数文件加载。
-# null表示未确认；程序不会从IMU、TF或默认配置自动猜出这些值。
+# 已确定项按2026-10-31现场记录预填；这是沿用依据，不证明本次运行配置已生效。
+# null仅表示剩余未知；精度和装车确认不会由这些已知值自动通过。
 record_type: field_evidence_manual_measurements
-marker_black_outer_side_m: null
-marker_measurement_photo: null
-lidar_model_and_serial: null
-lidar_input_frame_definition: null
-lidar_points_already_transformed: null
+known_facts_source: docs/记录/现场已知前提.md
+marker_black_outer_side_m: 0.075
+marker_dictionary: DICT_4X4_50
+marker_size_source: 用户确认黑框外边长，不含白边
+lidar_model: MID360
+lidar_input_frame_definition: 厂家原始雷达系
+lidar_points_already_transformed: false
+lidar_acceleration_unit: g
+gimbal_acceleration_unit: m/s^2
+lidar_height_m: 0.231
+adopted_floor_model: height_approximation
+floor_model_basis: 静止重力方向调平，加光心偏移后减去近似光心离地高度；实际参数见live_parameters
+hardware_assembly: 相机和云台已装到底盘，几何尺寸尚未确认
 lidar_to_imu_R_row_major: null
 lidar_origin_in_imu_m: null
 lidar_extrinsic_source: null
@@ -95,8 +107,6 @@ measured_pitch_limits_rad: null
 alignment_window_and_known_mechanical_pose: null
 odom_from_imu_world_rpy_rad: null
 alignment_epoch_and_reset_history: null
-floor_z_in_current_lio_world_m: null
-floor_three_points_and_lio_session: null
 lowest_impassable_obstacle_m: null
 map_extent_and_ground_tolerance_basis: null
 command_yaw_direction_test: null
@@ -125,53 +135,44 @@ def write_json(path, value):
     path.write_text(json.dumps(safe_json(value), ensure_ascii=False, indent=2, allow_nan=False)+'\n')
 
 
-def cloud_snapshot(msg, type_name, limit=128):
+def cloud_snapshot(msg, limit=128):
     """抽取真实坐标/标签/时间，不保存整帧data，不自动认定单位。"""
     header_s = msg.header.stamp.sec + msg.header.stamp.nanosec*1e-9
-    info = {'type': type_name, 'header_stamp_s': header_s, 'frame_id': msg.header.frame_id,
-            'time_semantics_confirmed': False, 'points': []}
+    info = {'type': 'sensor_msgs/msg/PointCloud2', 'header_stamp_s': header_s, 'frame_id': msg.header.frame_id,
+            'time_semantics_confirmed': False, 'timestamp_unit': 'ns',
+            'timestamp_origin': 'absolute', 'format_basis': 'fixed_livox_pointcloud2', 'points': []}
     timestamps = []
-    if type_name == 'livox_ros_driver2/msg/CustomMsg':
-        info.update(timebase_ns=msg.timebase, declared_points=msg.point_num, actual_points=len(msg.points))
-        total = len(msg.points)
-        for i in sample_indices(total, limit):
-            p = msg.points[i]
-            raw = msg.timebase + p.offset_time
-            timestamps.append(raw)
-            info['points'].append(dict(index=i,x=p.x,y=p.y,z=p.z,tag=p.tag,line=p.line,
-                                       offset_time_ns=p.offset_time,absolute_time_ns=raw))
-    else:
-        info.update(width=msg.width, height=msg.height, point_step=msg.point_step,
-                    row_step=msg.row_step, is_bigendian=msg.is_bigendian, data_bytes=len(msg.data),
-                    fields=[dict(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count) for f in msg.fields])
-        fields = {}
-        duplicates = set()
-        for field in msg.fields:
-            if field.name in fields:
-                duplicates.add(field.name)
-            fields[field.name] = field
-        required = {'x':7,'y':7,'z':7,'tag':2,'timestamp':8}
-        info['required_schema_matches_official'] = all(
-            name not in duplicates and name in fields and fields[name].datatype==kind and fields[name].count==1
-            and fields[name].offset+SCALARS[kind][1]<=msg.point_step for name,kind in required.items())
-        total = msg.width * msg.height
-        if msg.point_step<=0 or msg.row_step<msg.width*msg.point_step or len(msg.data)<msg.height*msg.row_step:
-            info['sample_error'] = '点步长、行步长或数据长度无效'
-            return safe_json(info)
-        for i in sample_indices(total, limit):
-            base = (i//msg.width)*msg.row_step + (i%msg.width)*msg.point_step
-            point = {'index': i}
-            for name in ('x','y','z','intensity','tag','line','timestamp','offset_time','time','t'):
-                f = fields.get(name)
-                if f is None or name in duplicates or f.count!=1 or f.datatype not in SCALARS:
-                    continue
-                fmt, size = SCALARS[f.datatype]
-                if f.offset+size>msg.point_step:
-                    continue
-                point[name] = struct.unpack_from(('>' if msg.is_bigendian else '<')+fmt,msg.data,base+f.offset)[0]
-            if 'timestamp' in point:
-                timestamps.append(point['timestamp'])
-            info['points'].append(point)
+    info.update(width=msg.width, height=msg.height, point_step=msg.point_step,
+                row_step=msg.row_step, is_bigendian=msg.is_bigendian, data_bytes=len(msg.data),
+                fields=[dict(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count) for f in msg.fields])
+    fields = {}
+    duplicates = set()
+    for field in msg.fields:
+        if field.name in fields:
+            duplicates.add(field.name)
+        fields[field.name] = field
+    required = {'x':7,'y':7,'z':7,'tag':2,'timestamp':8}
+    info['required_schema_matches_official'] = all(
+        name not in duplicates and name in fields and fields[name].datatype==kind and fields[name].count==1
+        and fields[name].offset+SCALARS[kind][1]<=msg.point_step for name,kind in required.items())
+    total = msg.width * msg.height
+    if msg.point_step<=0 or msg.row_step<msg.width*msg.point_step or len(msg.data)<msg.height*msg.row_step:
+        info['sample_error'] = '点步长、行步长或数据长度无效'
+        return safe_json(info)
+    for i in sample_indices(total, limit):
+        base = (i//msg.width)*msg.row_step + (i%msg.width)*msg.point_step
+        point = {'index': i}
+        for name in ('x','y','z','intensity','tag','line','timestamp','offset_time','time','t'):
+            f = fields.get(name)
+            if f is None or name in duplicates or f.count!=1 or f.datatype not in SCALARS:
+                continue
+            fmt, size = SCALARS[f.datatype]
+            if f.offset+size>msg.point_step:
+                continue
+            point[name] = struct.unpack_from(('>' if msg.is_bigendian else '<')+fmt,msg.data,base+f.offset)[0]
+        if 'timestamp' in point:
+            timestamps.append(point['timestamp'])
+        info['points'].append(point)
     info['sampled_points'] = len(info['points'])
     finite = [x for x in timestamps if math.isfinite(x)]
     info['nonfinite_sampled_times'] = len(timestamps)-len(finite)
@@ -287,7 +288,7 @@ class Collector:
             self.header(role,msg,receipt)
             if role=='lidar':
                 if len(self.cloud_samples)<self.args.cloud_frames:
-                    self.cloud_samples.append(cloud_snapshot(msg,kind,self.args.cloud_samples))
+                    self.cloud_samples.append(cloud_snapshot(msg,self.args.cloud_samples))
                 return
             if role in ('source_map','map'):
                 self.map_infos[role] = dict(header=self.to_dict(msg.header),info=self.to_dict(msg.info),
@@ -423,7 +424,7 @@ class Collector:
                                     'Humble Python回调不提供逐条TF的发布者GID，边归属须另确认',
                                     'best-effort观察到tick不证明正式reliable订阅匹配',
                                     '源码配置快照不等于已运行节点的参数；以live_parameters为运行读数',
-                                    '时间单位的纳秒计算仅为官方格式假设，不自动确认设备时钟'])
+                                    '本场已确认官方绝对纳秒格式；本次采样仍不自动验证设备物理同步或更换配置后的时间语义'])
         write_json(self.output/'summary.json',summary)
         write_json(self.output/'graph.json',self.graph)
         write_json(self.output/'live_parameters.json',self.parameters)
@@ -465,6 +466,7 @@ def main(argv=None):
     try:
         import rclpy
         from rclpy.executors import ExternalShutdownException
+        from rclpy.signals import SignalHandlerOptions
     except ImportError as exc:
         print('请在已source ROS 2 Humble的NUC终端运行；不需要pip安装。原因：'+str(exc),file=sys.stderr)
         return 2
@@ -483,13 +485,19 @@ def main(argv=None):
                opens_serial=False,starts_driver_or_controller=False,publishes_control_or_judge=False))
     # 目录内容是观测证据，不自动生成可启用运动的整车配置。
     interrupted,error,collector=False,None,None
+    stop_requested = False
+    def request_stop(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+    previous_sigint = signal.signal(signal.SIGINT, request_stop)
     try:
-        rclpy.init(args=[])
+        # 参数服务响应正在取出时，不让ROS信号线程提前销毁context。
+        rclpy.init(args=[], signal_handler_options=SignalHandlerOptions.NO)
         collector=Collector(args,output)
         start=time.monotonic()
         next_refresh,next_progress=start,start
         print('只读采样开始，保持已有驱动；不会开启运动。目录：'+str(output),flush=True)
-        while time.monotonic()-start<args.seconds:
+        while not stop_requested and time.monotonic()-start<args.seconds:
             now=time.monotonic()
             if now>=next_refresh:
                 collector.refresh()
@@ -498,7 +506,8 @@ def main(argv=None):
                 print('已收到：'+', '.join(f'{role}={s["received"]}' for role,s in collector.streams.items() if s['received']),flush=True)
                 next_progress=now+5.
             rclpy.spin_once(collector.node,timeout_sec=.05)
-        collector.refresh()
+        interrupted = stop_requested
+        if not interrupted: collector.refresh()
     except (KeyboardInterrupt,ExternalShutdownException):
         interrupted=True
     except Exception as exc:
@@ -511,6 +520,7 @@ def main(argv=None):
             write_json(output/'summary.json',summary)
         if rclpy.ok():
             rclpy.shutdown()
+        signal.signal(signal.SIGINT, previous_sigint)
     (output/'README.md').write_text('''# 现场只读采样证据
 
 summary.json给出采样状态与缺样本，未开赛/未启动节点无数据不等于故障，也不等于验收通过。
@@ -521,7 +531,8 @@ Humble Python不提供逐消息TF来源GID，不能直接把边和发布者逐�
 live_parameters.json是本次只读参数服务响应，type=0/value=null表示该参数未声明；并非确认值为0。
 source_configs是本队源码文件参考，不能替代live_parameters证明实际生效配置。
 camera_info.json/map_metadata.json仅为收到的元数据，没有图像或地图完整payload。
-manual_measurements.yaml中的尺寸、外参、零位、限位等必须实测；null不代表0，不能直接加载为ROS参数。
+manual_measurements.yaml预填已知事实及来源，只补剩余null；安装尺寸、零位、限位仍需物理依据。
+预填事实不等于本次节点运行参数，以live_parameters为准；该文件不能直接加载为ROS参数。
 本采样器不发布控制/评分/TF/传感器消息，不打开串口，不读取参数路径指向的外部配置文件。
 补填手工测量后请重新压缩目录；本次自动生成的tar.gz不会随目录后续修改更新。
 ''')
@@ -536,7 +547,7 @@ manual_measurements.yaml中的尺寸、外参、零位、限位等必须实测�
     if error:
         print('采样异常，已有数据已保存：'+error,file=sys.stderr)
         return 1
-    print('未收到的角色：'+', '.join(summary.get('not_received',[])),flush=True)
+    print('本次未收到的角色（未启动/准备阶段可正常缺失）：'+', '.join(summary.get('not_received',[])),flush=True)
     print('采集完成不代表精度/安装参数已确认；实测待填项见manual_measurements.yaml。',flush=True)
     return 130 if interrupted else 0
 

@@ -6,7 +6,9 @@ ROS/Humble startup remains to be verified on the NUC. See the current manual.
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, LogInfo
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, LogInfo, RegisterEventHandler, EmitEvent
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -28,6 +30,8 @@ def _setup(context):
              ('team43_perception', 'aruco_detector_node'), ('team43_perception', 'marker_pnp_node'),
              ('team43_estimation', 'target_estimator_node'),
              ('team43_grid_mapper', 'grid_mapper_node'), ('team43_chassis_advisor', 'chassis_advisor_node')]
+    if LaunchConfiguration('with_perception').perform(context).lower() != 'true':
+        nodes = [(pkg, exe) for pkg, exe in nodes if pkg != 'team43_perception']
     result = [LogInfo(msg='仅处理已有数据；地图生产、LIO、IMU反馈和实测TF是外部前置条件；不输出电机指令')]
     parent = str(params['localization.odom_frame_id'])
     if parent != 'odom':
@@ -43,6 +47,10 @@ def _setup(context):
             output='screen', parameters=common+[{'judge.fresh_run': False,
                 'judge.team_id': ParameterValue(LaunchConfiguration('team_id').perform(context), value_type=str),
                 'judge.output_dir': LaunchConfiguration('output_dir').perform(context)}]))
+    if LaunchConfiguration('shutdown_on_exit').perform(context).lower() == 'true':
+        result = [RegisterEventHandler(OnProcessExit(target_action=node,
+            on_exit=[EmitEvent(event=Shutdown(reason='比赛处理进程退出'))]))
+            for node in result if isinstance(node, Node)] + result
     return result
 
 
@@ -52,6 +60,8 @@ def generate_launch_description():
         DeclareLaunchArgument('vehicle_config', description='填妥且确认的整车实测参数；不是原始模板'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share,'config','camera_team43.yaml')),
         DeclareLaunchArgument('target_id', default_value='-1'),
+        DeclareLaunchArgument('with_perception', default_value='true'),
+        DeclareLaunchArgument('shutdown_on_exit', default_value='false'),
         DeclareLaunchArgument('submission', default_value='false'),
         DeclareLaunchArgument('team_id', default_value='43'),
         DeclareLaunchArgument('output_dir', default_value='~/ws_championship/output'),

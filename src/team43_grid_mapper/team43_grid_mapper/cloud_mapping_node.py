@@ -33,7 +33,7 @@ class CloudMappingNode(Node):
             'source_frame':'lio_world', 'pose_child_frame':'body',
             'sensor_origin_in_body':[0.,0.,0.], 'origin_model_confirmed':False,
             'resolution':0.05, 'width_m':20., 'height_m':20., 'origin_xy':[-10.,-10.],
-            'floor_z':0., 'floor_confirmed':False, 'obstacle_min':0.15,
+            'floor_z':0., 'floor_confirmed':False, 'floor_source':'manual', 'obstacle_min':0.15,
             'obstacle_max':1.8, 'ground_tolerance':0.08, 'min_range':0.5,
             'max_range':20., 'angle_bin_deg':0.5, 'pose_max_delta':0.04,
             'max_cloud_age':0.5, 'publish_hz':1., 'autosave_seconds':10.,
@@ -158,6 +158,7 @@ class CloudMappingNode(Node):
                     # 磁盘/权限故障须报告，但不能让实时地图发布停止。
                     self.reject('地图保存失败: '+str(exc))
         snapshot=dict(self.last_status)
+        snapshot['floor_source']=str(self.get_parameter('floor_source').value)
         if self.mapper.last_stamp is not None:
             age=self.get_clock().now().nanoseconds*1e-9-self.mapper.last_stamp
             snapshot['last_map_cloud_age']=round(age,3)
@@ -179,6 +180,7 @@ class CloudMappingNode(Node):
                 # Standard map-server origin is [x, y, yaw], not xyz. Preserve
                 # actual plane height separately for 3-D TF/republication.
                 f.write('floor_z: %.12g\n' % self.mapper.floor_z)
+                f.write('floor_source: '+json.dumps(str(self.get_parameter('floor_source').value))+'\n')
             for path in paths.values(): os.replace(path,os.path.join(self.output,os.path.basename(path)))
         self.last_save=time.monotonic(); self.last_saved_scan=self.mapper.accepted_scans
         return self.output

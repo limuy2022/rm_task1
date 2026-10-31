@@ -101,7 +101,7 @@ def create_harness(camera):
     module = ast.fix_missing_locations(ast.Module(body=definitions, type_ignores=[]))
     namespace = dict(HarnessNode=HarnessNode, json=json, math=math, cv2=cv2, np=np,
         time=SimpleNamespace(monotonic=lambda: clock.mono), AxisPID=AxisPID, ErrorConditioner=ErrorConditioner,
-        Twist=Twist, String=String, Imu=SimpleNamespace, MarkerCorners=SimpleNamespace,
+        Twist=Twist, String=String, Imu=SimpleNamespace, JointState=SimpleNamespace, MarkerCorners=SimpleNamespace,
         UInt64=SimpleNamespace, load_yaml=lambda path: {'camera': copy.deepcopy(camera)},
         QoSProfile=lambda **kwargs: SimpleNamespace(**kwargs),
         ReliabilityPolicy=SimpleNamespace(BEST_EFFORT='best_effort', RELIABLE='reliable'),

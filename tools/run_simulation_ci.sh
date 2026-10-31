@@ -33,6 +33,6 @@ else
   # 降低请求倍率，为无显卡 runner 的软件渲染留出时间；不放宽误差门槛。
   # 视觉默认使用 features 场景和 3cm 观测下限，沿用已验证的基线。
   python3 -B "tools/simulate_${scenario}.py" \
-    --output-dir "$output/result" --scan-lines 16 --lidar-format pointcloud2 --backend-format auto \
+    --output-dir "$output/result" --scan-lines 16 \
     --real-time-factor 0.25 --timeout 900
 fi

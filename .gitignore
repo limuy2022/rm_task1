@@ -15,3 +15,6 @@ outputs/
 # Isolated offline development runtime
 .venv/
 .pytest_cache/
+.livox/
+
+/records/

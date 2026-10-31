@@ -1,7 +1,6 @@
-"""Bench image PID: selected ArUco corners -> angular velocity, no world/TF/LIO.
+"""角点误差到两轴角速度：bench保留试转预算，match按标定关节工作区间保护。
 
-No serial is opened here. Disabled means silence, not a zero-frame heartbeat.
-Only a human on the NUC should enable motion after the dry-run checks.
+不打开串口，运动默认关闭且不发零帧心跳；只有现场人员显式使能才输出。
 """
 import json
 import math
@@ -13,7 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import String, UInt64
 from team43_interfaces.msg import MarkerCorners
 from team43_common.log_utils import get_logger
@@ -58,6 +57,11 @@ class VisualServoNode(Node):
                     'image_timeout': .15, 'imu_timeout': .15,
                     'run_seconds': 15., 'max_rotation': .35, 'continuous': False,
                     'imu_topic': '/red_standard_robot1/gimbal',
+                    'operating_mode': 'bench', 'corners_topic': 'marker_corners',
+                    'joint_states_topic': '/gimbal/joint_states', 'joint_timeout': .2,
+                    'joint_limits_confirmed': False, 'calibrated_epoch': -1,
+                    'joint_yaw_limits_rad': [0., 0.], 'joint_pitch_limits_rad': [0., 0.],
+                    'joint_limit_margin_rad': .035,
                     'control_hz': 50., 'filter_tau': .04, 'deadband_px': 2.,
                     'integral_limit': .1, 'derivative_tau': .05,
                     'loss_grace_s': .08, 'loss_grace_frames': 2}
@@ -70,7 +74,8 @@ class VisualServoNode(Node):
         self.pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.status_pub = self.create_publisher(String, 'status', 10)
         sensor = sensor_qos(1)
-        self.create_subscription(MarkerCorners, 'marker_corners', self.on_corners, sensor)
+        self.create_subscription(MarkerCorners, str(self.p('corners_topic')), self.on_corners, sensor)
+        self.create_subscription(JointState, str(self.p('joint_states_topic')), self.on_joints, sensor)
         self.create_subscription(Imu, str(self.p('imu_topic')), self.on_imu, sensor)
         self.create_subscription(UInt64, '/task1/gimbal_reset_epoch', self.on_epoch,
                                  latched_qos(1))
@@ -80,6 +85,7 @@ class VisualServoNode(Node):
         self.observation = None; self.last_source = None; self.marker_id = None
         self.last_packet_source = None; self.lost_count = 0
         self.loss_velocity = (0., 0.); self.loss_start = None
+        self.joints = None
         self.imu = None; self.epoch = None; self.armed = False; self.fault = ''
         self.arm_time = None; self.arm_q = None; self.arm_source = None
         self.desired = (0., 0.); self.output = (0., 0.)
@@ -87,7 +93,7 @@ class VisualServoNode(Node):
         self.last_tick = time.monotonic(); self.last_status = 0.
         self.control_hz = 50.
         self.timer = self.create_timer(1./self.control_hz, self.tick)
-        self._log = get_logger(self, 'visual_servo'); self._log.info('图像PID就绪：motion_enabled=false时不发串口速度；不需要地图/底盘TF')
+        self._log = get_logger(self, 'visual_servo'); self._log.info('图像PID就绪：motion_enabled=false时不发速度；match保护要求标定后的关节反馈')
 
     def p(self, name): return self.get_parameter(name).value
 
@@ -109,6 +115,7 @@ class VisualServoNode(Node):
         if self.epoch is not None and msg.data != self.epoch and self.armed:
             self.fault = '开发板/串口桥已复位，先关闭再重新开启motion_enabled'
         self.epoch = msg.data
+        self.joints = None  # 不能将复位前的关节反馈用于新会话
 
     def on_imu(self, msg):
         try:
@@ -123,6 +130,41 @@ class VisualServoNode(Node):
         except (TypeError, ValueError):
             # 外部IMU数值非法时清姿态；新鲜IMU门禁停止输出。
             self.imu = None
+
+    def on_joints(self, msg):
+        try:
+            source = stamp_seconds(msg.header)
+            if (msg.header.frame_id != 'base_link' or len(msg.name) != len(msg.position)
+                    or len(set(msg.name)) != len(msg.name)):
+                raise ValueError('关节反馈格式错误')
+            positions = dict(zip(msg.name, msg.position))
+            values = (float(positions['yaw']), float(positions['pitch']))
+            if not all(math.isfinite(v) for v in values):
+                raise ValueError('关节反馈非有限')
+            if not -.03 <= self.age(source) <= float(self.p('joint_timeout')):
+                raise ValueError('关节反馈过期')
+            self.joints = (source, values)
+        except (KeyError, TypeError, ValueError):
+            self.joints = None
+
+    def match_limits(self):
+        if str(self.p('operating_mode')) != 'match':
+            return None
+        if self.p('joint_limits_confirmed') is not True:
+            raise ValueError('比赛模式须确认实测关节工作范围')
+        if self.epoch != int(self.p('calibrated_epoch')) or self.epoch is None:
+            raise ValueError('比赛模式epoch与本次标定不一致')
+        limits = [tuple(float(v) for v in self.p(name)) for name in
+                  ('joint_yaw_limits_rad', 'joint_pitch_limits_rad')]
+        margin = float(self.p('joint_limit_margin_rad'))
+        timeout = float(self.p('joint_timeout'))
+        if not math.isfinite(timeout) or not .02 <= timeout <= .3:
+            raise ValueError('joint_timeout须0.02..0.3秒')
+        if (not math.isfinite(margin) or margin <= 0 or any(
+                len(pair) != 2 or not all(math.isfinite(v) for v in pair)
+                or pair[1]-pair[0] <= 2*margin for pair in limits)):
+            raise ValueError('关节范围与限位余量无效')
+        return limits
 
     def refresh_pid(self):
         settings = tuple(float(self.p(name)) for name in (
@@ -220,6 +262,8 @@ class VisualServoNode(Node):
         reason = '只看不动'
         try:
             self.refresh_runtime()
+            if str(self.p('operating_mode')) not in ('bench', 'match'):
+                raise ValueError('operating_mode须bench或match')
             enabled = bool(self.p('motion_enabled'))
             if not enabled:
                 self.armed = False; self.fault = ''; self.arm_q = None
@@ -239,14 +283,26 @@ class VisualServoNode(Node):
                     reason = self.fault; self.stop()
                 else:
                     if self.arm_q is None: self.arm_q = self.imu[1].copy()
-                    run_seconds = float(self.p('run_seconds')); rotation = float(self.p('max_rotation'))
-                    if not (1. <= run_seconds <= 180. and .02 <= rotation <= 1.):
-                        raise ValueError('run_seconds须1..180；max_rotation须.02..1rad')
-                    moved = 2.*math.acos(min(1., abs(float(self.arm_q @ self.imu[1]))))
-                    # 持续模式只解除时间预算；位移保险丝与其余安全门照常生效。
-                    if not bool(self.p('continuous')) and now-self.arm_time >= run_seconds:
-                        self.fault = '本次试转时间结束'
-                    if moved >= rotation: self.fault = '本次转动达到角度范围'
+                    limits = self.match_limits()
+                    joints_ok = (self.joints is not None and self.joints[0] > self.arm_source
+                                 and -.03 <= self.age(self.joints[0]) <= float(self.p('joint_timeout')))
+                    if limits is not None:
+                        if not joints_ok:
+                            if self.sent_motion: self.fault = '关节反馈中断'
+                            self.stop()
+                            self.publish_status(now, '等待新关节反馈')
+                            return
+                        if any(not low <= value <= high for value, (low, high)
+                               in zip(self.joints[1], limits)):
+                            self.fault = '关节超出实测工作范围'
+                    else:
+                        run_seconds = float(self.p('run_seconds')); rotation = float(self.p('max_rotation'))
+                        if not (1. <= run_seconds <= 180. and .02 <= rotation <= 1.):
+                            raise ValueError('run_seconds须1..180；max_rotation须.02..1rad')
+                        moved = 2.*math.acos(min(1., abs(float(self.arm_q @ self.imu[1]))))
+                        if not bool(self.p('continuous')) and now-self.arm_time >= run_seconds:
+                            self.fault = '本次试转时间结束'
+                        if moved >= rotation: self.fault = '本次转动达到角度范围'
                     fresh = self.observation is not None and -.03 <= self.age(self.observation[0]) <= float(self.p('image_timeout'))
                     grace = float(self.p('loss_grace_s'))
                     coast_age = self.age(self.observation[0]) if fresh else float('inf')
@@ -272,26 +328,41 @@ class VisualServoNode(Node):
                         # prolong it or increase an already decayed command.
                         self.output = tuple(max(-bound, min(bound, v if coast else max(old-slew*dt, min(old+slew*dt, v))))
                                             for old, v in zip(self.output, wanted))
+                        if limits is not None:
+                            margin = float(self.p('joint_limit_margin_rad'))
+                            bounded = list(self.output)
+                            for i, (position, (low, high)) in enumerate(zip(self.joints[1], limits)):
+                                # 已应用方向符号和斜率限制；边界立即挡住朝外速度，允许向内恢复。
+                                if ((position <= low+margin and bounded[i] < 0)
+                                        or (position >= high-margin and bounded[i] > 0)):
+                                    bounded[i] = 0.; self.pid[i].reset()
+                            self.output = tuple(bounded)
                         self.send(*self.output); self.sent_motion = True
                         self.stop_frames = 0; reason = '丢失衰减' if coast else '跟踪中'
-            if now-self.last_status >= .9/self.control_hz:
-                status = {'state': reason, 'id': self.marker_id, 'yaw_omega': self.output[0],
-                          'pitch_omega': self.output[1], 'fault': self.fault,
-                          'status_stamp': self.get_clock().now().nanoseconds*1e-9,
-                          'image_stamp': self.observation[0] if self.observation else None,
-                          'lost_count': self.lost_count, 'control_hz': self.control_hz,
-                          'continuous': bool(self.p('continuous')),
-                          'filtered_error_deg': None if self.filtered_error is None else [math.degrees(e) for e in self.filtered_error],
-                          'control_error_deg': None if self.control_error is None else [math.degrees(e) for e in self.control_error]}
-                if self.observation:
-                    status['error_px'] = self.observation[2]
-                    status['error_deg'] = [math.degrees(e) for e in self.observation[1]]
-                message = String(); message.data = json.dumps(status, ensure_ascii=False)
-                self.status_pub.publish(message); self.last_status = now
+            self.publish_status(now, reason)
         except (TypeError, ValueError, OverflowError) as exc:
             # 运行时参数来自ROS服务；非法值锁故障并停止，不沿用旧输出。
             self.fault = str(exc); self.stop()
             self._log.error('图像PID已停止：'+str(exc))
+            self.publish_status(now, self.fault)
+
+    def publish_status(self, now, reason):
+        if now-self.last_status >= .9/self.control_hz:
+            status = {'state': reason, 'id': self.marker_id, 'yaw_omega': self.output[0],
+                      'pitch_omega': self.output[1], 'fault': self.fault,
+                      'status_stamp': self.get_clock().now().nanoseconds*1e-9,
+                      'image_stamp': self.observation[0] if self.observation else None,
+                      'lost_count': self.lost_count, 'control_hz': self.control_hz,
+                      'continuous': bool(self.p('continuous')),
+                      'operating_mode': str(self.p('operating_mode')),
+                      'joints_rad': self.joints[1] if self.joints else None,
+                      'filtered_error_deg': None if self.filtered_error is None else [math.degrees(e) for e in self.filtered_error],
+                      'control_error_deg': None if self.control_error is None else [math.degrees(e) for e in self.control_error]}
+            if self.observation:
+                status['error_px'] = self.observation[2]
+                status['error_deg'] = [math.degrees(e) for e in self.observation[1]]
+            message = String(); message.data = json.dumps(status, ensure_ascii=False)
+            self.status_pub.publish(message); self.last_status = now
 
     def shutdown_stop(self):
         if self.sent_motion or self.stop_frames:

@@ -2,23 +2,27 @@
 #include "small_point_lio/small_point_lio.h"
 #include "sensor_input_audit.hpp"
 #include "livox_pointcloud2.hpp"
-#include <livox_ros_driver2/msg/custom_msg.hpp>
+#include "world_alignment.hpp"
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
-#include <chrono>
-#include <set>
+#include <deque>
 
 class Backend : public rclcpp::Node {
  public:
   Backend() : Node("team43_small_point_lio") {
-    const auto lidar = declare_parameter<std::string>("lidar_topic", "/livox/lidar");
-    const auto imu = declare_parameter<std::string>("imu_topic", "/livox/imu");
+    const auto lidar = declare_parameter<std::string>("lidar_topic", "/red_standard_robot1/livox/lidar");
+    const auto imu = declare_parameter<std::string>("imu_topic", "/red_standard_robot1/livox/imu");
     world_ = declare_parameter<std::string>("world_frame", "lio_world");
     body_ = declare_parameter<std::string>("body_frame", "body");
+    output_rotation_ = rm_task1::world_alignment(declare_parameter<std::vector<double>>(
+      "output_world_up", std::vector<double>{0., 0., 1.}));
+    // 高度仅供配套建图入口计算近似地面，声明以便现场采集实际运行依据。
+    declare_parameter<bool>("approximate_floor_from_height", false);
+    declare_parameter<double>("lidar_height_m", 0.231);
     const auto depth = declare_parameter<int>("sensor_qos_depth", 200);
     if (depth < 1 || depth > 8192) throw std::invalid_argument("接收队列须为1至8192");
-    sensor_depth_ = depth;
+    imu_startup_capacity_ = static_cast<std::size_t>(depth);
     audit_.configure(declare_parameter<std::string>("input_audit_path", ""));
     const auto translation = declare_parameter<std::vector<double>>("extrinsic_T");
     const auto rotation = declare_parameter<std::vector<double>>("extrinsic_R");
@@ -56,9 +60,11 @@ class Backend : public rclcpp::Node {
       msg.header.frame_id = world_;
       msg.child_frame_id = body_;
       auto& p = msg.pose.pose;
-      p.position.x = state.position.x(); p.position.y = state.position.y(); p.position.z = state.position.z();
-      p.orientation.x = state.orientation.x(); p.orientation.y = state.orientation.y();
-      p.orientation.z = state.orientation.z(); p.orientation.w = state.orientation.w();
+      const Eigen::Vector3d position = output_rotation_ * state.position;
+      const Eigen::Quaterniond orientation = (output_rotation_ * state.orientation).normalized();
+      p.position.x = position.x(); p.position.y = position.y(); p.position.z = position.z();
+      p.orientation.x = orientation.x(); p.orientation.y = orientation.y();
+      p.orientation.z = orientation.z(); p.orientation.w = orientation.w();
       // 与现有下游一致，由位姿差分推导底盘速度。
       odom_pub_->publish(msg);
     });
@@ -70,157 +76,81 @@ class Backend : public rclcpp::Node {
       modifier.setPointCloud2FieldsByString(1, "xyz");
       modifier.resize(points.size());
       sensor_msgs::PointCloud2Iterator<float> x(msg, "x"), y(msg, "y"), z(msg, "z");
-      for (const auto& p : points) { *x = p.x(); *y = p.y(); *z = p.z(); ++x; ++y; ++z; }
+      for (const auto& p : points) {
+        const Eigen::Vector3f aligned = output_rotation_.cast<float>() * p;
+        *x = aligned.x(); *y = aligned.y(); *z = aligned.z(); ++x; ++y; ++z;
+      }
       cloud_pub_->publish(msg);
     });
     auto qos = rclcpp::SensorDataQoS().keep_last(depth);
-    lidar_topic_ = get_node_topics_interface()->resolve_topic_name(lidar);
-    const auto format = declare_parameter<std::string>("lidar_format", "auto");
-    if (format == "auto") {
-      automatic_ = true;
-      RCLCPP_INFO(get_logger(), "自动识别：等待点云发布者 %s", lidar_topic_.c_str());
-      // 墙钟定时器也适用于尚未开始发布 /clock 的 Gazebo；驱动可晚启动。
-      detect_lidar_format(qos);
-      detection_timer_ = create_wall_timer(std::chrono::milliseconds(200),
-          [this, qos]() { detect_lidar_format(qos); });
-    } else if (format == "custom" || format == "pointcloud2") {
-      input_ready_ = true;
-      subscribe_lidar(format, qos);
-    } else {
-      throw std::invalid_argument("lidar_format 只支持 auto、custom 或 pointcloud2");
-    }
+    // 固定接收Livox PointCloud2；ROS负责晚启动发布者发现和话题remap。
+    cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(lidar, qos,
+      [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
+        std::vector<common::Point> points;
+        try {
+          // 由有界data决定预留量，避免坏width/height导致巨量分配。
+          if (msg->point_step) points.reserve(msg->data.size() / msg->point_step);
+          rm_task1::visit_livox_pointcloud2(*msg, [this, &points](double time, float x, float y, float z) {
+            points.push_back({time, lidar_rotation_*Eigen::Vector3f(x, y, z)+lidar_translation_});
+          });
+        } catch (const std::invalid_argument& error) {
+          RCLCPP_ERROR_THROTTLE(get_logger(), diagnostic_clock_, 2000,
+                               "拒收 Livox PointCloud2：%s", error.what());
+          return;
+        }
+        if (points.empty()) return;
+        lidar_received_ = true;
+        audit_.record(false, rclcpp::Time(msg->header.stamp).seconds());
+        core_->on_point_cloud_callback(points);
+        while (!startup_imu_.empty()) {
+          consume_imu(startup_imu_.front());
+          startup_imu_.pop_front();
+        }
+        core_->handle_once();
+      });
+    RCLCPP_INFO(get_logger(), "点云输入：%s，固定格式：PointCloud2", cloud_sub_->get_topic_name());
     // 实机默认仍使用传感器 QoS；离线仿真可与可靠桥接发布端协商重传，
     // 避免共享 CPU 调度抖动造成不可重传的 IMU 丢样。
     auto imu_qos = qos;
     if (declare_parameter<bool>("imu_qos_reliable", false)) imu_qos.reliable();
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(imu, imu_qos,
       [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) {
-        // 等待发布者/冲突停用时不向未就绪的核心无限累积 IMU。
-        if (!input_ready_ || input_fault_) return;
         const double time = rclcpp::Time(msg->header.stamp).seconds();
-        audit_.record(true, time);
         common::ImuMsg sample;
         sample.timestamp = time;
         sample.angular_velocity = {msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z};
         sample.linear_acceleration = {msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z};
-        core_->on_imu_callback(sample);
-        core_->handle_once();
+        if (!lidar_received_) {
+          // 保留早于首帧点云到达的IMU；驱动长期无点云时缓存仍有界。
+          if (startup_imu_.size() >= imu_startup_capacity_) startup_imu_.pop_front();
+          startup_imu_.push_back(sample);
+          return;
+        }
+        consume_imu(sample);
       });
   }
  private:
-  void subscribe_lidar(const std::string& format, const rclcpp::QoS& qos) {
-    if (format == "pointcloud2") {
-      cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(lidar_topic_, qos,
-        [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
-          if (!input_ready_ || input_fault_) return;
-          detect_if_auto();
-          if (!input_ready_ || input_fault_) return;
-          std::vector<common::Point> points;
-          try {
-            // 由有界 data 决定预留量，防止非法 width/height 导致巨量分配。
-            if (msg->point_step) points.reserve(msg->data.size() / msg->point_step);
-            rm_task1::visit_livox_pointcloud2(*msg, [this, &points](double time, float x, float y, float z) {
-              points.push_back({time, lidar_rotation_*Eigen::Vector3f(x, y, z)+lidar_translation_});
-            });
-          } catch (const std::invalid_argument& error) {
-            RCLCPP_ERROR_THROTTLE(get_logger(), diagnostic_clock_, 2000,
-                                 "拒收 Livox PointCloud2：%s", error.what());
-            return;
-          }
-          if (points.empty()) return;
-          audit_.record(false, rclcpp::Time(msg->header.stamp).seconds());
-          core_->on_point_cloud_callback(points);
-          core_->handle_once();
-        });
-    } else if (format == "custom") {
-      lidar_sub_ = create_subscription<livox_ros_driver2::msg::CustomMsg>(lidar_topic_, qos,
-      [this](livox_ros_driver2::msg::CustomMsg::ConstSharedPtr msg) {
-        if (!input_ready_ || input_fault_) return;
-        detect_if_auto();
-        if (!input_ready_ || input_fault_) return;
-        audit_.record(false, rclcpp::Time(msg->header.stamp).seconds());
-        std::vector<common::Point> points;
-        points.reserve(msg->points.size());
-        for (const auto& p : msg->points) {
-          // Livox 正常回波的返回序号为0或1；保留真实逐点时间。
-          const auto tag = p.tag & 0x30;
-          if ((tag != 0 && tag != 0x10) || !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) continue;
-          points.push_back({static_cast<double>(msg->timebase) * 1e-9 + p.offset_time * 1e-9,
-                            lidar_rotation_*Eigen::Vector3f(p.x, p.y, p.z)+lidar_translation_});
-        }
-        core_->on_point_cloud_callback(points);
-        core_->handle_once();
-      });
-    }
-    selected_format_ = format;
-    RCLCPP_INFO(get_logger(), "点云输入：%s，格式：%s%s", lidar_topic_.c_str(), format.c_str(),
-                automatic_ ? "（自动识别并锁定）" : "（手动指定）");
+  void consume_imu(const common::ImuMsg& sample) {
+    audit_.record(true, sample.timestamp);
+    core_->on_imu_callback(sample);
+    core_->handle_once();
   }
-
-  void detect_if_auto() {
-    if (automatic_) detect_lidar_format(rclcpp::SensorDataQoS().keep_last(sensor_depth_));
-  }
-
-  void detect_lidar_format(const rclcpp::QoS& qos) {
-    if (input_fault_) return;
-    std::set<std::string> types;
-    for (const auto& endpoint : get_publishers_info_by_topic(lidar_topic_))
-      types.insert(endpoint.topic_type());
-    input_ready_ = false;
-    if (types.empty()) {
-      candidate_format_.clear();
-      RCLCPP_WARN_THROTTLE(get_logger(), diagnostic_clock_, 5000,
-                          "等待点云发布者：%s；自动识别尚未就绪", lidar_topic_.c_str());
-      return;
-    }
-    std::string detected;
-    if (types.size() == 1) {
-      if (*types.begin() == "sensor_msgs/msg/PointCloud2") detected = "pointcloud2";
-      if (*types.begin() == "livox_ros_driver2/msg/CustomMsg") detected = "custom";
-    }
-    if (detected.empty() || (!selected_format_.empty() && detected != selected_format_)) {
-      candidate_format_.clear();
-      std::string observed;
-      for (const auto& type : types) observed += type + " ";
-      // 选择前等待冲突消除；选定后不能把不同消息流混入已有地图/起点。
-      if (!selected_format_.empty()) {
-        input_fault_ = true;
-        RCLCPP_ERROR(get_logger(), "点云类型冲突或改变，停止接收；需重启定位并重建坐标关联：%s [%s]",
-                     lidar_topic_.c_str(), observed.c_str());
-      } else {
-        RCLCPP_ERROR_THROTTLE(get_logger(), diagnostic_clock_, 2000,
-                             "点云类型不支持或存在冲突，等待修正：%s [%s]",
-                             lidar_topic_.c_str(), observed.c_str());
-      }
-      return;
-    }
-    if (selected_format_.empty()) {
-      // 连续两次发现结果一致再选择，避免 DDS 启动发现尚未完整时抢选。
-      if (candidate_format_ != detected) {
-        candidate_format_ = detected;
-        return;
-      }
-      subscribe_lidar(detected, qos);
-    }
-    input_ready_ = true;
-  }
-
-  std::string world_, body_, lidar_topic_, selected_format_, candidate_format_;
-  int sensor_depth_ = 200;
-  bool automatic_ = false, input_ready_ = false, input_fault_ = false;
+  std::string world_, body_;
+  bool lidar_received_ = false;
+  std::size_t imu_startup_capacity_ = 200;
+  std::deque<common::ImuMsg> startup_imu_;
   rclcpp::Clock diagnostic_clock_{RCL_STEADY_TIME};
   rclcpp::Time stamp_{0};
   rm_task1::InputAudit audit_;
+  Eigen::Quaterniond output_rotation_;
   Eigen::Matrix3f lidar_rotation_;
   Eigen::Vector3f lidar_translation_;
   rclcpp::Node::SharedPtr core_parameters_;
   std::unique_ptr<small_point_lio::SmallPointLio> core_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_pub_;
-  rclcpp::Subscription<livox_ros_driver2::msg::CustomMsg>::SharedPtr lidar_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
-  rclcpp::TimerBase::SharedPtr detection_timer_;
 };
 
 int main(int argc, char** argv) {

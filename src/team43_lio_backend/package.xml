@@ -9,7 +9,6 @@
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
-  <depend>livox_ros_driver2</depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

@@ -1,49 +1,15 @@
-"""judge_sim：主办方 `/judge` 话题的**哑模拟器**（赛前联调用，正式赛绝不能用）。
+"""隔离域评分演练源：仅发布/test/tick与/test/replay_start。
 
-它只做一件事：按主办方的 QoS 与频率发拍，让 `judge_io_node` 在没有判分程序
-的情况下也能写出 CSV / 地图，从而先把"输出契约"这条最致命的链路走通。
-
-发布：
-
-| 话题 | 类型 | QoS | 频率 |
-|---|---|---|---|
-| `/judge/replay_start` | `std_msgs/Header` | TRANSIENT_LOCAL + depth 1 | 启动时一次 |
-| `/judge/tick` | `std_msgs/Header` | RELIABLE + KEEP_LAST + depth 10 | `sim.rate_hz`（默认 10 Hz） |
-
-`/judge/tick` 的 `frame_id` = 拍号（十进制字符串），`stamp` = 当前时刻——
-与主办方约定一致。默认的 8 列提交形态**不写** `stamp`；只有把
-提交器固定将它写为 CSV 第 9 列 `t_tick`。
-
-可选 `sim.extra_signals=true` 时，还会发**假的** `/gimbal/base_pose`、
-`/estimation/target_state`、`/chassis/advice`，让 CSV 里不是一片 0，
-可以在没有相机/云台/底盘的情况下验证"整条链路 + 列值合理性"。
-
-用法：
-
-```bash
-# 本包已装（推荐）
-ros2 run team43_judge_io judge_sim --ros-args -p sim.duration_s:=20.0
-
-# 或直接跑源码
-python3 src/team43_judge_io/team43_judge_io/judge_sim.py
-```
-
-参数（`-p 名字:=值`）：
-
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `sim.rate_hz` | 10.0 | 拍频（主办方 10 Hz） |
-| `sim.duration_s` | 30.0 | 发多久（s） |
-| `sim.n_ticks` | 0 | >0 时按**拍数**跑，忽略 duration |
-| `sim.start_index` | 0 | 起始拍号 |
-| `sim.publish_replay_start` | true | 是否发起点信号 |
-| `sim.extra_signals` | false | 是否同时发假传感器信号 |
-| `sim.start_delay_s` | 0.0 | 开拍前等待（留给订阅方加入） |
+必须显式设置ROS_LOCALHOST_ONLY=1及独立ROS_DOMAIN_ID，例如87。
+提交器需把官方订阅重映射到/test/*；CSV固定九列，末列为tick stamp。
+可选sim.extra_signals=true提供合成内部状态，不用于真实比赛链。
+完整演练步骤见docs/教程/评分接口测试.md。
 """
 
 from __future__ import annotations
 
 import math
+import os
 import sys
 import time
 from typing import Any
@@ -76,10 +42,20 @@ FAKE_TARGET0 = (1.5, 0.5)
 FAKE_BASE_SPEED = 0.20
 
 
+def validate_sim_environment(environ):
+    try:
+        domain = int(environ.get('ROS_DOMAIN_ID', '0'))
+    except ValueError:
+        domain = 0
+    if environ.get('ROS_LOCALHOST_ONLY') != '1' or not 1 <= domain <= 232:
+        raise ValueError('judge_sim仅限显式隔离域：ROS_LOCALHOST_ONLY=1、独立ROS_DOMAIN_ID(1..232)，发布/test/*')
+
+
 class JudgeSimNode(Node):  # type: ignore[misc]
     """哑判分器：发 tick（+可选假信号）。"""
 
     def __init__(self, name: str = NODE_NAME) -> None:
+        validate_sim_environment(os.environ)
         super().__init__(name)
         self._log = get_logger(self, 'judge_sim')
         self._params = declare_params(self, PARAM_DEFAULTS)
@@ -91,8 +67,8 @@ class JudgeSimNode(Node):  # type: ignore[misc]
         self._extra = bool(self._params['sim.extra_signals'])
         self._delay = max(float(self._params['sim.start_delay_s']), 0.0)
 
-        self._pub_tick = self.create_publisher(Header, '/judge/tick', reliable_qos())
-        self._pub_start = self.create_publisher(Header, '/judge/replay_start',
+        self._pub_tick = self.create_publisher(Header, '/test/tick', reliable_qos())
+        self._pub_start = self.create_publisher(Header, '/test/replay_start',
                                                 latched_qos(1))
 
         self._pub_base = None

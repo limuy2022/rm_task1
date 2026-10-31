@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 
-def check_line(line):
+def check_line(line, fixed_state=True):
     fields = line.split(',')
     if len(fields) != 9:
         raise ValueError('必须九列')
@@ -17,7 +17,7 @@ def check_line(line):
     if not re.fullmatch(r'\d+\.\d{6}', fields[8]):
         raise ValueError('时间列须固定六位小数')
     expected = (1., 2., 1., 2., .5, -.25, .3, .4)
-    if any(abs(a-b) > 1e-6 for a,b in zip(values[:8], expected)):
+    if fixed_state and any(abs(a-b) > 1e-6 for a,b in zip(values[:8], expected)):
         raise ValueError('固定状态测试数值不符')
     return values[8]
 
@@ -25,6 +25,8 @@ def check_line(line):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('csv', type=Path)
+    p.add_argument('--live-state', action='store_true',
+                   help='真实比赛只校验九列数值/时间与可见延迟，不要求合成固定坐标')
     p.add_argument('--count', type=int, default=1800)
     p.add_argument('--timeout', type=float, default=240)
     args = p.parse_args()
@@ -48,7 +50,7 @@ def main():
                     raw, pending = pending.split(b'\n', 1)
                     visible = time.time()
                     try:
-                        stamp = check_line(raw.decode('utf-8'))
+                        stamp = check_line(raw.decode('utf-8'), fixed_state=not args.live_state)
                         if previous is not None and stamp <= previous:
                             raise ValueError('时间不递增或重复拍')
                         previous = stamp

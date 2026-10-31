@@ -1,0 +1,33 @@
+# team43_perception 的跟踪链默认参数；场景文件与显式启动参数在其后覆盖。
+/**:
+  ros__parameters:
+    # ---------------- perception（视觉感知）----------------
+    # 用户确认实码黑色外边框边长7.5cm，不含外侧白边（2026-10-30修正）。
+    # 此值用于PnP物理尺度，更换打印码后按实际黑框外边长更新。
+    perception.marker_size_m: 0.075
+    perception.camera_info_source: yaml # yaml | topic
+    perception.reproj_max_px: 2.0
+    perception.depth_min: 0.05
+    perception.depth_max: 30.0
+    perception.id_filter_mode: "off"    # off | on；⚠ 必须带引号：裸 off/on 会被
+                                        # YAML 解析成布尔 false/true（丢引号 = 节点
+                                        # 拿到 False → 报「未知 id_filter_mode」）
+    perception.corner_noise_px: 0.5
+    perception.k_lat_floor: 5.0e-4
+    perception.k_depth_floor: 4.0e-3
+    perception.force_k_lat: 0.0         # >0 生效
+    perception.force_k_depth: 0.0       # >0 生效
+    # 实机：角点由 aruco_detector_node 从 /image_raw 检出后发到
+    # /perception/marker_corners；仿真时用 /virtual_gimbal/marker_corners。
+    perception.marker_corners_topic: /perception/marker_corners
+    perception.camera_info_topic: /camera_info
+    # --- aruco_detector_node（新增的图像前端）-------------------------
+    perception.image_topic: /image_raw   # reliable + KEEP_LAST + depth 1
+    perception.corners_frame_id: camera_optical_frame
+    perception.aruco_dict: DICT_4X4_50   # 官方规定
+    perception.target_digit: -1           # ⚠ 赛前由主办方告知的 marker ID；**唯一定义处**
+    perception.detect_rate_hz: 30.0      # 评分 10 Hz，30 Hz 足够
+    perception.do_subpix: true           # 亚像素精化，显著降低 cur 项误差
+    perception.subpix_win: 3
+    perception.publish_empty_on_lost: true
+
