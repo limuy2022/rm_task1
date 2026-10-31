@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import serial
 from typing import Optional
 
 import serial
@@ -69,10 +68,15 @@ class SerialPort:
         """独占打开串口。
 
         Raises:
-            SerialPortError: 打开失败或被其它进程占用。
+            SerialPortError: 端口未配置、打开失败或被其它进程占用。
         """
         if self.is_open:
             return
+        if not str(self._port).strip():
+            # 配置里留空是"等待显式指定"，不能把占位通配当设备路径传给 pyserial。
+            raise SerialPortError(
+                'serial.port 未配置：请先用 ls /dev/ttyUSB* /dev/ttyACM* 确认实际设备名，'
+                '再通过 launch 参数 serial_port:=（或 serial.port 参数）显式指定。')
         try:
             self._ser = serial.Serial(
                 port=self._port,

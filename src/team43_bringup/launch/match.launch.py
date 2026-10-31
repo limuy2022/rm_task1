@@ -4,8 +4,8 @@ import yaml
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription,
-                            RegisterEventHandler, EmitEvent, LogInfo)
+from launch.actions import (DeclareLaunchArgument, EmitEvent, IncludeLaunchDescription, LogInfo,
+                            OpaqueFunction, RegisterEventHandler, TimerAction)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -21,6 +21,25 @@ from team43_bringup.livox_config import load_driver_config
 def _critical(node):
     return RegisterEventHandler(OnProcessExit(target_action=node,
         on_exit=[EmitEvent(event=Shutdown(reason='比赛关键进程退出'))]))
+
+
+# 与 team43_serial_bridge/include/bridge_node.hpp 的 kExitDeviceAbsent 保持一致：
+# 仅"设备文件还不存在"用该退出码（可等待插上后重试）；被占用等其它失败必须整链退出。
+_EXIT_DEVICE_ABSENT = 3
+_BRIDGE_RESPAWN_DELAY_S = 1.0
+
+
+def _respawn_on_device_absent(node, make_node):
+    """robo_bridge 退出监督：设备缺席→延迟重试（其余链路照常），其余退出→全链 Shutdown。"""
+    def on_exit(event, context):
+        if getattr(event, 'returncode', None) == _EXIT_DEVICE_ABSENT:
+            again = make_node()
+            return [LogInfo(msg=f'云台串口设备尚不存在，{_BRIDGE_RESPAWN_DELAY_S:.0f} 秒后重试 '
+                                'robo_bridge（其余链路不受影响）'),
+                    RegisterEventHandler(OnProcessExit(target_action=again, on_exit=on_exit)),
+                    TimerAction(period=_BRIDGE_RESPAWN_DELAY_S, actions=[again])]
+        return [EmitEvent(event=Shutdown(reason='比赛关键进程退出'))]
+    return RegisterEventHandler(OnProcessExit(target_action=node, on_exit=on_exit))
 
 
 def _ready(context):
@@ -71,11 +90,15 @@ def _setup(context):
         child.launch_configurations.update(args)
         return module(name)._setup(child)
     hardware = setup('livox', {'config_file': str(driver_path)})
-    hardware += [Node(package='team43_serial_bridge', executable='robo_bridge_node',
-        name='robo_bridge', output='screen', parameters=[{'port': value('port'),
-            'subscribe_cmd_vel': True, 'publish_tf': False,
-            'imu_topic': '/red_standard_robot1/gimbal', 'cmd_vel_topic': '/team43_tracking/cmd_vel',
-            'yaw_sign': 1, 'pitch_sign': 1, 'imu_axis_sign': [1, 1, 1]}])]
+    port = value('port')
+    def robo_bridge():
+        return Node(package='team43_serial_bridge', executable='robo_bridge_node',
+            name='robo_bridge', output='screen', parameters=[{'port': port,
+                'subscribe_cmd_vel': True, 'publish_tf': False,
+                'imu_topic': '/red_standard_robot1/gimbal', 'cmd_vel_topic': '/team43_tracking/cmd_vel',
+                'yaw_sign': 1, 'pitch_sign': 1, 'imu_axis_sign': [1, 1, 1]}])
+    bridge = robo_bridge()
+    hardware += [bridge]
     hardware += [Node(package='team43_lio_backend', executable='small_point_lio_node',
         name='team43_small_point_lio', namespace='red_standard_robot1', output='screen',
         parameters=[value('lio_config'), {'use_sim_time': False,
@@ -102,8 +125,13 @@ def _setup(context):
     with snapshot.open('x', encoding='utf-8') as stream:
         stream.write('# 比赛运行参数；不作为实测或验收通过证据。\n')
         yaml.safe_dump({'/**': {'ros__parameters': params}}, stream, allow_unicode=True)
+    # robo_bridge 单独监督：设备缺席按 bridge_respawn 延迟重试，不把全链拖死。
+    respawn_bridge = LaunchConfiguration(
+        'bridge_respawn', default='true').perform(context).lower() in ('1', 'true', 'yes')
+    bridge_watch = (_respawn_on_device_absent(bridge, robo_bridge) if respawn_bridge
+                    else _critical(bridge))
     return [LogInfo(msg='直接启动全链；target_id=-1时等待裁判通知，不等待人工确认、epoch匹配或地图就绪')] + [
-        _critical(node) for node in hardware] + hardware + _ready(context)
+        _critical(node) for node in hardware if node is not bridge] + [bridge_watch] + hardware + _ready(context)
 
 
 
@@ -115,6 +143,7 @@ def generate_launch_description():
         DeclareLaunchArgument('continuous', default_value='true'),
         DeclareLaunchArgument('livox_config'), DeclareLaunchArgument('run_dir'),
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),
+        DeclareLaunchArgument('bridge_respawn', default_value='true'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share, 'config', 'camera_team43.yaml')),
         DeclareLaunchArgument('controller_params', default_value=package_config('team43_control', 'visual_tracking.yaml')),
         DeclareLaunchArgument('lio_config', default_value=package_config('team43_lio_backend', 'small_point_lio_mid360.yaml')),

@@ -209,6 +209,18 @@ def test_match_launch_starts_without_confirmation_epoch_map_or_target(tmp_path):
         evaluate_parameters(context, node._Node__parameters)
     assert executable.count('aruco_detector_node') == executable.count('marker_pnp_node') == 1
     assert executable.count('robo_bridge_node') == 1
+    # robo_bridge 挂的是设备缺席重试处理器（on_exit 为可调用对象），
+    # 而非其余关键进程的 _critical（on_exit 为含 Shutdown 的动作列表）。
+    from launch.actions import RegisterEventHandler
+    bridge = next(x for x in nodes if x.node_executable == 'robo_bridge_node')
+    from launch.events.process import ProcessExited
+    from launch.actions import TimerAction
+    event = ProcessExited(action=bridge, returncode=mod._EXIT_DEVICE_ABSENT,
+                          name='bridge', cmd=['unused'], cwd=None, env=None, pid=1)
+    watch = [a.event_handler for a in actions if isinstance(a, RegisterEventHandler)
+             and a.event_handler.matches(event)]
+    assert len(watch) == 1
+    assert any(isinstance(a, TimerAction) for a in watch[0].handle(event, context))
     assert 'match_session_gate' not in executable and 'visual_servo_node' in executable
     assert 'judge_io_node' not in executable
     snapshot = tmp_path/'vehicle_runtime.yaml'
@@ -349,7 +361,7 @@ def test_height_approximation_and_launch_use_same_lio_geometry(tmp_path):
     cfg = load_ros_params(ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml')
     floor, confirmed, source = approximate_floor(cfg)
     up = np.asarray(cfg['output_world_up']); up /= np.linalg.norm(up)
-    assert floor == pytest.approx(up @ np.asarray(cfg['extrinsic_T'])-.231)
+    assert floor == pytest.approx(up @ np.asarray(cfg['extrinsic_T'])-cfg['lidar_height_m'])
     assert confirmed and source == 'height_approximation'
     assert approximate_floor({}) == (0., False, 'manual')
     with pytest.raises(ValueError): approximate_floor({**cfg, 'output_world_up': [0.,0.,0.]})
@@ -434,3 +446,49 @@ def test_direct_match_imu_before_latched_epoch_waits_without_fault():
     node.on_epoch(NS(data=999))
     feed(node, clock)
     assert not node.fault and sent
+
+
+def test_tick_before_explicit_start_does_not_invent_origin(tmp_path):
+    clock, mapper = TIMING.map_node()
+    judge = TIMING.judge_node(str(tmp_path/'output'))
+    try:
+        mapper._on_base_pose(TIMING.odom(1000., (2., -1., 0.)))
+        tick = Header(stamp=TIMING.stamp(1000.04), frame_id='0')
+        judge._on_tick(tick)
+        assert not judge._origin_frozen and not judge._pub_origin_freeze.messages
+        assert mapper._origin_stamp is None and not mapper.frozen
+        assert judge._writer.rows == 1  # 不等待另一个话题而错过本拍写盘。
+        explicit = Header(stamp=TIMING.stamp(1000.02), frame_id='record')
+        mapper._on_origin_freeze(explicit)
+        judge._on_replay_start(explicit)
+        clock.now = 1000.12
+        mapper._on_base_pose(TIMING.odom(1000.1, (2., -.9, 0.)))
+        assert mapper.frozen
+        assert mapper._origin_stamp == judge._replay_stamp == 1000.02
+        assert mapper._T_map_odom[1,3] == pytest.approx(.98)
+    finally:
+        judge._writer.close()
+
+
+def test_match_bridge_watch_respawns_device_absent_and_shuts_down_on_fatal():
+    """退出码3（设备不存在）→延迟重发该节点；其它退出码→全链 Shutdown。"""
+    from launch.actions import EmitEvent, RegisterEventHandler, TimerAction
+    from launch.events import Shutdown
+    mod = load('match_launch_respawn', 'src/team43_bringup/launch/match.launch.py')
+    made = []
+
+    def factory():
+        node = Node(package='team43_serial_bridge', executable='robo_bridge_node', name='robo_bridge')
+        made.append(node)
+        return node
+
+    watch = mod._respawn_on_device_absent(factory(), factory)
+    assert isinstance(watch, RegisterEventHandler)
+    from launch.events.process import ProcessExited
+    def exited(code):
+        return ProcessExited(action=made[0], returncode=code, name='bridge',
+                             cmd=['unused'], cwd=None, env=None, pid=1)
+    retry = watch.event_handler.handle(exited(mod._EXIT_DEVICE_ABSENT), LaunchContext())
+    assert any(isinstance(a, TimerAction) for a in retry) and len(made) == 2
+    fatal = watch.event_handler.handle(exited(1), LaunchContext())
+    assert any(isinstance(a, EmitEvent) and isinstance(a.event, Shutdown) for a in fatal)

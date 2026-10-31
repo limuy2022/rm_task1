@@ -3,7 +3,9 @@
 import os
 import time
 
-from team43_gimbal_io.serial_port import SerialPort
+import pytest
+
+from team43_gimbal_io.serial_port import SerialPort, SerialPortError
 
 
 def test_poll_empty_port_does_not_wait_for_read_timeout():
@@ -27,3 +29,12 @@ def test_poll_empty_port_does_not_wait_for_read_timeout():
         port.close()
         os.close(master)
         os.close(slave)
+
+
+@pytest.mark.parametrize('empty', ['', '  '])
+def test_unconfigured_port_fails_fast_with_actionable_message(empty):
+    # 配置默认留空：必须给出"如何确认设备"的指引，而不是把占位串当路径传给 pyserial。
+    port = SerialPort(empty)
+    with pytest.raises(SerialPortError, match='ls /dev/ttyUSB'):
+        port.open()
+    assert not port.is_open

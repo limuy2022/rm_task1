@@ -11,10 +11,16 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, TimerAction
+from launch.actions import (DeclareLaunchArgument, LogInfo, OpaqueFunction,
+                            RegisterEventHandler, TimerAction)
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+# 与 include/bridge_node.hpp 的 kExitDeviceAbsent 保持一致：仅"设备文件还不存在"
+# 用该退出码；被占用（EBUSY、EWOULDBLOCK）等其它打开失败为 kExitFatal(1)，不允许重试。
+_EXIT_DEVICE_ABSENT = 3
+_RESPAWN_DELAY_S = 1.0
 
 # 只有用户在命令行上给了值，才覆盖 yaml；留空表示沿用 yaml。
 _OVERRIDES = {
@@ -36,15 +42,32 @@ def _launch_setup(context, *args, **kwargs):
             overrides[name] = cast(value)
     if overrides:
         params.append(overrides)
-    node = Node(
-        package='team43_serial_bridge',
-        executable='robo_bridge_node',
-        name='robo_bridge',
-        output='screen',
-        emulate_tty=True,
-        parameters=params,
-    )
-    return [node]
+
+    def make_node():
+        return Node(
+            package='team43_serial_bridge',
+            executable='robo_bridge_node',
+            name='robo_bridge',
+            output='screen',
+            emulate_tty=True,
+            parameters=params,
+        )
+
+    node = make_node()
+    if LaunchConfiguration('respawn').perform(context).lower() not in ('1', 'true', 'yes'):
+        return [node]
+    # 不用 Node 内置 respawn=：它对任何退出码都会重启，被占用时违背"永不重试"。
+    # 这里只在退出码为 kExitDeviceAbsent（设备还没插上）时延迟重试。
+    def on_exit(event, context):
+        if getattr(event, 'returncode', None) != _EXIT_DEVICE_ABSENT:
+            return []
+        again = make_node()
+        return [
+            LogInfo(msg='串口设备文件尚不存在，%.0f 秒后重试 robo_bridge' % _RESPAWN_DELAY_S),
+            RegisterEventHandler(OnProcessExit(target_action=again, on_exit=on_exit)),
+            TimerAction(period=_RESPAWN_DELAY_S, actions=[again]),
+        ]
+    return [node, RegisterEventHandler(OnProcessExit(target_action=node, on_exit=on_exit))]
 
 
 def generate_launch_description():
