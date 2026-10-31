@@ -59,7 +59,7 @@ class VisualServoNode(Node):
                     'imu_topic': '/red_standard_robot1/gimbal',
                     'operating_mode': 'bench', 'corners_topic': 'marker_corners',
                     'joint_states_topic': '/gimbal/joint_states', 'joint_timeout': .2,
-                    'joint_limits_confirmed': False, 'calibrated_epoch': -1,
+                    'joint_limits_confirmed': False, 'calibrated_epoch': -1, 'bind_current_epoch': False,
                     'joint_yaw_limits_rad': [0., 0.], 'joint_pitch_limits_rad': [0., 0.],
                     'joint_limit_margin_rad': .035,
                     'control_hz': 50., 'filter_tau': .04, 'deadband_px': 2.,
@@ -152,7 +152,8 @@ class VisualServoNode(Node):
             return None
         if self.p('joint_limits_confirmed') is not True:
             raise ValueError('比赛模式须确认实测关节工作范围')
-        if self.epoch != int(self.p('calibrated_epoch')) or self.epoch is None:
+        if self.epoch is None or (not bool(self.p('bind_current_epoch'))
+                                  and self.epoch != int(self.p('calibrated_epoch'))):
             raise ValueError('比赛模式epoch与本次标定不一致')
         limits = [tuple(float(v) for v in self.p(name)) for name in
                   ('joint_yaw_limits_rad', 'joint_pitch_limits_rad')]
@@ -281,6 +282,9 @@ class VisualServoNode(Node):
                     if was_active: self.fault = '云台IMU中断'
                 elif self.fault:
                     reason = self.fault; self.stop()
+                elif str(self.p('operating_mode')) == 'match' and self.epoch is None:
+                    # 直接启动时IMU可能比锁存epoch先到；等待发现，不锁成参数故障。
+                    reason = '等待云台会话反馈'; self.stop()
                 else:
                     if self.arm_q is None: self.arm_q = self.imu[1].copy()
                     limits = self.match_limits()

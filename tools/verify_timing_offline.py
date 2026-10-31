@@ -117,6 +117,7 @@ def map_node():
     app._T_map_odom = None
     app._T_map_world = None
     app._origin_stamp = None
+    app._replay_not_before = 1000.
     app._last_msg = None
     app._last_published_stamp = None
     app._t_first_valid = None
@@ -197,6 +198,8 @@ def judge_node(output_dir):
     app._n_tick = 0
     app._t_last_tick_mono = time.monotonic()
     app._origin_frozen = False
+    app._replay_not_before = 1000.
+    app._replay_stamp = None
     app._grid = None
     app._grid_res = 0.05
     app._grid_origin = np.zeros(2, dtype=float)
@@ -286,15 +289,19 @@ class TimingTests(unittest.TestCase):
         app._tick(); self.assertEqual(len(app._pub_pose.messages), 1)
         clock.now = 1001.; app._tick(); self.assertEqual(len(app._pub_pose.messages), 1)
 
-    def test_no_timeout_origin_fallback_or_new_round_rebase(self):
-        clock, app = map_node(); clock.now = 2000.
+    def test_stale_latched_start_does_not_block_new_start_or_rebase_frozen_round(self):
+        clock, app = map_node(); clock.now = 2000.; app._replay_not_before = 2000.
         app._on_base_pose(odom(2000., (9, 10, 0))); app._tick()
         self.assertFalse(app.frozen)
         app._on_origin_freeze(Header(stamp=stamp(1990.)))
         self.assertFalse(app.frozen)
         app._on_origin_freeze(Header(stamp=stamp(2000.)))
-        self.assertFalse(app.frozen)
-        self.assertEqual(app._origin_stamp, 1990.)
+        self.assertTrue(app.frozen)
+        self.assertEqual(app._origin_stamp, 2000.)
+        original = app._T_map_odom.copy()
+        app._on_origin_freeze(Header(stamp=stamp(2001.)))
+        self.assertEqual(app._origin_stamp, 2000.)
+        np.testing.assert_array_equal(app._T_map_odom, original)
 
     def test_tracker_measurement_time_projection_is_nonmutating(self):
         track = StampedTracker()

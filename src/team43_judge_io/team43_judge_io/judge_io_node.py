@@ -132,6 +132,8 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._n_tick: int = 0
         self._t_last_tick_mono: float = time.monotonic()
         self._origin_frozen: bool = False
+        self._replay_not_before = self.get_clock().now().nanoseconds*1e-9
+        self._replay_stamp = None
 
         # --- 地图缓存 -------------------------------------------------------
         self._grid: Optional[np.ndarray] = None       # (W, H) int8
@@ -169,15 +171,23 @@ class JudgeIoNode(Node):  # type: ignore[misc]
     # -- judge 回调 -----------------------------------------------------------
     def _on_replay_start(self, msg: Any) -> None:
         """回放起点信号 → 冻结给定点（map 系原点）。"""
-        self._log.info(f'收到 /judge/replay_start（frame_id={msg.frame_id}）'
-                       '→ 冻结给定点')
         self._freeze_origin(msg)
 
     def _freeze_origin(self, src_msg: Any) -> None:
         """向 /gimbal/origin_freeze 发锁存信号（只发一次）。"""
+        stamp = _stamp_to_sec(src_msg.stamp)
+        if not math.isfinite(stamp):
+            return
+        if stamp < self._replay_not_before:
+            self._log.warning(f'忽略启动前旧起点stamp={stamp:.6f}；等待本轮新replay_start')
+            return
         if self._origin_frozen:
+            if abs(stamp-self._replay_stamp) > 1e-6:
+                self._log.error('收到不同回放起点；保留本轮提交，请在新轮前重启处理链')
             return
         self._origin_frozen = True
+        self._replay_stamp = stamp
+        self._log.info(f'接受本轮起点stamp={stamp:.6f}，通知地图冻结给定点')
         out = Header()
         out.stamp = src_msg.stamp
         out.frame_id = src_msg.frame_id

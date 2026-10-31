@@ -16,7 +16,9 @@ from team43_bringup.deployment_config import load_vehicle_config
 
 
 def _setup(context):
-    cfg, params = load_vehicle_config(LaunchConfiguration('vehicle_config').perform(context))
+    require_confirmation = LaunchConfiguration('require_confirmation', default='true').perform(context).lower() == 'true'
+    cfg, params = load_vehicle_config(LaunchConfiguration('vehicle_config').perform(context),
+                                    require_confirmation=require_confirmation)
     camera = os.path.expanduser(LaunchConfiguration('camera_config').perform(context))
     if not os.path.isfile(camera): raise ValueError('camera_config不存在')
     target = int(LaunchConfiguration('target_id').perform(context))
@@ -57,6 +59,7 @@ def _setup(context):
 def generate_launch_description():
     share = get_package_share_directory('team43_bringup')
     return LaunchDescription([
+        DeclareLaunchArgument('require_confirmation', default_value='true'),
         DeclareLaunchArgument('vehicle_config', description='填妥且确认的整车实测参数；不是原始模板'),
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share,'config','camera_team43.yaml')),
         DeclareLaunchArgument('target_id', default_value='-1'),

@@ -1,5 +1,7 @@
 # 工具入口
 
+比赛操作：先运行`bash tools/start_match.bash`，裁判给ID后运行`bash tools/set_target.bash ID`，确认跟踪后由裁判启动客户端。入口不等待人工确认或源地图；实际数值读取vehicle43.yaml。
+
 所有验证在根 `Dockerfile` 的 ROS 2 Humble 容器中运行，完整命令见
 [测试运行指南](../docs/教程/测试运行指南.md)。
 

@@ -24,6 +24,7 @@ from tf2_ros import TransformBroadcaster
 from team43_common.log_utils import get_logger, throttled
 from team43_common import node_utils as NU
 from team43_common import time_utils as TU
+from team43_common.time_buffer import stamp_seconds
 from team43_common.qos_utils import latched_qos, sensor_qos
 
 from .base_pose_source import make_base_pose_source
@@ -74,6 +75,7 @@ class BasePoseProviderNode:
         self._source_name: str = self._source.name()
         self._last_published_stamp = None
         self._last_replay_start = None
+        self._replay_not_before = node.get_clock().now().nanoseconds*1e-9
 
         qos = sensor_qos(10)
         self._pub = node.create_publisher(Odometry, '/gimbal/base_pose_raw', qos)
@@ -104,11 +106,20 @@ class BasePoseProviderNode:
             throttled(self._log, 'error', f'odom 数据无效: {exc!r}', 'odom_cb')
 
     def _on_replay_start(self, msg) -> None:
+        try:
+            stamp = stamp_seconds(msg.stamp)
+        except (TypeError, ValueError):
+            return
+        if stamp < self._replay_not_before:
+            return  # 旧锁存起点不能清空本次有效底盘输入。
         key = (int(msg.stamp.sec), int(msg.stamp.nanosec))
-        if key != self._last_replay_start:
-            self._source.reset()
-            self._last_published_stamp = None
-            self._last_replay_start = key
+        if self._last_replay_start is not None:
+            if key != self._last_replay_start:
+                self._log.error('收到不同回放起点；保留本轮底盘源，请在新轮前重启处理链')
+            return
+        self._source.reset()
+        self._last_published_stamp = None
+        self._last_replay_start = key
 
     def _tick(self) -> None:
         """Publish each source sample once, at the source measurement time."""

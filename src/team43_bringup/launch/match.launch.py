@@ -1,5 +1,6 @@
-"""实机比赛全链入口：先启动设备，待本次标定/地面就绪后自动接入处理链。"""
+"""比赛直接启动：加载装车数值、启动全链，目标ID可以由裁判通知后设置。"""
 import os
+import yaml
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -26,31 +27,32 @@ def _ready(context):
     def value(name): return LaunchConfiguration(name).perform(context)
     motion = ParameterValue(LaunchConfiguration('motion_enabled', default='true'), value_type=bool).evaluate(context)
     continuous = ParameterValue(LaunchConfiguration('continuous', default='true'), value_type=bool).evaluate(context)
-    snapshot = os.path.join(value('run_dir'), 'vehicle_verified.yaml')
-    _, params = load_vehicle_config(snapshot)
+    snapshot = os.path.join(value('run_dir'), 'vehicle_runtime.yaml')
+    _, params = load_vehicle_config(snapshot, require_confirmation=False)
     share = get_package_share_directory('team43_bringup')
     processing = IncludeLaunchDescription(PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'processing.launch.py')),
         launch_arguments={'vehicle_config': snapshot, 'camera_config': value('camera_config'),
             'target_id': value('target_id'), 'with_perception': 'false', 'shutdown_on_exit': 'true',
-            'submission': 'true', 'team_id': '43', 'output_dir': value('output_dir')}.items())
+            'submission': 'true', 'require_confirmation': 'false', 'team_id': '43', 'output_dir': value('output_dir')}.items())
     controller = Node(package='team43_control', executable='visual_servo_node',
         name='visual_servo_node', namespace='team43_tracking', output='screen',
         parameters=[value('controller_params'), {'camera_config': value('camera_config'),
             'motion_enabled': motion, 'continuous': continuous, 'operating_mode': 'match', 'axes': 'both',
             'corners_topic': '/perception/marker_corners',
-            'joint_limits_confirmed': True, 'calibrated_epoch': params['kinematics.calibrated_epoch'],
+            'joint_limits_confirmed': True, 'bind_current_epoch': True,
+            'calibrated_epoch': int(params.get('kinematics.calibrated_epoch', -1)),
             'joint_yaw_limits_rad': params['kinematics.yaw_limits_rad'],
             'joint_pitch_limits_rad': params['kinematics.pitch_limits_rad']}])
-    return [LogInfo(msg=f'准备完成；motion_enabled={str(motion).lower()}，continuous={str(continuous).lower()}'), processing, _critical(controller), controller]
+    return [LogInfo(msg=f'比赛处理链启动；motion_enabled={str(motion).lower()}，continuous={str(continuous).lower()}'), processing, _critical(controller), controller]
 
 
 def _setup(context):
     def value(name): return LaunchConfiguration(name).perform(context)
     target = int(value('target_id'))
-    if not 0 <= target < 50: raise ValueError('比赛入口必须提供主办方指定target_id：0..49')
+    if not -1 <= target < 50: raise ValueError('target_id须为-1（等待裁判通知）或0..49')
     run_dir = Path(value('run_dir')).expanduser().resolve()
     if not run_dir.is_dir(): raise ValueError('run_dir须为本次新建的记录目录；请使用tools/start_match.bash')
-    if (run_dir/'vehicle_verified.yaml').exists(): raise ValueError('run_dir已用，请为本次会话使用新目录')
+    if (run_dir/'vehicle_runtime.yaml').exists(): raise ValueError('run_dir已用，请为本次会话使用新目录')
     for name in ('camera_config', 'controller_params', 'lio_config'):
         if not os.path.isfile(value(name)): raise ValueError(name+'不存在')
     driver_path, _ = load_driver_config(value('livox_config'))
@@ -89,23 +91,26 @@ def _setup(context):
     for executable in ('aruco_detector_node', 'marker_pnp_node'):
         hardware.append(Node(package='team43_perception', executable=executable,
             name=executable, parameters=common, output='screen'))
-    gate = Node(package='team43_bringup', executable='match_session_gate', output='screen',
-        parameters=[{'vehicle_config': value('vehicle_config'),
-                     'snapshot': str(run_dir/'vehicle_verified.yaml')}])
-    def on_gate_exit(event, context):
-        if context.is_shutdown: return []
-        if event.returncode != 0:
-            return [EmitEvent(event=Shutdown(reason='比赛准备进程异常退出'))]
-        return [OpaqueFunction(function=_ready)]
-    return [LogInfo(msg='准备阶段：等待本次世界对齐；地面采用LIO配置指定依据，相机由赛事方启动')] + [
-        _critical(node) for node in hardware] + hardware + [
-        RegisterEventHandler(OnProcessExit(target_action=gate, on_exit=on_gate_exit)), gate]
+    # 用户已经完成安装测量：直接使用数值，不等待人工确认开关、旧epoch或源图。
+    _, params = load_vehicle_config(value('vehicle_config'), require_confirmation=False)
+    params.update({'kinematics.require_confirmation': False,
+                   'kinematics.bind_current_epoch': True,
+                   'localization.sensor_extrinsics_confirmed': True,
+                   'localization.parent_transform_confirmed': True,
+                   'estimation.geometry_confirmed': True})
+    snapshot = run_dir/'vehicle_runtime.yaml'
+    with snapshot.open('x', encoding='utf-8') as stream:
+        stream.write('# 比赛运行参数；不作为实测或验收通过证据。\n')
+        yaml.safe_dump({'/**': {'ros__parameters': params}}, stream, allow_unicode=True)
+    return [LogInfo(msg='直接启动全链；target_id=-1时等待裁判通知，不等待人工确认、epoch匹配或地图就绪')] + [
+        _critical(node) for node in hardware] + hardware + _ready(context)
+
 
 
 def generate_launch_description():
     share = get_package_share_directory('team43_bringup')
     return LaunchDescription([
-        DeclareLaunchArgument('target_id'), DeclareLaunchArgument('vehicle_config'),
+        DeclareLaunchArgument('target_id', default_value='-1'), DeclareLaunchArgument('vehicle_config'),
         DeclareLaunchArgument('motion_enabled', default_value='true'),
         DeclareLaunchArgument('continuous', default_value='true'),
         DeclareLaunchArgument('livox_config'), DeclareLaunchArgument('run_dir'),

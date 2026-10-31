@@ -51,4 +51,6 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 ## 约定
 
 - 文档、注释与 commit message 用中文；commit 走 conventional 前缀（`ci:` / `refactor:` / `test:` / `fix:` 等）。
-- 台架与独立节点保持运动默认关闭；按用户比赛操作要求，`start_match.bash`/`match.launch.py`在标定及源图就绪后默认`motion_enabled=true`、`continuous=true`。只读采样和标定必须显式传`motion_enabled:=false`，故障/反馈/限位保护继续生效。
+- 台架与独立节点保持运动默认关闭；按用户比赛操作要求，`start_match.bash`/`match.launch.py`直接启动全链并默认`motion_enabled=true`、`continuous=true`。只读采样和标定必须显式传`motion_enabled:=false`，故障/反馈/限位保护继续生效。
+
+比赛流程：先运行`tools/start_match.bash`（默认target_id=-1），裁判给ID后运行`tools/set_target.bash ID`，确认跟踪后裁判启动客户端。比赛入口不使用match_session_gate，不等待confirmed开关或预填epoch匹配；沿用文件中的几何和旋转数值，首次反馈绑定当前epoch，运行中复位仍锁停。

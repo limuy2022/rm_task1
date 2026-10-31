@@ -99,10 +99,10 @@ class GimbalKinematics:
     yaw_limits_rad must span less than one revolution: orientation cannot resolve
     a multi-turn encoder value. Effective pitch must remain inside (-pi/2,pi/2).
     """
-    def __init__(self, calibration: Mapping):
+    def __init__(self, calibration: Mapping, *, require_confirmation=True):
         c = calibration
         for key in ('calibration_confirmed', 'joint_zero_known', 'mounted_on_base_confirmed'):
-            if c.get(key) is not True:
+            if require_confirmation and c.get(key) is not True:
                 raise ValueError(f'{key} must be explicitly true after measurement')
         required = {
             'base_mount_xyz': 3, 'base_mount_rpy': 3,
@@ -204,12 +204,14 @@ class SynchronizedKinematics:
 
     IMU samples wait for an exact base pose or a bounded SLERP bracket. They are
     never paired with the latest pose or extrapolated. A reset/epoch mismatch is
-    latched until a new instance is created with a freshly confirmed calibration.
+    latched until a new instance is created. bind_current_epoch only binds the first
+    session ID; it does not estimate or change the configured world rotation.
     """
     def __init__(self, model=None, *, calibrated_epoch=-1, max_age=.2, max_gap=.1,
-                 future_tolerance=.01):
+                 future_tolerance=.01, bind_current_epoch=False):
         self.model = model
         self.calibrated_epoch = int(calibrated_epoch)
+        self.bind_current_epoch = bool(bind_current_epoch)
         self.max_age, self.max_gap, self.future_tolerance = map(float, (max_age, max_gap, future_tolerance))
         if (not all(math.isfinite(v) for v in (self.max_age, self.max_gap, self.future_tolerance))
                 or self.max_age <= 0 or self.max_gap <= 0 or self.future_tolerance < 0):
@@ -230,6 +232,9 @@ class SynchronizedKinematics:
         value = int(epoch)
         if value < 0:
             raise ValueError('epoch must be nonnegative')
+        # 比赛直接启动沿用配置旋转，第一次反馈绑定当前会话；运行中复位仍锁停。
+        if self.bind_current_epoch and self.epoch is None and not self.fault:
+            self.calibrated_epoch = value
         if ((self.epoch is not None and value != self.epoch)
                 or value != self.calibrated_epoch):
             self.fault = True

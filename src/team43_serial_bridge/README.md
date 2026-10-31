@@ -186,7 +186,7 @@ MVS SDK library: /opt/MVS/lib/64/libMvCameraControl.so (-> /opt/MVS/lib/64/libMv
 
 ## 与 gimbal-edu-tools/robo_bridge_edu 的差别
 
-- 目录与包名均为 `team43_serial_bridge`；NUC 部署工作区为 `~/team43_ws/rm_task1`，其内部保留 `src/team43_serial_bridge`。C++ 命名空间为 `gimbal_serial`，可执行文件为 `robo_bridge_node`。
+- 目录与包名均为 `team43_serial_bridge`；NUC 部署工作区为 `~/ws_championship/src/43-MyDuo`，其内部保留 `src/team43_serial_bridge`。C++ 命名空间为 `gimbal_serial`，可执行文件为 `robo_bridge_node`。
 - IMU 话题：从硬编码 `/offboardlink/imu_data` 改为参数 `imu_topic`，默认 `/red_standard_robot1/gimbal`（赛题一要求）。
 - 不包含海康相机驱动源码（`hik_camera_node.cpp`、`hik_sdk_test.cpp`），`WITH_HIK_CAMERA` 默认 `OFF`，AUTO 模式下源码缺失也会跳过；赛题一相机由主办方启动。
 - launch 文件名为 `gimbal_serial.launch.py`。

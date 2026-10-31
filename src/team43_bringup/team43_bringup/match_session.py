@@ -20,7 +20,8 @@ from .deployment_config import load_vehicle_config
 def verified_match_params(path, epoch):
     _, params = load_vehicle_config(path)
     if epoch is None or params['kinematics.calibrated_epoch'] != epoch:
-        raise ValueError('等待本次世界对齐：calibrated_epoch须与当前桥一致，不能仅改epoch数字')
+        raise ValueError(f'等待本次世界对齐：配置calibrated_epoch={params["kinematics.calibrated_epoch"]}，'
+                         f'当前桥epoch={epoch}；在当前桥/LIO会话完成B4对齐后保存{path}，不能仅改epoch数字')
     if params.get('kinematics.joint_limits_confirmed') is not True:
         raise ValueError('等待实测关节工作区间确认：kinematics.joint_limits_confirmed')
     for key in ('kinematics.yaw_limits_rad', 'kinematics.pitch_limits_rad'):

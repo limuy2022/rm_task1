@@ -20,6 +20,8 @@ from .gimbal_kinematics import GimbalKinematics, SynchronizedKinematics, quatern
 
 DEFAULTS = {
     'kinematics.calibration_confirmed': False,
+    'kinematics.require_confirmation': True,
+    'kinematics.bind_current_epoch': False,
     'kinematics.joint_zero_known': False,
     'kinematics.mounted_on_base_confirmed': False,
     'kinematics.calibrated_epoch': -1,
@@ -45,10 +47,11 @@ class GimbalKinematicsNode(Node):
         self.cfg = {k.removeprefix('kinematics.'): self.get_parameter(k).value for k in DEFAULTS}
         c = self.cfg
         model = None
-        if c['calibration_confirmed']:
-            model = GimbalKinematics(c)  # invalid/partial calibration is fatal, never identity
+        if c['calibration_confirmed'] or not c['require_confirmation']:
+            model = GimbalKinematics(c, require_confirmation=c['require_confirmation'])  # invalid/partial calibration is fatal, never identity
         self.sync = SynchronizedKinematics(model, calibrated_epoch=c['calibrated_epoch'],
-                       max_age=c['max_age_s'], max_gap=c['max_gap_s'])
+                       max_age=c['max_age_s'], max_gap=c['max_gap_s'],
+                       bind_current_epoch=c['bind_current_epoch'])
         self.dynamic = TransformBroadcaster(self); self.static = StaticTransformBroadcaster(self)
         self.sent_static = False; self.last_now = None
         best = sensor_qos(50)
@@ -58,7 +61,7 @@ class GimbalKinematicsNode(Node):
         self.create_subscription(UInt64, '/task1/gimbal_reset_epoch', self.on_epoch,
                                  latched_qos(1))
         self.create_timer(.01, self.tick)
-        self._log = get_logger(self, 'kinematics'); self._log.info('派生关节角并非编码器反馈；标定/安装/epoch未确认时不发布有效TF或关节')
+        self._log = get_logger(self, 'kinematics'); self._log.info(f'关节角由配置几何与IMU解算；人工确认门槛={c["require_confirmation"]}，绑定当前epoch={c["bind_current_epoch"]}')
 
     def now_sec(self): return self.get_clock().now().nanoseconds*1e-9
 

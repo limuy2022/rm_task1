@@ -52,6 +52,8 @@ class MapFrameBroadcasterNode:
         self._history=PoseHistory(capacity=2000)
         self._frozen=False;self._T_map_odom=None;self._T_map_world=None
         self._origin_stamp=None;self._last_msg=None;self._last_published_stamp=None
+        # 起点必须属于本处理进程启动后的轮次；旧锁存值不能占住本轮。
+        self._replay_not_before=node.get_clock().now().nanoseconds*1e-9
         self._t_first_valid=None;self._n_pose=0;self._freeze_requested=False
         self._T_world_odom=_xyz_rpy_to_T(p['localization.world_odom_xyz_rpy'])
         self._world_confirmed=bool(p['localization.world_alignment_confirmed'])
@@ -96,6 +98,9 @@ class MapFrameBroadcasterNode:
         try:stamp=stamp_seconds(msg.stamp)
         # 坏的回放时间戳不能冻结比赛起点；拒绝该输入。
         except (TypeError,ValueError):return
+        if stamp < self._replay_not_before:
+            throttled(self._log,'warning',f'忽略启动前旧起点stamp={stamp:.6f}；等待本轮新replay_start','old_replay',2.)
+            return
         if self._origin_stamp is not None:
             if abs(self._origin_stamp-stamp)>1e-6:
                 self._log.error('收到不同回放起点；本进程保留原轮次，请在新轮开始前重启输出/定位')

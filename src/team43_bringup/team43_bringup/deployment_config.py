@@ -5,17 +5,19 @@ from team43_localization.gimbal_kinematics import GimbalKinematics
 from team43_localization.odometry_geometry import rigid_transform
 
 
-def load_vehicle_config(path):
+def load_vehicle_config(path, *, require_confirmation=True):
     path = Path(path).expanduser().resolve()
     params = load_ros_params(path)
     for key in ('kinematics.calibration_confirmed', 'kinematics.joint_zero_known',
                 'kinematics.mounted_on_base_confirmed', 'localization.sensor_extrinsics_confirmed',
                 'localization.parent_transform_confirmed', 'estimation.geometry_confirmed'):
-        if params.get(key) is not True: raise ValueError(f'{key}未确认；禁止把模板当作实测整车配置')
-    GimbalKinematics({k.removeprefix('kinematics.'): v for k,v in params.items() if k.startswith('kinematics.')})
+        if require_confirmation and params.get(key) is not True: raise ValueError(f'{key}未确认；禁止把模板当作实测整车配置')
+    GimbalKinematics({k.removeprefix('kinematics.'): v for k,v in params.items() if k.startswith('kinematics.')},
+                     require_confirmation=require_confirmation)
     for prefix in ('sensor_in_base', 'source_parent_in_output'):
         rigid_transform(params['localization.'+prefix+'_xyz'], params['localization.'+prefix+'_rpy'])
-    if not isinstance(params.get('kinematics.calibrated_epoch'), int) or params['kinematics.calibrated_epoch'] < 0:
+    if require_confirmation and (not isinstance(params.get('kinematics.calibrated_epoch'), int)
+                                 or params['kinematics.calibrated_epoch'] < 0):
         raise ValueError('必须填写本次IMU世界对齐所对应的calibrated_epoch')
     if params.get('localization.base_pose_source') != 'odom': raise ValueError('实车不能使用mock底盘')
     if params.get('localization.origin_mode') != 'judge_replay_start': raise ValueError('实车原点必须来自replay_start')
