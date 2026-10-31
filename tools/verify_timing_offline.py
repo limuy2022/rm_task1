@@ -114,6 +114,7 @@ def map_node():
     app._origin_mode = str(app._params['localization.origin_mode'])
     app._history = PoseHistory(capacity=2000)
     app._frozen = False
+    app._clock_fault = False
     app._T_map_odom = None
     app._T_map_world = None
     app._origin_stamp = None

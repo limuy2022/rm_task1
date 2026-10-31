@@ -1,6 +1,6 @@
 # 工具入口
 
-比赛操作：先运行`bash tools/start_match.bash`，裁判给ID后运行`bash tools/set_target.bash ID`，确认跟踪后由裁判启动客户端。入口不等待人工确认或源地图；实际数值读取vehicle43.yaml。
+比赛操作：先运行`bash tools/start_match.bash`，裁判给ID后运行`bash tools/set_target.bash ID`，确认跟踪后由裁判启动客户端。入口不等待人工确认或源地图；默认读取已安装的 `team43_bringup/config/vehicle_field.yaml`。
 
 所有验证在根 `Dockerfile` 的 ROS 2 Humble 容器中运行，完整命令见
 [测试运行指南](../docs/教程/测试运行指南.md)。
@@ -12,6 +12,7 @@
 | 实机比赛一键启动 | `bash tools/start_match.bash target_id:=本轮ID`，见[比赛启动与收尾](../docs/教程/比赛启动与收尾.md)；实验室按[统一验证](../docs/教程/实验室统一验证.md)验收 |
 | NUC本队Livox驱动构建 | `bash tools/build_livox.bash`；网络配置用`ros2 run team43_bringup configure_livox`生成，见[整体部署](../docs/教程/整体部署.md#雷达驱动由谁启动) |
 | 全量离线核验 | `verify_all_offline.py`；标准流程先跑 `pytest src`，再加 `--skip-pytest` |
+| 比赛入口全链演练 | 容器内 `python3 -B tools/verify_match_workflow.py --count 1800 --output-dir build/offline/match_workflow_01`；真实启动脚本、Point-LIO、视觉、控制、CSV、地图与串口PTY，硬件驱动替换为无SDK进程 |
 | 独立集成仿真 | `run_simulation_ci.sh`：`navigation` / `submission` / `gazebo_lio` / `gazebo_vision` |
 | CSV 格式检查 / 对照真值评分 | `check_csv.py` / `score_csv.py` |
 | 云台闭环产物评分 | `score_bearing_sim.py` |

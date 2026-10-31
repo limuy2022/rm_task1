@@ -15,10 +15,5 @@ source /opt/ros/humble/setup.bash
 source "$TRACK_WS/.livox/env.bash"
 source "$TRACK_WS/install/local_setup.bash"
 export ROS_LOCALHOST_ONLY=1
-# 先让PnP等待，避免两节点切换期间处理排队的旧目标观测。
-ros2 param set --no-daemon /marker_pnp_node perception.target_digit -1
-ros2 param set --no-daemon /aruco_detector_node perception.target_digit "$TARGET_ID"
-ros2 param set --no-daemon /marker_pnp_node perception.target_digit "$TARGET_ID"
-ros2 param get --no-daemon /aruco_detector_node perception.target_digit
-ros2 param get --no-daemon /marker_pnp_node perception.target_digit
-printf '目标已设置为ID %s；确认画面和跟踪状态后通知裁判启动本轮客户端。\n' "$TARGET_ID"
+# 单一ROS参数客户端完成暂停、切换和读回，避免重复CLI图发现漏节点。
+exec python3 -B "$TRACK_WS/tools/set_target.py" "$TARGET_ID"

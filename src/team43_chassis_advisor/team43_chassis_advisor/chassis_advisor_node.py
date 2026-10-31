@@ -454,14 +454,14 @@ def main(args: Optional[list] = None) -> int:
     node = ChassisAdvisorNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:  # 操作者 Ctrl+C 正常停机，仍销毁节点与 ROS 上下文。
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):  # 正常停机仍执行收尾。
         pass
     finally:
         try:
             node.shutdown()
         finally:
             node.destroy_node()
-            rclpy.shutdown()
+            if rclpy.ok(): rclpy.shutdown()
     return 0
 
 

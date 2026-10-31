@@ -9,6 +9,7 @@ import copy
 import math
 import numpy as np
 import rclpy
+from rclpy.clock import JumpThreshold
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Header
@@ -51,6 +52,7 @@ class MapFrameBroadcasterNode:
             raise ValueError('origin_mode must be judge_replay_start or explicit base_init')
         self._history=PoseHistory(capacity=2000)
         self._frozen=False;self._T_map_odom=None;self._T_map_world=None
+        self._clock_fault=False
         self._origin_stamp=None;self._last_msg=None;self._last_published_stamp=None
         # 起点必须属于本处理进程启动后的轮次；旧锁存值不能占住本轮。
         self._replay_not_before=node.get_clock().now().nanoseconds*1e-9
@@ -66,10 +68,25 @@ class MapFrameBroadcasterNode:
             node.create_subscription(Header,'/gimbal/origin_freeze',self._on_origin_freeze,latched_qos())
             node.create_subscription(Header,'/judge/replay_start',self._on_origin_freeze,latched_qos())
         node.create_timer(1/max(1.,float(p['localization.base_pose_rate_hz'])),self._tick)
+        self._clock_jump=node.get_clock().create_jump_callback(
+            JumpThreshold(min_forward=None,min_backward=None,on_clock_change=True),
+            post_callback=self._on_clock_change)
         if p['localization.publish_world_odom']:
             self._log.warning('不发布world->odom：会与map->odom形成双父节点；对齐仅走内部话题')
 
+    def _on_clock_change(self,jump):
+        if not rclpy.ok():return
+        if self._origin_stamp is not None:
+            self._clock_fault=True
+            self._log.error('比赛起点确定后时钟源改变，停止发布；请重新启动本轮处理链')
+            return
+        # 启动阶段通过公开use_sim_time服务切换到/clock时，原系统时间门槛已失效。
+        self._replay_not_before=self._node.get_clock().now().nanoseconds*1e-9
+        self._history.clear();self._last_msg=None;self._t_first_valid=None
+        self._last_published_stamp=None
+
     def _on_base_pose(self,msg):
+        if self._clock_fault:return
         try:
             if (msg.header.frame_id != self._params['localization.output_frame_id']
                     or msg.child_frame_id != self._params['localization.base_frame_id']):
@@ -95,6 +112,7 @@ class MapFrameBroadcasterNode:
             throttled(self._log,'warning',f'底盘源拒绝: {exc}','base_invalid')
 
     def _on_origin_freeze(self,msg):
+        if self._clock_fault:return
         try:stamp=stamp_seconds(msg.stamp)
         # 坏的回放时间戳不能冻结比赛起点；拒绝该输入。
         except (TypeError,ValueError):return
@@ -140,6 +158,7 @@ class MapFrameBroadcasterNode:
             self._pub_t.publish(self._transform_message(self._T_map_world,'map','world'))
 
     def _tick(self):
+        if self._clock_fault:return
         self._try_freeze()
         if not self._frozen or self._last_msg is None:return
         src=self._last_msg;stamp=stamp_seconds(src.header.stamp)
@@ -161,7 +180,7 @@ class MapFrameBroadcasterNode:
         self._pub_pose.publish(msg);self._last_published_stamp=stamp
 
     @property
-    def frozen(self):return self._frozen
+    def frozen(self):return self._frozen and not self._clock_fault
     @property
     def T_map_world(self):return None if self._T_map_world is None else self._T_map_world.copy()
     def shutdown(self):self._log.info(f'比赛系frozen={self._frozen}，有效底盘样本={self._n_pose}')

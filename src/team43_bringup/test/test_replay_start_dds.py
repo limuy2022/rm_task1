@@ -89,3 +89,27 @@ def test_old_latched_start_then_explicit_start_in_either_topic_order(tmp_path, m
         if judge is not None: judge._writer.close()
         for node in reversed(nodes): node.destroy_node()
         rclpy.shutdown()
+
+
+def test_sim_clock_activation_refreshes_stale_origin_window_before_round():
+    """公开use_sim_time切换后，系统时钟的启动门槛不能拒绝本轮仿真起点。"""
+    from rclpy.parameter import Parameter
+    rclpy.init(args=['--ros-args','-r','/tf_static:=/test/replay_clock/tf_static',
+                    '-r','/gimbal/base_pose:=/test/replay_clock/base'])
+    node=rclpy.create_node('replay_clock_epoch_test')
+    try:
+        mapper=MapFrameBroadcasterNode(node)
+        assert mapper._replay_not_before>1.
+        result=node.set_parameters([Parameter('use_sim_time',value=True)])
+        assert all(r.successful for r in result)
+        assert mapper._replay_not_before==0.
+        pose=Odometry();pose.header.frame_id='odom';pose.child_frame_id='base_link'
+        pose.pose.pose.orientation.w=1.
+        mapper._on_base_pose(pose)
+        mapper._on_origin_freeze(Header())
+        assert mapper.frozen
+        # 已接受本轮起点后不能因切钟再选另一原点；停止发布，等待重启新轮。
+        node.set_parameters([Parameter('use_sim_time',value=False)])
+        assert mapper._clock_fault and not mapper.frozen
+    finally:
+        node.destroy_node();rclpy.shutdown()

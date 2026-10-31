@@ -152,7 +152,10 @@ def main(args=None):
     rclpy.init(args=args);node=TargetEstimatorNode()
     try:rclpy.spin(node)
     # Ctrl+C 是正常停机请求；finally 仍执行停止/关闭资源。
-    except KeyboardInterrupt:pass
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):pass
+    except Exception:
+        # SIGINT关闭context时，tf2py可能把中断翻译成类型错误；运行期异常仍抛出。
+        if rclpy.ok():raise
     finally:
         node.shutdown_summary();node.destroy_node()
         if rclpy.ok():rclpy.shutdown()

@@ -170,8 +170,9 @@ BridgeNode::~BridgeNode()
   if (reader_.joinable()) {reader_.join();}
   const auto shutdown_ns = steadyNowNs();
   if (cmd_sub_ && serial_.isOpen() && n_commands_.load() > 0 &&
-    shutdown_ns >= command_ready_ns_.load() && shutdown_ns - last_imu_ns_.load() <= 100000000) {
-    // 第 3.5 节：退出时补几帧零指令。固件即使一帧都没收到，也会在 500 ms 后减速。
+    shutdown_ns >= command_ready_ns_.load()) {
+    // 第 3.5 节：退出时补几帧零指令。退出可能晚于最后反馈100ms，
+    // 反馈过期只能阻止运动指令，不能阻止已经用过的桥补发零速。
     const auto zero = proto::encodeCmd(0.0f, 0.0f);
     for (int i = 0; i < 3; ++i) {serial_.writeAll(zero.data(), zero.size());}
   }

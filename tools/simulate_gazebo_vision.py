@@ -136,11 +136,13 @@ class GazeboVision(GazeboLio):
     def start(self):
         self.launch_ros('vision_detector', 'team43_perception', 'aruco_detector_node', {
             'perception.image_topic': NS+'/camera/image',
+            'perception.target_digit': 0, # 场景明确放置ID0，不能依赖待裁判的默认-1。
             'perception.marker_corners_topic': NS+'/vision/corners',
             'perception.detect_rate_hz': 20.,
         }, {})
         self.launch_ros('vision_pnp', 'team43_perception', 'marker_pnp_node', {
             'perception.marker_corners_topic': NS+'/vision/corners',
+            'perception.target_digit': 0,
             'perception.camera_info_topic': NS+'/camera/camera_info',
             'perception.camera_info_source': 'topic',
             'config.virtual_yaml': str(self.output/'camera.yaml'),

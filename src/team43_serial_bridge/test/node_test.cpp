@@ -255,7 +255,8 @@ struct FreshImuFeed
       std::this_thread::sleep_for(20ms);
     }
   }) {}
-  ~FreshImuFeed() {running = false; thread.join();}
+  void stop() {running = false; if (thread.joinable()) {thread.join();}}
+  ~FreshImuFeed() {stop();}
 };
 
 TEST(BridgeNode, NoCommandBeforeFirstImuOrOnUnusedShutdown)
@@ -320,6 +321,9 @@ TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
     EXPECT_EQ(got, std::vector<std::uint8_t>(zero.begin(), zero.end()));
     EXPECT_TRUE(pty.readAtLeast(1, 300ms).empty());
   }
+  // 整体Ctrl+C时反馈源会先停；反馈过期也必须补发3帧零速。
+  feed.stop();
+  std::this_thread::sleep_for(150ms);
   // 退出时补 3 帧零指令（第 3.5 节）
   bridge.reset();
   const auto tail = pty.readAtLeast(3 * proto::kCmdFrameLen, 2s);
