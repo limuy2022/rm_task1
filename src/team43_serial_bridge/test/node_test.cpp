@@ -292,16 +292,16 @@ TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
     ASSERT_TRUE(waitMatched(probe));
 
     geometry_msgs::msg::Twist t;
-    t.angular.z = 3.0;    // yaw
+    t.angular.z = 1.5;    // yaw（限幅 2.0 以内，限幅行为由专用用例覆盖）
     t.angular.y = -0.125; // pitch
     // 首帧后0.6秒内仍静默，确保已经接收过IMU再开始计等待窗口。
     ASSERT_TRUE(probe.waitImus(1, 3s));
     EXPECT_TRUE(pty.readAtLeast(1, 50ms).empty());
     std::this_thread::sleep_for(650ms);
     probe.cmd_pub->publish(t);
-    // yaw_sign = -1：线上 yaw_omega = -3.0；angular.y 对应 pitch
+    // yaw_sign = -1：线上 yaw_omega = -1.5；angular.y 对应 pitch
     auto got = pty.readAtLeast(proto::kCmdFrameLen, 3s);
-    const auto want = proto::encodeCmd(-3.0f, -0.125f);
+    const auto want = proto::encodeCmd(-1.5f, -0.125f);
     ASSERT_EQ(got.size(), proto::kCmdFrameLen);
     EXPECT_EQ(got, std::vector<std::uint8_t>(want.begin(), want.end()));
 
@@ -330,6 +330,72 @@ TEST(BridgeNode, CmdVelForwardedOneFramePerMessageNoKeepalive)
       std::vector<std::uint8_t>(tail.begin() + i * 14, tail.begin() + (i + 1) * 14),
       std::vector<std::uint8_t>(z.begin(), z.end()));
   }
+}
+
+TEST(BridgeNode, CmdVelClampedToOmegaMaxBeforeForwarding)
+{
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  auto bridge = std::make_shared<BridgeNode>(bridgeOptions(pty.slave, {
+    rclcpp::Parameter("subscribe_cmd_vel", true)}));
+  Probe probe("probe_clamp");
+  FreshImuFeed feed(pty);
+  {
+    Spinner sp;
+    sp.add(bridge);
+    sp.add(probe.node);
+    sp.start();
+    ASSERT_TRUE(waitMatched(probe));
+    ASSERT_TRUE(probe.waitImus(1, 3s));
+    std::this_thread::sleep_for(650ms);
+    geometry_msgs::msg::Twist t;
+    t.angular.z = 9.0;  // 超 2 rad/s：转发前必须截到默认限幅
+    t.angular.y = -9.0;
+    probe.cmd_pub->publish(t);
+    auto got = pty.readAtLeast(proto::kCmdFrameLen, 3s);
+    ASSERT_EQ(got.size(), proto::kCmdFrameLen);
+    const auto want = proto::encodeCmd(2.0f, -2.0f);
+    EXPECT_EQ(got, std::vector<std::uint8_t>(want.begin(), want.end()));
+    EXPECT_TRUE(pty.readAtLeast(1, 300ms).empty());
+  }
+  bridge.reset();
+  pty.readAtLeast(3 * proto::kCmdFrameLen, 2s);  // 退出补零指令，读空尾部
+}
+
+TEST(BridgeNode, OmegaMaxParameterClampsAndRejectsOutOfRange)
+{
+  Pty pty;
+  ASSERT_FALSE(pty.slave.empty());
+  auto bridge = std::make_shared<BridgeNode>(bridgeOptions(pty.slave, {
+    rclcpp::Parameter("subscribe_cmd_vel", true),
+    rclcpp::Parameter("omega_max", 0.5)}));
+  Probe probe("probe_clamp_custom");
+  FreshImuFeed feed(pty);
+  {
+    Spinner sp;
+    sp.add(bridge);
+    sp.add(probe.node);
+    sp.start();
+    ASSERT_TRUE(waitMatched(probe));
+    ASSERT_TRUE(probe.waitImus(1, 3s));
+    std::this_thread::sleep_for(650ms);
+    geometry_msgs::msg::Twist t;
+    t.angular.z = 3.0;  // 自定义限幅 0.5：截到 0.5，pitch 在限内原样通过
+    t.angular.y = 0.25;
+    probe.cmd_pub->publish(t);
+    auto got = pty.readAtLeast(proto::kCmdFrameLen, 3s);
+    ASSERT_EQ(got.size(), proto::kCmdFrameLen);
+    const auto want = proto::encodeCmd(0.5f, 0.25f);
+    EXPECT_EQ(got, std::vector<std::uint8_t>(want.begin(), want.end()));
+  }
+  bridge.reset();
+  pty.readAtLeast(3 * proto::kCmdFrameLen, 2s);
+  // 超出赛题硬上限 2 rad/s 的限幅配置在构造时即拒绝，不做静默截断。
+  Pty pty2;
+  EXPECT_THROW(
+    std::make_shared<BridgeNode>(bridgeOptions(pty2.slave, {
+      rclcpp::Parameter("omega_max", 3.0)})),
+    std::runtime_error);
 }
 
 TEST(BridgeNode, ImuTopicParameterOverridesDefault)

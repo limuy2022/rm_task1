@@ -3,6 +3,7 @@
 #include <glob.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -67,6 +68,22 @@ BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader co
   axis_sign_ = readAxisSign();
   yaw_sign_ = readSign("yaw_sign");
   pitch_sign_ = readSign("pitch_sign");
+  {
+    declare_parameter(
+      "omega_max", rclcpp::ParameterValue(2.0),
+      dynamicDescriptor("转发前对两轴角速度限幅（rad/s），须在 (0, 2] 内，与 Python 链一致"));
+    const rclcpp::Parameter p = get_parameter("omega_max");
+    double v = 2.0;
+    if (p.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+      v = static_cast<double>(p.as_int());
+    } else if (p.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+      v = p.as_double();
+    }
+    if (!std::isfinite(v) || v <= 0.0 || v > proto::kOmegaHardMax) {
+      throw std::runtime_error("omega_max 必须在 (0, 2] rad/s 内（赛题硬上限 2）");
+    }
+    omega_max_ = v;
+  }
 
   // 串口：显式参数 > RM_SIM_SERIAL > /dev/gimbal > 枚举。
   const char * env = std::getenv("RM_SIM_SERIAL");
@@ -279,12 +296,15 @@ void BridgeNode::onCmdVel(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
   const auto command_ns = steadyNowNs();
   if (n_imu_.load() == 0 || command_ns < command_ready_ns_.load() ||
     command_ns - last_imu_ns_.load() > 100000000) {return;}
-  const double y = yaw_sign_ * msg->angular.z;
-  const double p = pitch_sign_ * msg->angular.y;
-  if (!std::isfinite(y) || !std::isfinite(p)) {
+  const double y_raw = yaw_sign_ * msg->angular.z;
+  const double p_raw = pitch_sign_ * msg->angular.y;
+  if (!std::isfinite(y_raw) || !std::isfinite(p_raw)) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "cmd_vel_gimbal 含非有限值，已丢弃");
     return;
   }
+  // 转发前限幅：该话题一旦出现第二个发布者（teleop/调试工具），未限幅值会直达 MCU。
+  const double y = std::clamp(y_raw, -omega_max_, omega_max_);
+  const double p = std::clamp(p_raw, -omega_max_, omega_max_);
   const auto f = proto::encodeCmd(static_cast<float>(y), static_cast<float>(p));
   if (!std::isfinite(proto::readF32(&f[4])) || !std::isfinite(proto::readF32(&f[8]))) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "cmd_vel_gimbal 超出 float 范围，已丢弃");

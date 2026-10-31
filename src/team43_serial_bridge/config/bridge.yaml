@@ -29,5 +29,9 @@
     yaw_sign: 1
     pitch_sign: 1
 
+    # 转发前对两轴角速度限幅（rad/s），须在 (0, 2] 内；与 Python 链（CommandGate）一致，
+    # 防止 cmd_vel 话题上出现第二个发布者时未限幅值直达 MCU。
+    omega_max: 2.0
+
     # 超过这么多秒没有收到第一帧 0x01 时提示一次（只提示，不退出）。必须明显大于固件上电标定时间 N。
     imu_wait_warn_s: 15.0

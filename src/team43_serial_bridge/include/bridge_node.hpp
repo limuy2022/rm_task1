@@ -70,11 +70,12 @@ class BridgeNode : public rclcpp::Node {
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
     rclcpp::TimerBase::SharedPtr diag_timer_;
 
-    bool publish_tf_ = true;
-    std::string imu_topic_;
-    double yaw_sign_ = 1.0;
-    double pitch_sign_ = 1.0;
-    double imu_wait_warn_s_ = 15.0;
+  bool publish_tf_ = true;
+  std::string imu_topic_;
+  double yaw_sign_ = 1.0;
+  double pitch_sign_ = 1.0;
+  double omega_max_ = 2.0;
+  double imu_wait_warn_s_ = 15.0;
 
     std::thread reader_;
     std::atomic<bool> running_{false};

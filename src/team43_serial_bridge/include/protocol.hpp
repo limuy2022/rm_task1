@@ -33,6 +33,10 @@ constexpr double kQuatNormMin = 0.5;
 // 第 6.3 节：dt 大于 100 ms 视为断流。
 constexpr std::uint32_t kGapUs = 100000;
 
+// 赛题硬上限：两轴角速度不超过 2 rad/s。Python 链（protocol.encode_omega /
+// CommandGate）与 C++ 桥的下发限幅都以它为上界。
+constexpr double kOmegaHardMax = 2.0;
+
 // ---------------------------------------------------------------- 校验
 
 inline void calcVerify(const std::uint8_t *buf, std::size_t len,
