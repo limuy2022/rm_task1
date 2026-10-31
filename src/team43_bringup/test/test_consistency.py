@@ -61,7 +61,11 @@ OUR_PACKAGES = ('team43_grid_mapper', 'team43_chassis_advisor', 'team43_dataio',
 # 扫描工具
 # ---------------------------------------------------------------------------
 def _all_py() -> List[str]:
-    return sorted(glob.glob(os.path.join(SRC_DIR, '**', '*.py'), recursive=True))
+    # 排除 colcon 在 src/ 内误构建的产物（gitignore 不影响 rglob）：其中的
+    # 旧版本源码副本一旦混入语料，会造成与真实源码无关的假失败/假通过。
+    skipped = {'build', 'install', 'log', '__pycache__'}
+    return sorted(p for p in glob.glob(os.path.join(SRC_DIR, '**', '*.py'), recursive=True)
+                  if not (skipped & set(p.replace('\\', '/').split('/'))))
 
 
 def _non_test_py() -> List[str]:

@@ -18,3 +18,6 @@ outputs/
 .livox/
 
 /records/
+# start_match 的实机整参数与运行时生成目录（NUC 本地文件，不入库；锚定避免误伤 src/*/config）
+/vehicle43.yaml
+/config/

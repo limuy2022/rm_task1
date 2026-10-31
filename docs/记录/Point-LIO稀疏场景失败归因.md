@@ -158,6 +158,11 @@ RMSE5.87cm、最大14.29cm，目标有效时的坐标RMSE6.44cm。但正常窗�
 
 ## 6 复现方法
 
+> **注（2026-10-31）**：本节命令依赖当时独立工作区的 `point_lio` 与三个审计脚本
+> （`tools/audit_lio_recording.py`、`prepare_lio_diagnostics.py`、`replay_lio_diagnostics.py`），
+> 均已随后端迁移到 vendored `small_point_lio`（`src/team43_lio_backend`）而删除，
+> 下述流程不再可直接复跑，仅作为当时排查过程的历史记录。
+
 使用[联合仿真教程](../教程/Gazebo视觉定位联合仿真.md)的同一可选镜像与独立ROS域。
 在容器中先source ROS、`/opt/lio_sim/install/setup.bash`，构建并source自己的工作区。
 输出目录必须不存在；以下编号供新复现使用。
