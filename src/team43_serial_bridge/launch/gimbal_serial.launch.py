@@ -1,8 +1,8 @@
 """启动 team43_serial_bridge 串口桥。
 
-    ros2 launch team43_serial_bridge gimbal_serial.launch.py                         # 真机（/dev/gimbal）
+    ros2 launch team43_serial_bridge gimbal_serial.launch.py                         # 真机（默认 /dev/ttyUSB0）
     ros2 launch team43_serial_bridge gimbal_serial.launch.py port:=/tmp/ttyVGIMBAL   # 虚拟云台
-    RM_SIM_SERIAL=/tmp/ttyVGIMBAL ros2 launch team43_serial_bridge gimbal_serial.launch.py
+    RM_SIM_SERIAL=/tmp/ttyVGIMBAL ros2 launch team43_serial_bridge gimbal_serial.launch.py port:=auto
     ros2 launch team43_serial_bridge gimbal_serial.launch.py subscribe_cmd_vel:=true
 
 IMU 默认发布到 /red_standard_robot1/gimbal（赛题一要求，可用 imu_topic:= 覆盖）。

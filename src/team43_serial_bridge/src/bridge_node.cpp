@@ -57,7 +57,8 @@ rcl_interfaces::msg::ParameterDescriptor dynamicDescriptor(const std::string & t
 BridgeNode::BridgeNode(const rclcpp::NodeOptions & options, UartCounterReader counter_reader)
 : rclcpp::Node("robo_bridge", options), serial_(std::move(counter_reader))
 {
-  const std::string port_param = declare_parameter<std::string>("port", "auto");
+  // 本队实机固定 /dev/ttyUSB0；仿真/多适配器场景显式传 port:=auto 走枚举。
+  const std::string port_param = declare_parameter<std::string>("port", "/dev/ttyUSB0");
   publish_tf_ = declare_parameter<bool>("publish_tf", true);
   const bool sub_cmd = declare_parameter<bool>("subscribe_cmd_vel", false);
   imu_topic_ = declare_parameter<std::string>("imu_topic", "/red_standard_robot1/gimbal");

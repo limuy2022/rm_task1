@@ -50,7 +50,9 @@ NODE_NAME = 'vgimbal_bridge_node'
 _RX_MAX_READS_PER_TICK: int = 32
 
 PARAM_DEFAULTS = {
-    'serial.port': '/tmp/ttyVGIMBAL',
+    # 实机默认（与 tracker_defaults.yaml 一致）；仿真链由 vehicle_sim.yaml / sim.launch
+    # 显式覆盖为 /tmp/ttyVGIMBAL，裸跑仿真需自行传参。
+    'serial.port': '/dev/ttyUSB0',
     'serial.baud': 921600,
     'serial.exclusive': True,
     'serial.read_timeout_s': 0.01,

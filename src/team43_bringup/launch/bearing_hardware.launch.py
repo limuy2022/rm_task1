@@ -46,7 +46,7 @@
 =========================  =============================================
 vehicle_config              必填。实测整车参数；未测模板会被 load_vehicle_config 拒绝
 target_id                   -1=等待（默认）；官方 ID 0..49
-port                        默认 /dev/gimbal；本队机器用 /dev/ttyUSB0
+port                        默认 /dev/ttyUSB0（本队实机）
 camera_config               相机标定 yaml（默认 camera_team43.yaml）
 allow_command_subscription  false→true：C++ 串口桥开始订阅指令（轴向核对后才可开）
 control_enabled             false→true：适配器开始转发指令（低速首动前保持 false）

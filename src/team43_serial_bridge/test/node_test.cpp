@@ -463,9 +463,10 @@ TEST(BridgeNode, PortAutoUsesRmSimSerial)
   Pty pty;
   ASSERT_FALSE(pty.slave.empty());
   setenv("RM_SIM_SERIAL", pty.slave.c_str(), 1);
-  // port 参数为 auto（默认）：使用环境变量
+  // port 显式为 auto：使用环境变量（代码默认已改为本队实机 /dev/ttyUSB0）
   auto bridge = std::make_shared<BridgeNode>(
-    rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("imu_wait_warn_s", 60.0)}));
+    rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("imu_wait_warn_s", 60.0),
+                                               rclcpp::Parameter("port", "auto")}));
   Probe probe("probe_env");
   Spinner sp;
   sp.add(bridge);

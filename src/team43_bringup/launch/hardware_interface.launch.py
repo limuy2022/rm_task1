@@ -11,7 +11,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     bridge=os.path.join(get_package_share_directory('team43_serial_bridge'),'launch','gimbal_serial.launch.py')
     return LaunchDescription([
-        DeclareLaunchArgument('port',default_value='/dev/gimbal'),
+        DeclareLaunchArgument('port',default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('allow_command_subscription',default_value='false'),
         DeclareLaunchArgument('control_enabled',default_value='false',
                               description='适配器指令转发总开关；true 前必须完成 D5 检查单前置'),
