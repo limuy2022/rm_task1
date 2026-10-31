@@ -18,7 +18,7 @@ from std_msgs.msg import UInt64
 from team43_interfaces.msg import MarkerObservation, TargetState
 from team43_common import frames
 from team43_common.time_buffer import stamp_seconds
-from team43_common.log_utils import get_logger
+from team43_common.log_utils import get_logger, throttled
 from team43_common.qos_utils import latched_qos, sensor_qos
 from .ca_kalman import CAKalman
 from .observation_builder import ObservationBuilder
@@ -101,7 +101,13 @@ class TargetEstimatorNode(Node):
         remaining=[]
         for msg in self._pending:
             stamp=stamp_seconds(msg.header.stamp)
-            if current-stamp > self._tracker.max_delay or stamp-current > .01:
+            if stamp-current > .01:
+                # 图像戳领先本地钟多为跨机时钟偏移；拒收必须可见，否则整链"在跑但无观测"。
+                throttled(self._log,'warning',
+                    '观测stamp领先本地钟%.1fms被拒收(累计%d)；持续出现需检查与图像源的时钟同步'
+                    %((stamp-current)*1e3,self._n_rejected),'future_stamp')
+                self._n_rejected+=1;continue
+            if current-stamp > self._tracker.max_delay:
                 self._n_rejected+=1;continue
             try:
                 tf=self._tf_buffer.lookup_transform(self._frame,self._camera_frame,

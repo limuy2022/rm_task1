@@ -50,7 +50,9 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'perception.image_topic': '/image_raw',
     'perception.marker_corners_topic': '/perception/marker_corners',
     'perception.corners_frame_id': 'camera_optical_frame',
-    'perception.target_digit': 0,           # 赛前由主办方告知、需要瞄准的数字
+    # -1=等待裁判通知（tools/set_target.bash 设置）；权威默认在 tracker_defaults.yaml，
+    # 裸启节点也不能默认锁定并伺服某个码。
+    'perception.target_digit': -1,
     'perception.aruco_dict': 'DICT_4X4_50',
     'perception.detect_rate_hz': 30.0,      # 评分 10 Hz，30 Hz 足够
     'perception.do_subpix': True,           # 亚像素精化（降低 PnP 误差）

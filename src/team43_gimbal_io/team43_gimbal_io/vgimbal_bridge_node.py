@@ -414,9 +414,14 @@ class VgimbalBridgeNode:
         if cur == self._last_state:
             return
         if cur == FAULT_SILENT:
-            self._log.warning(f'链路故障：{self._last_state} -> {FAULT_SILENT} '
-                              f'（reason={self._lsm.last_fault_reason}），静默 '
-                              f'{self._params["serial.fault_silence_s"]}s')
+            if self._lsm.latched:
+                self._log.error(f'链路故障（锁存）：{self._last_state} -> {FAULT_SILENT} '
+                                f'（reason={self._lsm.last_fault_reason}）。'
+                                '越限/失控保护不自动恢复：需人工确认现场后重启节点')
+            else:
+                self._log.warning(f'链路故障：{self._last_state} -> {FAULT_SILENT} '
+                                  f'（reason={self._lsm.last_fault_reason}），静默 '
+                                  f'{self._params["serial.fault_silence_s"]}s')
         elif cur == ACTIVE and self._last_state in (FAULT_SILENT, IDLE):
             self._log.info(f'链路使能/恢复：{self._last_state} -> {ACTIVE}')
         elif cur == SHUTDOWN:

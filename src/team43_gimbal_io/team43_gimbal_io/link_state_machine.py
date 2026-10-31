@@ -6,9 +6,13 @@
     IDLE --> ACTIVE : 收到第一帧合法 0x01
     IDLE --> IDLE : 有指令请求也丢弃（首帧前不发任何帧）
     ACTIVE --> FAULT_SILENT : 故障（越界/失控/连续校验错/端口写失败）
-    FAULT_SILENT --> ACTIVE : 静默 >= fault_silence_s(0.6s)
+    FAULT_SILENT --> ACTIVE : 非锁存故障静默 >= fault_silence_s(0.6s)
+    FAULT_SILENT --> IDLE : 锁存故障经 clear_fault() 人工清除后，等首帧重新使能
     ACTIVE/FAULT_SILENT --> SHUTDOWN : 收到退出信号
     SHUTDOWN --> [*] : 连发 5 帧 (0,0) -> close()
+
+故障分级：越界/失控属"失控保护"，触发后**锁存**（tick 不再自动恢复，需人工
+clear_fault/重启节点）；连续坏帧/端口写失败属"传输故障"，静默期满自动恢复。
 
 | 状态 | 是否发 0x30 |
 |---|---|
@@ -92,6 +96,7 @@ class LinkStateMachine:
         self._runaway_since: Optional[float] = None
         self._bad_stamps: Deque[float] = deque()
         self._zero_frames_left: int = 0
+        self._latched: bool = False
 
     # ---------------------------------------------------------------- 状态查询
     @property
@@ -124,6 +129,11 @@ class LinkStateMachine:
         """最近一次故障原因。"""
         return self._last_fault_reason
 
+    @property
+    def latched(self) -> bool:
+        """当前故障是否已锁存（失控保护类，等待人工 clear_fault）。"""
+        return self._latched
+
     def time_in_state(self, t: Optional[float] = None) -> float:
         """在当前状态已停留的秒数。"""
         t = self._now() if t is None else float(t)
@@ -149,12 +159,14 @@ class LinkStateMachine:
             transitioned = True
         return transitioned
 
-    def on_fault(self, reason: str, t: Optional[float] = None) -> bool:
+    def on_fault(self, reason: str, t: Optional[float] = None, latch: bool = False) -> bool:
         """触发一次故障。
 
         Args:
             reason: 故障原因（日志必打 WARN）。
             t: 时刻。
+            latch: 是否锁存——锁存故障静默期满**不**自动恢复，需人工
+                :meth:`clear_fault` 后等首帧重新使能（失控保护类用）。
 
         Returns:
             bool: 是否真的发生了状态迁移。
@@ -164,19 +176,22 @@ class LinkStateMachine:
         self._last_fault_reason = str(reason)
         self._fault_log.append((t, str(reason)))
         self._runaway_since = None
+        if latch:
+            self._latched = True
         if self._state == ACTIVE:
             self._set_state(FAULT_SILENT, t)
             return True
         return False
 
     def tick(self, t: Optional[float] = None) -> bool:
-        """周期推进：处理 ``FAULT_SILENT -> ACTIVE`` 恢复。
+        """周期推进：非锁存故障 ``FAULT_SILENT -> ACTIVE`` 恢复。
 
         Returns:
             bool: 是否发生了状态迁移。
         """
         t = self._now() if t is None else float(t)
-        if self._state == FAULT_SILENT and (t - self._t_enter) >= self._fault_silence_s:
+        if (self._state == FAULT_SILENT and not self._latched
+                and (t - self._t_enter) >= self._fault_silence_s):
             self._set_state(ACTIVE, t)
             return True
         return False
@@ -251,9 +266,9 @@ class LinkStateMachine:
             return False
         m = self._limit_fault_margin
         if yaw < self._yaw_limits[0] - m or yaw > self._yaw_limits[1] + m:
-            return self.on_fault(f'yaw_out_of_range({yaw:.3f})', t)
+            return self.on_fault(f'yaw_out_of_range({yaw:.3f})', t, latch=True)
         if pitch < self._pitch_limits[0] - m or pitch > self._pitch_limits[1] + m:
-            return self.on_fault(f'pitch_out_of_range({pitch:.3f})', t)
+            return self.on_fault(f'pitch_out_of_range({pitch:.3f})', t, latch=True)
         return False
 
     def check_runaway(self, omega_imu_norm: float, omega_cmd_norm: float,
@@ -280,7 +295,8 @@ class LinkStateMachine:
             if (t - self._runaway_since) >= self._runaway_hold_s:
                 self._runaway_since = None
                 return self.on_fault(
-                    f'runaway(|w_imu|={float(omega_imu_norm):.3f} > {thresh:.3f})', t)
+                    f'runaway(|w_imu|={float(omega_imu_norm):.3f} > {thresh:.3f})', t,
+                    latch=True)
             return False
         self._runaway_since = None
         return False
@@ -311,6 +327,18 @@ class LinkStateMachine:
         """串口写入失败 → 故障。"""
         return self.on_fault('serial_write_failed', t)
 
+    def clear_fault(self) -> bool:
+        """人工清除锁存故障：回到 IDLE 等首帧重新使能。
+
+        Returns:
+            bool: 是否真的发生了状态迁移。
+        """
+        if self._state != FAULT_SILENT or not self._latched:
+            return False
+        self._latched = False
+        self._set_state(IDLE, self._now())
+        return True
+
     # ---------------------------------------------------------------- 内部
     def _set_state(self, state: str, t: float) -> None:
         self._state = state
@@ -325,3 +353,4 @@ class LinkStateMachine:
         self._runaway_since = None
         self._bad_stamps.clear()
         self._zero_frames_left = 0
+        self._latched = False

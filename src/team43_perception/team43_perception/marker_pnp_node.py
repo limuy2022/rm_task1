@@ -43,7 +43,9 @@ PARAM_DEFAULTS = {
     'perception.reproj_max_px': 2.0,
     'perception.depth_min': 0.05,
     'perception.depth_max': 30.0,
-    'perception.target_digit': 0,
+    # -1=等待裁判通知（tools/set_target.bash 设置）；权威默认在 tracker_defaults.yaml，
+    # 与 aruco_detector_node 的安全默认保持一致。
+    'perception.target_digit': -1,
     'perception.id_filter_mode': 'off',
     'perception.corner_noise_px': 0.5,
     'perception.k_lat_floor': 5.0e-4,

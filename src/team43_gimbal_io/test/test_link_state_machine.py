@@ -138,6 +138,44 @@ def test_fault_reason_recorded():
     assert lsm.fault_log()[0][1] == 'runaway'
 
 
+def test_latched_fault_does_not_auto_recover_until_cleared():
+    clk = FakeClock()
+    lsm = _make(clk, runaway_hold_s=0.2)
+    lsm.on_imu_frame()
+    # 从首次超阈值样本开始计持续时间；仅等待而没有超阈值观测不算失控。
+    assert lsm.check_runaway(3.0, 0.0) is False
+    clk.advance(0.3)
+    assert lsm.check_runaway(3.0, 0.0) is True
+    assert lsm.state == FAULT_SILENT and lsm.latched is True
+    clk.advance(1.0)
+    assert lsm.tick() is False
+    assert lsm.state == FAULT_SILENT and lsm.cmd_due() is False
+
+    # 人工清除 → IDLE，等首帧重新使能
+    assert lsm.clear_fault() is True
+    assert lsm.state == IDLE and lsm.latched is False
+    assert lsm.on_imu_frame() is True
+    assert lsm.state == ACTIVE and lsm.cmd_due() is True
+
+
+def test_limit_fault_latches_and_runaway_share_locking():
+    clk = FakeClock()
+    lsm = _make(clk, yaw_limits=(-2.8, 2.8), limit_fault_margin=0.10)
+    lsm.on_imu_frame()
+    assert lsm.check_limits(3.5, 0.0) is True
+    assert lsm.latched is True
+    clk.advance(5.0)
+    assert lsm.tick() is False
+    assert lsm.state == FAULT_SILENT
+    # 非锁存故障（如写失败）不受其它锁存故障影响：清除后仍按静默期自动恢复
+    lsm2 = _make(clk)
+    lsm2.on_imu_frame()
+    lsm2.on_fault('serial_write_failed')
+    assert lsm2.latched is False
+    clk.advance(0.7)
+    assert lsm2.tick() is True and lsm2.state == ACTIVE
+
+
 def test_fault_while_idle_does_not_disable_further():
     clk = FakeClock()
     lsm = _make(clk)
