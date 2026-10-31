@@ -149,7 +149,7 @@ class GazeboVision(GazeboLio):
         self.launch_ros('vision_base', 'team43_localization', 'base_pose_provider_node', {
             'localization.base_pose_source': 'odom',
             'localization.odom_topic': NS+'/lio/aft_mapped_to_init',
-            'localization.odom_frame_id': 'camera_init', 'localization.odom_child_frame_id': 'body',
+            'localization.odom_frame_id': 'lio_world', 'localization.odom_child_frame_id': 'body',
             'localization.sensor_in_base_xyz': BODY_IN_BASE.tolist(),
             'localization.sensor_extrinsics_confirmed': True,
             'localization.parent_transform_confirmed': True,

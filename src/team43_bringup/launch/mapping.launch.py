@@ -1,4 +1,8 @@
-"""`mapping.launch.py` — 赛前离线建图（**只起 `grid_mapper_node`**，DESIGN §3.13 / §7-T05）。
+"""`mapping.launch.py` — 默认按field.yaml生成离线/仿真栅格，只起grid_mapper_node。
+
+不启动雷达或LIO；topic模式也只是接收已有栅格。当前实机扫描建图入口为
+lio.launch.py + cloud_mapping.launch.py，再由processing转换比赛坐标。
+统一说明见docs/教程/底盘定位与点云建图.md。
 
 流程（PRD §3.6「赛前（离线）mapping」）：
 

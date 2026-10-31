@@ -13,6 +13,7 @@ import struct
 import subprocess
 import time
 import tty
+import yaml
 
 import rclpy
 from rclpy.node import Node
@@ -23,6 +24,7 @@ from sensor_msgs.msg import Image, Imu
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 from team43_interfaces.msg import MarkerObservation
+from ament_index_python.packages import get_package_share_directory
 
 from verify_perception_offline import CAMERA, render_marker
 
@@ -47,7 +49,10 @@ class Probe(Node):
         self.serial = bytearray()
         self.commands, self.twists, self.observations, self.statuses = [], [], [], []
         self.imu_count = 0
-        self.image = render_marker(3, (.12, .06, 2.))
+        # 实际launch读取安装的感知默认配置，合成码尺寸必须与之配套。
+        config = Path(get_package_share_directory('team43_perception'))/'config/tracker_defaults.yaml'
+        self.marker_size = float(yaml.safe_load(config.read_text())['/**']['ros__parameters']['perception.marker_size_m'])
+        self.image = render_marker(3, (.12, .06, 2.), marker_size_m=self.marker_size)
         # ROS消息对bytes逐元素校验；预建原生uint8数组，避免测试源自己阻塞IMU喂送。
         self.image_data = array('B', self.image.tobytes())
         self.image_pub = self.create_publisher(Image, '/image_raw', 10)
@@ -145,6 +150,7 @@ def main():
                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             rclpy.init()
             probe = Probe(master, launch)
+            report['marker_size_m'] = probe.marker_size
             probe.wait(lambda: probe.imu_count >= 10 and len(probe.statuses) >= 3
                        and sum(m.valid for m in probe.observations) >= 3)
             probe.run_for(.3)

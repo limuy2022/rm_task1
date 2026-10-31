@@ -27,7 +27,7 @@ from team43_grid_mapper.grid_builder import FREE, UNKNOWN, OCCUPIED
 from team43_grid_mapper.pgm_io import write_map, read_grid, read_pgm
 
 
-def cloud(points,stamp=100.,frame='camera_init',endian='<',rows=1,padding=12):
+def cloud(points,stamp=100.,frame='lio_world',endian='<',rows=1,padding=12):
     points=np.asarray(points,dtype=float).reshape(-1,3)
     assert len(points)%rows==0
     w=len(points)//rows; point_step=32; row_step=w*point_step+padding
@@ -76,13 +76,15 @@ def pose_checks():
     h=PoseHistory(sensor_origin_in_body=offset)
     # Non-yaw-only rotation checks that offset is transformed with full pose.
     a=.7; q=[math.sin(a/2),0.,0.,math.cos(a/2)]; p=np.array([1.,2.,3.])
-    h.add(100.,'camera_init','body',p,q)
+    h.add(100.,'lio_world','body',p,q)
     assert np.allclose(h.origin(100.),p+rotation_xyzw(q)@np.array(offset))
     assert h.origin(100.1) is None
-    assert_raises(lambda:h.add(100.,'camera_init','body',p,q))
+    assert_raises(lambda:h.add(100.,'lio_world','body',p,q))
     assert_raises(lambda:h.add(101.,'map','body',p,q))
-    assert_raises(lambda:h.add(101.,'camera_init','aft_mapped',p,q))
-    assert_raises(lambda:h.add(101.,'camera_init','body',p,[0.,0.,0.,0.]))
+    # 升级后不接受旧世界系混入新默认流，避免只改一半配置时默默错接。
+    assert_raises(lambda:h.add(101.,'camera_init','body',p,q))
+    assert_raises(lambda:h.add(101.,'lio_world','aft_mapped',p,q))
+    assert_raises(lambda:h.add(101.,'lio_world','body',p,[0.,0.,0.,0.]))
     return {'offset_read_from_lio_config':offset,'full_rotation_checked':True,
             'out_of_order_frame_child_invalid_q_rejected':True}
 
@@ -152,7 +154,7 @@ def room_check(tmp):
         theta=2*math.pi*k/120; yaw=theta+.3
         p=np.array([.35+.7*math.cos(theta),.4+.55*math.sin(theta),.8])
         q=[0.,0.,math.sin(yaw/2),math.cos(yaw/2)]
-        h.add(100.+k*.1,'camera_init','body',p,q)
+        h.add(100.+k*.1,'lio_world','body',p,q)
         origin=h.origin(100.+k*.1)
         world=ray_room(origin,yaw,with_person=k<30)
         rot=rotation_xyzw(q)
@@ -231,17 +233,17 @@ def ros_adapter_check(tmp):
     n.origin_model_confirmed=True;n.parameters['floor_confirmed']=True;n.parameters['floor_z']=-.78;n.output=str(tmp/'adapter')
     # Actual Odometry adapter fields, no sensor origin approximations.
     p=NS(x=0.,y=0.,z=.8);q=NS(x=0.,y=0.,z=0.,w=1.)
-    odom=NS(header=NS(frame_id='camera_init',stamp=NS(sec=100,nanosec=0)),child_frame_id='body',pose=NS(pose=NS(position=p,orientation=q)))
+    odom=NS(header=NS(frame_id='lio_world',stamp=NS(sec=100,nanosec=0)),child_frame_id='body',pose=NS(pose=NS(position=p,orientation=q)))
     n.on_cloud(cloud([[2.,0.,.6]])); assert not n.mapper.accepted_scans
     n.on_odom(odom); assert n.mapper.accepted_scans==1
     n.publish(); saved=n.save()
     assert Path(saved,'43_slam_map.pgm').is_file()
     map_msg=n.pubs['/team43/slam_map'].messages[-1]
-    assert map_msg.header.frame_id=='camera_init' and len(map_msg.data)==400*400
+    assert map_msg.header.frame_id=='lio_world' and len(map_msg.data)==400*400
     assert map_msg.info.origin.orientation.w==1.
     assert map_msg.info.origin.position.z==-.78
     saved_meta=yaml.safe_load(Path(saved,'43_slam_map.yaml').read_text())
-    assert saved_meta['frame_id']=='camera_init'
+    assert saved_meta['frame_id']=='lio_world'
     assert saved_meta['floor_z']==-.78
     assert saved_meta['origin']==[-10.,-10.,0.] # standard origin[2] remains yaw
     # Real adapter must not save an initial no-evidence map or renew an old one.
@@ -270,7 +272,7 @@ def ros_adapter_check(tmp):
     # Refuse changing floor mid-run rather than mixing two incompatible maps.
     n.parameters['floor_z']=.1;n.process_pending();assert n.rejected==rejected+5
     return {'actual_adapter_class_executed':True,'cloud_before_pose_pairing':True,
-            'frame_stale_future_order_rejected':True,'saved_frame_camera_init':True,'nonzero_floor_z_ros_and_yaml_preserved':True,
+            'frame_stale_future_order_rejected':True,'saved_frame_lio_world':True,'nonzero_floor_z_ros_and_yaml_preserved':True,
             'empty_filtered_clouds_neither_save_nor_refresh':True}
 
 

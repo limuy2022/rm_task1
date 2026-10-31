@@ -50,7 +50,7 @@ def read_calibration(path: Path) -> dict:
             'projection_matrix_present': 'projection_matrix' in data}
 
 
-def compare(paths: list[Path], corners=None, marker_size=.10) -> dict:
+def compare(paths: list[Path], corners=None, marker_size=.075) -> dict:
     cameras = [read_calibration(p) for p in paths]
     if len(cameras) != 2:
         raise ValueError('exactly two calibrations required')
@@ -75,7 +75,7 @@ def main(argv=None):
     parser.add_argument('first', type=Path)
     parser.add_argument('second', type=Path)
     parser.add_argument('--corners-json', type=Path)
-    parser.add_argument('--marker-size', type=float, default=.10)
+    parser.add_argument('--marker-size', type=float, default=.075)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
     corners = json.loads(args.corners_json.read_text()) if args.corners_json else None

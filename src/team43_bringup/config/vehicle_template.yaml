@@ -13,7 +13,7 @@
     use_sim_time: false
     localization.base_pose_source: odom
     localization.odom_topic: /red_standard_robot1/aft_mapped_to_init
-    localization.odom_frame_id: camera_init
+    localization.odom_frame_id: lio_world
     localization.odom_child_frame_id: body
     localization.output_frame_id: odom
     localization.base_frame_id: base_link
@@ -21,7 +21,7 @@
     localization.sensor_in_base_xyz: [0.0, 0.0, 0.0] # T_base<-PointLIO body/IMU，不是雷达外壳
     localization.sensor_in_base_rpy: [0.0, 0.0, 0.0]
     localization.parent_transform_confirmed: false
-    localization.source_parent_in_output_xyz: [0.0, 0.0, 0.0] # T_odom<-camera_init；同轴同原点可按定义设identity，不是传感器测量
+    localization.source_parent_in_output_xyz: [0.0, 0.0, 0.0] # T_odom<-lio_world；同轴同原点可按定义设identity，不是传感器测量
     localization.source_parent_in_output_rpy: [0.0, 0.0, 0.0]
     localization.odom_twist_source: pose_difference # 本版本Point-LIO未填twist
     localization.publish_base_tf: true
@@ -51,7 +51,7 @@
     perception.corners_frame_id: camera_optical_frame
     perception.marker_corners_topic: /perception/marker_corners
     perception.camera_info_source: yaml
-    perception.marker_size_m: 0.10
+    perception.marker_size_m: 0.075 # 实码黑框外边长7.5cm，不含白边
     perception.aruco_dict: DICT_4X4_50
     perception.target_digit: -1
     estimation.geometry_confirmed: false
@@ -62,7 +62,7 @@
     control.search_enabled: false
     grid.map_source: topic
     grid.map_topic: /team43/slam_map # 自有SLAM或map_server，勿订阅保护话题
-    grid.source_frame: camera_init # cloud_mapping真实输出，不改标签冒充比赛map
+    grid.source_frame: lio_world # cloud_mapping真实输出，不改标签冒充比赛map
     grid.output_frame: map
     grid.output_basename: 43_map
     grid.out_dir: maps # 与judge.output_dir分开，避免两个写出器写同一文件

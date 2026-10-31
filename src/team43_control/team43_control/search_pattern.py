@@ -25,8 +25,6 @@
 ``camera.width`` / ``camera.fx``）。正确用法是由调用方（``gimbal_controller_node``）
 读 YAML 后算出 ``half_fov = atan(width/2 / fx)``，通过 ``half_fov_rad`` 形参注入。
 本模块只保留一个**保守兜底值** :data:`DEFAULT_HALF_FOV_RAD`，仅在未注入时使用；此时为零，不能猜测相机视场。
-
-纯 Python 实现，**不依赖 ROS**，可直接单测。
 """
 
 from __future__ import annotations

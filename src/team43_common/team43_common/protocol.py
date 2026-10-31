@@ -13,8 +13,6 @@
 ⚠ ``calc_verify`` 中 ``sum_sum`` 累加的是**更新后的 sum**，不是原始字节（最易写错处）。
 ⚠ ``0.00718260498046875`` / ``0.00106526443603169529841533860381`` / ``32760.0``
    只允许在本文件（与 ``virtual.yaml``）出现。
-
-本模块只依赖 numpy / struct / math，不依赖 ROS，可在无 ROS 环境下单测。
 """
 
 from __future__ import annotations
@@ -27,9 +25,6 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 
-# --------------------------------------------------------------------------------------
-# 常量
-# --------------------------------------------------------------------------------------
 HEAD: int = 0xAA
 ADDR_PC2MCU: int = 0xEE
 ADDR_MCU2PC: int = 0xFF

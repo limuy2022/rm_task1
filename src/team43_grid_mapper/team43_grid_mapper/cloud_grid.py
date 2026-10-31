@@ -73,7 +73,7 @@ class PoseSample:
 
 class PoseHistory:
     """Bounded matching of cloud stamps to full body poses, never latest-only."""
-    def __init__(self, frame='camera_init', child='body', max_delta=0.04,
+    def __init__(self, frame='lio_world', child='body', max_delta=0.04,
                  sensor_origin_in_body=None):
         self.frame, self.child, self.max_delta = str(frame), str(child), float(max_delta)
         if sensor_origin_in_body is None:

@@ -14,7 +14,7 @@ class Backend : public rclcpp::Node {
   Backend() : Node("team43_small_point_lio") {
     const auto lidar = declare_parameter<std::string>("lidar_topic", "/livox/lidar");
     const auto imu = declare_parameter<std::string>("imu_topic", "/livox/imu");
-    world_ = declare_parameter<std::string>("world_frame", "camera_init");
+    world_ = declare_parameter<std::string>("world_frame", "lio_world");
     body_ = declare_parameter<std::string>("body_frame", "body");
     const auto depth = declare_parameter<int>("sensor_qos_depth", 200);
     if (depth < 1 || depth > 8192) throw std::invalid_argument("接收队列须为1至8192");

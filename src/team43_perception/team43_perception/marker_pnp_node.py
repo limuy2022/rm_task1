@@ -38,7 +38,7 @@ from .pnp_solver import PnpSolver
 NODE_NAME = 'marker_pnp_node'
 
 PARAM_DEFAULTS = {
-    'perception.marker_size_m': 0.10,
+    'perception.marker_size_m': 0.075,
     'perception.camera_info_source': 'yaml',
     'perception.reproj_max_px': 2.0,
     'perception.depth_min': 0.05,

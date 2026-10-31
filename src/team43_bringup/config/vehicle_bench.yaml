@@ -29,7 +29,7 @@
     # ---- 感知 ----
     perception.image_topic: /image_raw        # 官方相机发布者
     perception.camera_info_source: yaml       # 台架用本队标定文件
-    perception.marker_size_m: 0.10            # 与打印实码边长一致
+    perception.marker_size_m: 0.075            # 与打印实码边长一致
     perception.target_digit: 0                # launch 的 target_id 覆盖
 
     # ---- 轴承闭环：开关由 launch 参数传入，默认全关 ----

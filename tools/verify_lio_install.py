@@ -108,8 +108,8 @@ def main():
         checks = {
             'odometry_received': len(poses) >= 20,
             'cloud_received': len(clouds) >= 10,
-            'body_frame': bool(poses) and all(p.header.frame_id == 'camera_init' and p.child_frame_id == 'body' for p in poses),
-            'cloud_world_frame': bool(clouds) and all(c.header.frame_id == 'camera_init' and c.width > 0 for c in clouds),
+            'body_frame': bool(poses) and all(p.header.frame_id == 'lio_world' and p.child_frame_id == 'body' for p in poses),
+            'cloud_world_frame': bool(clouds) and all(c.header.frame_id == 'lio_world' and c.width > 0 for c in clouds),
             'finite_static_body_pose': bool(poses) and all(math.isfinite(v) and abs(v) < .05 for p in poses
                 for v in (p.pose.pose.position.x, p.pose.pose.position.y, p.pose.pose.position.z)),
             'timestamps_increase': len(stamps) > 1 and all(b > a for a, b in zip(stamps, stamps[1:])),

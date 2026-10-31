@@ -15,8 +15,6 @@
 
 时钟（主理人拍板 1，混合时钟）：`header.stamp` 用 ROS 系统时钟；
 **所有采样时刻、定时器 dt、统计时间轴一律用 `team43_common.time_utils.now()`**。
-
-本文件依赖 rclpy；离线检查不能替代 Ubuntu 22.04 + ROS2 Humble 通信验证。
 """
 
 from __future__ import annotations
@@ -48,9 +46,6 @@ from team43_common.time_utils import now
 
 from team43_debug import metrics as M
 
-# ---------------------------------------------------------------------------
-# 常量
-# ---------------------------------------------------------------------------
 NODE_NAME = 'gt_error_monitor_node'
 
 # ⚠ GT 真值话题字面量：**全工程仅此一处**（DESIGN §8.7 / T-C8）

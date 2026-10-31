@@ -1,17 +1,19 @@
 # Gazebo 雷达、IMU 与 Small Point-LIO 仿真
 
+本页是从仿真原始雷达/IMU运行实际LIO的开发验收；实机操作及源图/比赛图的区别统一见[底盘定位与点云建图](底盘定位与点云建图.md)。
+
 链路：Gazebo Fortress三维雷达和IMU → Livox消息 → Small Point-LIO原始核心
 → 世界系点云、IMU body位姿 → 生产建图节点。真值只用于评价，不输入定位算法。
 
 仿真默认使用 `--lidar-format pointcloud2`，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
 后端默认 `--backend-format auto` 自动识别并走 PointCloud2 接收路径；报告记录输入 `lidar_format` 与后端 `backend_format`。
-需要对比旧输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
+测试CustomMsg输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
 
 ## 1 算法与环境
 
 普通包 `src/team43_lio_backend` 直接包含 Small Point-LIO ROS 2 提交
 `131fb586dc609521e7acf11a9c833121b2d49141`，直接编译未修改的核心，项目接口
-负责消息、固定外参和入口审核。没有旧算法、补丁、回退目标或模式兼容分支。
+负责消息、固定外参和入口审核。
 来源和许可证见[接口说明](../../src/team43_lio_backend/README.md)及
 [迁移验证记录](../记录/SmallPointLIO迁移验证.md)。
 

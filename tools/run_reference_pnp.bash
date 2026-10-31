@@ -19,5 +19,5 @@ exec ros2 run team43_perception marker_pnp_node --ros-args \
     -p perception.marker_corners_topic:=/team43_check/marker_corners \
     -p perception.camera_info_topic:=/team43_check/reference/camera_info_unused \
     -p perception.camera_info_source:=yaml \
-    -p perception.marker_size_m:=0.10 \
+    -p perception.marker_size_m:=0.075 \
     -p perception.reproj_max_px:=2.0

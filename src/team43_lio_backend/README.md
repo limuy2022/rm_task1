@@ -1,5 +1,7 @@
 # Small Point-LIO 定位包
 
+实机完整链与源地图/比赛地图的关系统一见[底盘定位与点云建图](../../docs/教程/底盘定位与点云建图.md)。本页仅说明LIO接收与算法接口。
+
 这是普通的ROS 2 Humble包。Small Point-LIO的固定版本源码直接包含在
 `vendor/small_point_lio/`，来源与提交号见 `upstream.json`，原始MIT许可证保留。
 CMake直接编译算法核心和本包的ROS接口，不需要下载、解压或安装到固定目录。
@@ -52,7 +54,7 @@ PointCloud2 按 [Livox 官方发布实现](https://github.com/Livox-SDK/livox_ro
 非有限坐标/时间与无效回波跳过，不以帧时间替代缺失的逐点时间。强度和线号不参与当前定位。
 
 两种输入共用固定外参将点统一到IMU坐标系，
-核心使用单位外参，避免重复变换。输出为 `camera_init → body` 的IMU位姿和世界系
+核心使用单位外参，避免重复变换。输出为 `lio_world → body` 的IMU位姿和世界系
 点云；body不是底盘中心。核心源码保持原样，不依赖Gazebo。
 
 ## 接收与回归测试

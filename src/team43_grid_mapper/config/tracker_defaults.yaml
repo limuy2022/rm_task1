@@ -7,11 +7,12 @@
     grid.height_m: 12.0
     grid.origin_xyz: [-6.0, -6.0, 0.0]
     grid.inflation_radius_m: 0.10
-    # 官方要求"参赛队伍自行对比赛场地建图"→ 实机用导航栈 SLAM 的 /map 作为输入，
-    # 由team43_grid_mapper保留输入分辨率/尺寸并换算原点，另生成膨胀图。
-    # 仿真/离线回放时才切回 config（按 field.yaml 造一张假场地）。
+    # 本节点接入已经生成的地图，保留格子/分辨率并换算原点，另生成膨胀图。
+    # 当前实机vehicle43覆盖map_topic为/team43/slam_map，来源是本队cloud_mapping；
+    # 下面/map保留为基础默认，不能据此认为本节点会运行雷达SLAM。
+    # config只用于按field.yaml生成离线/仿真场地。
     grid.map_source: topic              # topic（实机）| config（仿真）
-    grid.map_topic: /map                # map_source=topic 时订阅（导航栈 SLAM 输出）
+    grid.map_topic: /map                # 基础默认；当前实机整车配置覆盖为/team43/slam_map
     grid.field_yaml: ""                 # 空 = 由 launch 显式注入绝对路径（推荐）；
                                         # 仅当留空且未经 launch 时，节点才回退到自动定位
     grid.out_dir: maps                  # 地图产物目录（赛前建图与收尾复写都用它）

@@ -93,19 +93,20 @@ def drain_created_nodes():
             pass
 
 
-def project(translation, rotation=None):
+def project(translation, rotation=None, marker_size_m=.10):
     # Front of the printed marker faces the camera; marker y is up.
     rotation = rpy_to_R(math.pi, 0., 0.) if rotation is None else rotation
     rvec, _ = cv2.Rodrigues(rotation)
-    corners, _ = cv2.projectPoints(OBJECT, rvec, np.array(translation, dtype=float), K, D)
+    corners, _ = cv2.projectPoints(marker_object_points(marker_size_m), rvec,
+                                  np.array(translation, dtype=float), K, D)
     return corners.reshape(4, 2)
 
 
-def render_marker(marker_id=3, translation=(0., 0., 2.), rotation=None):
+def render_marker(marker_id=3, translation=(0., 0., 2.), rotation=None, marker_size_m=.10):
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     marker = cv2.aruco.drawMarker(dictionary, marker_id, 256)
     source = np.array([[0., 0.], [255., 0.], [255., 255.], [0., 255.]], np.float32)
-    destination = project(translation, rotation).astype(np.float32)
+    destination = project(translation, rotation, marker_size_m).astype(np.float32)
     warp = cv2.getPerspectiveTransform(source, destination)
     return cv2.warpPerspective(marker, warp, (1440, 1080), flags=cv2.INTER_NEAREST,
                                borderValue=255)
@@ -134,6 +135,8 @@ def pipeline(target=3):
     node = NU.create_node(fresh_node_name(pnp_module.NODE_NAME),
                           parameter_overrides=[
                               Parameter('perception.target_digit', Parameter.Type.INTEGER, int(target)),
+                              # 本核验渲染的是10cm合成码，显式覆盖实码默认尺寸。
+                              Parameter('perception.marker_size_m', Parameter.Type.DOUBLE, .10),
                               Parameter('config.virtual_yaml', Parameter.Type.STRING, str(CAMERA_PATH))])
     CREATED_NODES.append(node)
     pnp = pnp_module.MarkerPnpNode(node)

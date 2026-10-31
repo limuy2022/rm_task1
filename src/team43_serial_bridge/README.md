@@ -16,8 +16,6 @@
 ros2 launch team43_serial_bridge gimbal_serial.launch.py
 # 虚拟云台
 ros2 launch team43_serial_bridge gimbal_serial.launch.py port:=/tmp/ttyVGIMBAL
-# 兼容旧脚本的环境变量写法
-RM_SIM_SERIAL=/tmp/ttyVGIMBAL ros2 launch team43_serial_bridge gimbal_serial.launch.py
 # 打开 cmd_vel_gimbal 转发
 ros2 launch team43_serial_bridge gimbal_serial.launch.py subscribe_cmd_vel:=true
 ```
@@ -81,14 +79,12 @@ PTY 或驱动不支持该 ioctl 时只输出一次 INFO，继续串口收发；�
 
 原包里的驱动发布 `/image_raw`（`sensor_msgs/Image`，rgb8）和 `/camera_info`，`frame_id` 固定为 `camera_optical_frame`，与 `gimbal_edu_description` 一致。只枚举 USB 相机，打开枚举到的第一台。
 
-### 为什么改用系统 SDK
+### SDK 加载方式
 
-原来的驱动把 SDK 的 `.so` 放在包里，还装进 `install/lib`，那个目录在 ROS 的 `LD_LIBRARY_PATH` 上，会遮住系统里的 SDK。相机固件升级、需要新 SDK 时，就得手工替换包里的库再重新编译。现在：
-
-- 包里没有任何海康的头文件和 `.so`，固件升级后只需要重装新版 MVS 的 deb。
-- MVS 的库 SONAME 不带版本号（`libMvCameraControl.so`），组件库 `libgimbal_serial_hik_camera.so` 里记的 NEEDED 就是这个名字（`hik_camera_node` 可执行文件本身不链接 SDK），RUNPATH 指向稳定路径 `/opt/MVS/lib/64`。所以重装 MVS 之后，不重新编译也会加载新库。
-- 新版 SDK 的头文件可能有变化，建议升级 MVS 后重新编译一次。
-- 只链接 `libMvCameraControl.so`，`libMvUsb3vTL.so` 等其他库由 SDK 自己加载，不需要设 `LD_LIBRARY_PATH`。
+相机驱动使用系统安装的 MVS SDK，包内不存放海康头文件和 `.so`。
+组件库 `libgimbal_serial_hik_camera.so` 链接 `libMvCameraControl.so`，
+RUNPATH 指向 `/opt/MVS/lib/64`；`libMvUsb3vTL.so` 等其他库由 SDK 自己加载，
+不需要设置 `LD_LIBRARY_PATH`。
 
 ### 安装
 

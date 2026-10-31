@@ -133,7 +133,7 @@ class Simulation(Node):
         self.create_subscription(OccupancyGrid, PREFIX+'/map', self.on_final_map, latched_qos())
         self.save_client = self.create_client(Trigger, PREFIX+'/save_map')
         self.floor_client = self.create_client(SetParameters, PREFIX+'/cloud_mapper/set_parameters')
-        # 合成 camera_init 与 odom 约定同轴同原点；真实安装值不能照搬。
+        # 合成 lio_world 与 odom 约定同轴同原点；真实安装值不能照搬。
         self.tf = StaticTransformBroadcaster(self, qos=latched_qos())
         cfg = yaml.safe_load((ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())
         self.lidar_offset = np.array(cfg['/**']['ros__parameters']['extrinsic_T'])
@@ -199,7 +199,7 @@ class Simulation(Node):
             mount[0] += 0.25
         self.launch('team43_localization', 'base_pose_provider_node', 'base_provider', {
             'localization.base_pose_source': 'odom', 'localization.odom_topic': PREFIX+'/lio_odom',
-            'localization.odom_frame_id': 'camera_init', 'localization.odom_child_frame_id': 'body',
+            'localization.odom_frame_id': 'lio_world', 'localization.odom_child_frame_id': 'body',
             'localization.sensor_in_base_xyz': mount.tolist(), 'localization.sensor_in_base_rpy': MOUNT_RPY,
             'localization.sensor_extrinsics_confirmed': True, 'localization.parent_transform_confirmed': True,
             'localization.odom_twist_source': 'pose_difference',
@@ -210,7 +210,7 @@ class Simulation(Node):
             '/gimbal/t_map_world': PREFIX+'/t_map_world'})
         self.launch('team43_grid_mapper', 'grid_mapper_node', 'map_exporter', {
             'grid.map_source': 'topic', 'grid.map_topic': PREFIX+'/source_map',
-            'grid.source_frame': 'camera_init', 'grid.out_dir': str(self.output/'competition'),
+            'grid.source_frame': 'lio_world', 'grid.out_dir': str(self.output/'competition'),
             'grid.output_basename': '43_map', 'grid.write_preview_png': False,
         }, {'/map/grid': PREFIX+'/map', '/map/ray_grid': PREFIX+'/ray_map'})
         # 生产节点工厂显式默认系统时钟；在独立仿真域通过公开参数服务切换，
@@ -228,7 +228,7 @@ class Simulation(Node):
                       '生产节点 DDS 发现')
         self.advance(0.1)
         tf = TransformStamped()
-        tf.header.frame_id, tf.child_frame_id = 'odom', 'camera_init'
+        tf.header.frame_id, tf.child_frame_id = 'odom', 'lio_world'
         tf.transform.rotation.w = 1.
         self.tf.sendTransform(tf)
         self.wait_for(lambda: self.save_client.service_is_ready() and self.floor_client.service_is_ready(), '建图服务')
@@ -241,7 +241,7 @@ class Simulation(Node):
         q = multiply_quaternion(quaternion(rpy), quaternion(MOUNT_RPY))
         msg = Odometry()
         set_stamp(msg.header.stamp, stamp)
-        msg.header.frame_id, msg.child_frame_id = 'camera_init', 'body'
+        msg.header.frame_id, msg.child_frame_id = 'lio_world', 'body'
         msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z = map(float, body_position)
         msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = map(float, q)
         origin = body_position+body_rotation@self.lidar_offset

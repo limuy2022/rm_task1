@@ -1,28 +1,18 @@
-"""grid_mapper_node：启动即建图落盘，并发布 `/map/grid` 与 `/map/ray_grid`（均锁存）。
+"""接入地图、换算栅格原点/朝向、导出并发布比赛地图。
 
-对应 DESIGN §3.10 / §6.11 / §6.14。
+地图来源由 grid.map_source 决定：
+- config：按显式给出的 field.yaml 栅格化，供离线/仿真使用。
+- topic：接收已生成的 OccupancyGrid；当前实机 vehicle43 配置订阅
+  /team43/slam_map（lio_world），按对应时刻 TF 转到 map。
 
-话题（§4.3）：
+本节点不处理原始雷达点、不运行 LIO，也不重新扫描场地。topic 模式保留
+源格子、分辨率和时间，换算地图 origin 的平移/平面 yaw；不能只改 frame 标签。
+TF 尚未就绪时保留最新地图等待重试。发布 /map/grid（未膨胀）及
+/map/ray_grid（膨胀，供建议方向使用），均为 TRANSIENT_LOCAL。
 
-| 话题 | 类型 | QoS |
-|---|---|---|
-| `/map/grid` | `nav_msgs/OccupancyGrid`（干净三态） | TRANSIENT_LOCAL, depth=1 |
-| `/map/ray_grid` | `nav_msgs/OccupancyGrid`（含膨胀，供避障） | TRANSIENT_LOCAL, depth=1 |
-
-两种地图来源（`grid.map_source`）：
-
-* `config`：读 `field.yaml` 栅格化（12×12 m @ 0.05 m/cell，给定点居中）——赛前离线建图/仿真。
-* `topic`：订阅自己的 SLAM `/map`（`pb2025_sentry_nav` 的 slam_toolbox 地图生产链），
-  **原样采用其 resolution/origin**，只额外按 `grid.inflation_radius_m` 生成 `ray_grid`。
-
-⚠ 写 `map.yaml` 的 origin 一律取**栅格自身**的 `origin_xy`（见 `resolve_map_origin`），
-不套 `grid.origin_xyz`——否则 topic 模式下整张图会按两者的差值平移。
-
-时钟约定（主理人拍板 1，混合时钟）：
-- 外部地图原样保留 `header.stamp`；配置图才使用当前 ROS 时钟
-- 所有 dt / 超时 / 定时器周期计算用 `team43_common.time_utils.now()`（= `time.monotonic()`）
-
-运行目标为 Ubuntu 22.04 + ROS2 Humble；纯核离线检查不替代 NUC 通信与建图验证。
+输出 YAML 的 origin 是栅格自己的 [x,y,yaw]，不是安装高度，也不套用
+config 模式的 grid.origin_xyz。正式提交器另在自己的输出目录保存 /map/grid。
+整体链与实机操作见 docs/教程/底盘定位与点云建图.md。
 """
 
 from __future__ import annotations
@@ -73,7 +63,7 @@ DEFAULTS: Dict[str, Any] = {
 
 
 class GridMapperNode(Node):  # type: ignore[misc]
-    """建图节点。启动即栅格化 → 落盘 → 发布锁存话题。"""
+    """按来源生成/接入栅格，换算坐标后落盘并发布锁存话题。"""
 
     def __init__(self, name: str = 'grid_mapper_node') -> None:
         super().__init__(name)

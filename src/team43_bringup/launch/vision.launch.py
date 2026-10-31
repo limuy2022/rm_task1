@@ -16,7 +16,7 @@ def generate_launch_description():
         'perception.image_topic': '/image_raw',
         'perception.marker_corners_topic': '/perception/marker_corners',
         'perception.camera_info_source': 'yaml',
-        'perception.marker_size_m': 0.10,
+        'perception.marker_size_m': 0.075,
     }]
     return LaunchDescription([
         DeclareLaunchArgument('target_id', default_value='-1'),

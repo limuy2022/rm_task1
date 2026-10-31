@@ -94,7 +94,7 @@ class FieldTests(unittest.TestCase):
         c=calib.read_calibration(OTHER)['camera']
         k=np.array([[c['fx'],0,c['cx']],[0,c['fy'],c['cy']],[0,0,1.]])
         uv,_=cv2.projectPoints(marker_object_points(.10),np.array([math.pi,0.,0.]),np.array([0.,0.,2.]),k,np.array(c['distortion']))
-        r=calib.compare([OURS,OTHER],uv.reshape(4,2).tolist())
+        r=calib.compare([OURS,OTHER],uv.reshape(4,2).tolist(),marker_size=.10)
         ours,correct=[v['pnp'] for v in r['calibrations']]
         self.assertTrue(ours['valid'])
         self.assertTrue(correct['valid'])

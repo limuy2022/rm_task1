@@ -30,7 +30,7 @@ class CloudMappingNode(Node):
         defaults = {
             'cloud_topic':'/red_standard_robot1/cloud_registered',
             'odom_topic':'/red_standard_robot1/aft_mapped_to_init',
-            'source_frame':'camera_init', 'pose_child_frame':'body',
+            'source_frame':'lio_world', 'pose_child_frame':'body',
             'sensor_origin_in_body':[0.,0.,0.], 'origin_model_confirmed':False,
             'resolution':0.05, 'width_m':20., 'height_m':20., 'origin_xy':[-10.,-10.],
             'floor_z':0., 'floor_confirmed':False, 'obstacle_min':0.15,

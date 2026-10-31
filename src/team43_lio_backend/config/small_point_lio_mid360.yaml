@@ -5,7 +5,7 @@
     lidar_format: auto # 自动识别点云发布者类型，也可手动 custom/pointcloud2
     lidar_topic: /livox/lidar
     imu_topic: /livox/imu
-    world_frame: camera_init
+    world_frame: lio_world
     body_frame: body
     sensor_qos_depth: 200
     input_audit_path: ''

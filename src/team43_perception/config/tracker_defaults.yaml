@@ -2,9 +2,9 @@
 /**:
   ros__parameters:
     # ---------------- perception（视觉感知）----------------
-    # 官方规定码边长 0.1 m（DICT_4X4_50）。⚠ 上场前必须用尺子复核，
-    # 这个数直接进 PnP，错了会让 cur_x/cur_y（权重合计 0.3）整体偏一个比例。
-    perception.marker_size_m: 0.10
+    # 用户确认实码黑色外边框边长7.5cm，不含外侧白边（2026-10-30修正）。
+    # 此值用于PnP物理尺度，更换打印码后按实际黑框外边长更新。
+    perception.marker_size_m: 0.075
     perception.camera_info_source: yaml # yaml | topic
     perception.reproj_max_px: 2.0
     perception.depth_min: 0.05

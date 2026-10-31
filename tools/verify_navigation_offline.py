@@ -130,11 +130,11 @@ class NavigationOfflineTests(unittest.TestCase):
 
     def test_unconfirmed_extrinsics_and_frame_alias_are_rejected(self):
         with self.assertRaises(ValueError):OdomTopicSource(child_frame_id='body')
-        with self.assertRaises(ValueError):OdomTopicSource(frame_id='camera_init')
-        source=OdomTopicSource(frame_id='camera_init',child_frame_id='body',
+        with self.assertRaises(ValueError):OdomTopicSource(frame_id='lio_world')
+        source=OdomTopicSource(frame_id='lio_world',child_frame_id='body',
             sensor_extrinsics_confirmed=True,parent_transform_confirmed=True,
             sensor_in_base_xyz=(.3,0,.5),twist_source='pose_difference')
-        source.on_odom(odom((.3,0,.5),parent='camera_init',child='body'),1.)
+        source.on_odom(odom((.3,0,.5),parent='lio_world',child='body'),1.)
         self.assertEqual((source.frame_id,source.child_frame_id),('odom','base_link'))
         np.testing.assert_allclose(source.latest.T_output_base[:3,3],0,atol=1e-12)
 

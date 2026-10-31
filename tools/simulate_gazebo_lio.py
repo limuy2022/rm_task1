@@ -154,7 +154,7 @@ class GazeboLio(Node):
         self.truth.append([stamp*1e-9, p.position.x, p.position.y, p.position.z, yaw_of(p.orientation)])
 
     def on_estimate(self, msg):
-        if msg.header.frame_id != 'camera_init' or msg.child_frame_id != 'body':
+        if msg.header.frame_id != 'lio_world' or msg.child_frame_id != 'body':
             raise ValueError('Point-LIO 输出 frame 与生产配置不一致')
         stamp = stamp_ns(msg.header.stamp)
         if stamp <= self.last_estimate_stamp:

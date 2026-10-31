@@ -1,11 +1,12 @@
 # Gazebo 视觉、雷达定位与目标坐标联合仿真
 
-2026-10-28 起，默认镜像使用固定提交的 Small Point-LIO 原始核心和项目接口层，
-不再运行旧版算法补丁；算法与场景选择见[雷达教程当前版本说明](Gazebo雷达惯性定位仿真.md)。
+本页是雷达与视觉联合的开发验收；实机建图和文件归属统一见[底盘定位与点云建图](底盘定位与点云建图.md)，不将本页仿真命令用于NUC比赛。
+
+默认镜像使用固定提交的 Small Point-LIO 原始核心和项目接口层，
+算法与场景选择见[雷达教程当前版本说明](Gazebo雷达惯性定位仿真.md)。
 标准回归须在 source 工作区后设置
 `RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf"`；
 `room/features` 都以此原始房间为基础。自定义 Blender 场景不能沿用本页的几何验收。
-当前仅有Small Point-LIO后端，不提供旧版算法或模式切换。
 
 `tools/simulate_gazebo_vision.py` 复用[雷达惯性定位仿真](Gazebo雷达惯性定位仿真.md)，
 增加真实渲染相机、静止 ArUco 码和跨进程视觉估计。它主要检查：移动底盘观察
@@ -14,7 +15,7 @@
 
 仿真默认使用 `--lidar-format pointcloud2`，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
 后端默认 `--backend-format auto` 自动识别并走 PointCloud2 接收路径；报告记录输入 `lidar_format` 与后端 `backend_format`。
-需要对比旧输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
+测试CustomMsg输入时可选 `--lidar-format custom`，不改变场景或精度门槛。
 
 ## 1 实际运行的链路
 
@@ -118,5 +119,5 @@ RMSE 应 <20cm。独立使用 Gazebo 位姿审核原始 PnP 的三维几何，RM
 产物包含雷达教程的报告、地图和轨迹，以及 `vision_metrics`、图像内参、观测与
 目标状态记录、故障窗口记录和 `vision_overview.png`。启用录包时保存仿真数据。
 算法版本、当前测试成绩与边界见[迁移验证记录](../记录/SmallPointLIO迁移验证.md)。
-旧算法、补丁、模式参数及专用诊断脚本已移除。当前联合验收只覆盖标准features
+当前联合验收只覆盖标准features
 场景、16线和指定运动；用户自定义场景及真实MID360需要各自验证。
