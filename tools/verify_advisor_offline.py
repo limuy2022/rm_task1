@@ -56,6 +56,7 @@ class AdvisorOfflineTests(unittest.TestCase):
         a._map_frame='map';a._has_base=a._has_target=a._has_grid=a._has_clean_grid=False
         a._base_stamp=a._target_stamp=a._base_received=a._target_received=-math.inf
         a._observation_stamp=-math.inf
+        a._obstacle_stamp=a._obstacle_received=-math.inf;a._obstacle_points=None
         a._map_stamps={'analytic':-math.inf,'quantized':-math.inf}
         a._map_received={'analytic':-math.inf,'quantized':-math.inf}
         a._base_xy=a._goal_xy=a._cur_xy=np.zeros(2)
@@ -69,6 +70,53 @@ class AdvisorOfflineTests(unittest.TestCase):
             NS(cmd=np.asarray(cmd),dist=dist,theta=theta,blocked=blocked,valid=valid))
 
     def tearDown(self):node_module.now=self.original_now
+
+    def test_direct_without_map_ignores_old_wall_but_keeps_freshness_and_stop(self):
+        self.app._params.update({'chassis.dir_mode':'direct','chassis.enable_avoidance':False})
+        result=self.feed(base=(0.,0.),goal=(2.,1.))
+        self.assertTrue(result.valid)
+        self.assertGreater(np.linalg.norm(result.cmd),.02)
+        np.testing.assert_allclose(result.cmd/np.linalg.norm(result.cmd),np.array([2.,1.])/np.sqrt(5))
+        self.time+=.02
+        result=self.feed(np.full((50,50),100,np.int8),base=(0.,0.),goal=(2.,1.))
+        self.assertTrue(result.valid);self.assertFalse(result.blocked)
+        self.time+=.3;self.app._on_timer()
+        self.assertFalse(self.results[-1].valid)
+        np.testing.assert_array_equal(self.results[-1].cmd,[0.,0.])
+        self.time+=.02;result=self.feed(base=(0.,0.),goal=(.1,0.))
+        self.assertTrue(result.valid);np.testing.assert_array_equal(result.cmd,[0.,0.])
+        self.time+=.02;self.feed(base=(0.,0.),goal=(2.,1.))
+        self.app._on_target(target_message((2.,1.),self.time,valid=False));self.app._on_timer()
+        self.assertFalse(self.results[-1].valid)
+        np.testing.assert_array_equal(self.results[-1].cmd,[0.,0.])
+
+    def test_direct_base_frame_rotation_and_velocity_limit(self):
+        self.app._params.update({'chassis.dir_mode':'direct','chassis.cmd_frame':'base_link'})
+        self.app._on_base_pose(base_message((0.,0.),self.time,yaw=math.pi/2))
+        self.app._on_target(target_message((10.,0.),self.time));self.app._on_timer()
+        result=self.results[-1]
+        self.assertTrue(result.valid);self.assertLess(result.cmd[1],0.)
+        self.assertAlmostEqual(result.cmd[0],0.,12)
+        self.assertLessEqual(np.linalg.norm(result.cmd),self.app._params['chassis.v_max'])
+
+    def test_direct_realtime_wall_guard_and_missing_or_stale_cloud(self):
+        self.app._params.update({'chassis.dir_mode':'direct','chassis.obstacle_guard_enabled':True})
+        result=self.feed(base=(0.,0.),goal=(2.,0.))
+        self.assertFalse(result.valid);np.testing.assert_array_equal(result.cmd,[0.,0.])
+        self.app._obstacle_points=np.c_[np.full(101,.65),np.linspace(-2.,2.,101)]
+        self.app._obstacle_stamp=self.app._obstacle_received=self.time
+        self.time+=.02;result=self.feed(base=(0.,0.),goal=(2.,0.))
+        self.assertTrue(result.valid)
+        # 用真实点检查前瞻路径；速度下限不能在保护之后把速度抬回去。
+        positions=np.linspace(0,1.5,101)[:,None]*result.cmd
+        distance=np.linalg.norm(self.app._obstacle_points[None,:,:]-positions[:,None,:],axis=2)
+        self.assertGreaterEqual(distance.min(),.4)
+        self.time+=.6;result=self.feed(base=(0.,0.),goal=(2.,0.))
+        self.assertFalse(result.valid);np.testing.assert_array_equal(result.cmd,[0.,0.])
+        self.app._obstacle_points=np.array([[5.,5.],[6.,6.]])
+        self.app._obstacle_stamp=self.app._obstacle_received=self.time
+        result=self.feed(base=(0.,0.),goal=(2.,0.))
+        self.assertTrue(result.valid);self.assertGreater(result.cmd[0],.02)
 
     @staticmethod
     def asymmetric_wall(mirror=False):

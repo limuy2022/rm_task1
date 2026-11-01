@@ -20,8 +20,8 @@ colcon --log-base /tmp/clog build --build-base /tmp/cb \
   --install-base /tmp/ci --symlink-install --parallel-workers 2
 source /tmp/ci/setup.bash
 if [[ "$scenario" == gazebo_* ]]; then
-  # 标准回归几何与人工编辑的 Blender 场景分开，从安装空间读取。
-  export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf"
+  # 唯一走廊场景，从安装空间读取。
+  export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/corridor.sdf"
 fi
 
 if [[ "$scenario" == submission ]]; then
@@ -31,8 +31,10 @@ elif [[ "$scenario" == navigation ]]; then
     --output-dir "$output/result"
 else
   # 降低请求倍率，为无显卡 runner 的软件渲染留出时间；不放宽误差门槛。
-  # 视觉默认使用 features 场景和 3cm 观测下限，沿用已验证的基线。
-  python3 -B "tools/simulate_${scenario}.py" \
-    --output-dir "$output/result" --scan-lines 16 \
-    --real-time-factor 0.25 --timeout 900
+  # 两项均使用唯一走廊场景；视觉仅添加相机与目标码。
+  if [[ "$scenario" == gazebo_lio ]]; then
+    python3 -B tools/simulate_gazebo_corridor.py --output-dir "$output/result" --real-time-factor 0.25 --timeout 900
+  else
+    python3 -B tools/simulate_gazebo_vision.py --output-dir "$output/result" --scan-lines 16 --real-time-factor 0.25 --timeout 900
+  fi
 fi

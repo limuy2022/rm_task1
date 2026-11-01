@@ -82,15 +82,6 @@ class GazeboVision(GazeboLio):
     def prepare_world(self):
         tree = ET.parse(self.output/'world.sdf')
         world = tree.find('world')
-        if self.scene == 'features':
-            # 加入不同方位的近距离结构，和仅两箱体的稀疏房间作对照。
-            for i, (xyz, size) in enumerate((
-                ([1.4, -.8, .6], [.4, .3, 1.2]), ([1.8, .7, .9], [.3, .4, 1.8]),
-                ([-.7, -1.2, .6], [.6, .4, 1.2]), ([-1.1, 1.3, 1.], [.5, .5, 2.]),
-                ([.8, 2.1, .7], [.5, .7, 1.4]))):
-                feature = ET.SubElement(world, 'model', name=f'feature_{i}')
-                add(feature, 'static', 'true'); add(feature, 'pose', ' '.join(map(str, xyz))+' 0 0 0')
-                box(ET.SubElement(feature, 'link', name='shape'), 'visual', [0, 0, 0], size, '.5 .5 .5 1')
         body = world.find("model[@name='lidar_rig']/link[@name='body']")
         sensor = ET.SubElement(body, 'sensor', name='camera', type='camera')
         add(sensor, 'pose', ' '.join(map(str, [*CAMERA_IN_BODY, *CAMERA_RPY])))
@@ -302,7 +293,7 @@ class GazeboVision(GazeboLio):
         vision_checks['delayed_stamps_exceed_deadline'] = bool(delayed) and min(delayed) >= .45-1e-6
         replayed = [stamp for _, stamp, valid_msg, mode in self.deliveries if mode == 'replay' and valid_msg]
         vision_checks['replay_keeps_original_stamp'] = len(replayed) > 20 and max(replayed) == min(replayed)
-        if self.scene == 'features':
+        if self.scene == 'corridor':
             # 新障碍会挡住远处墙面；按独立 SDF 几何及真值轨迹计算预期
             # 可见墙面，保留原始全墙覆盖率，不能把合理的未知区当漏建。
             visible_coverage, visible_fraction, visible_count = self.visible_wall_coverage()
@@ -353,7 +344,7 @@ class GazeboVision(GazeboLio):
         msg = self.latest_map
         grid = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         covered, total = [], 0
-        for axis, wall, lo, hi in ((0, -4., -3., 3.), (0, 4., -3., 3.), (1, -3., -4., 4.), (1, 3., -4., 4.)):
+        for axis, wall, lo, hi in ((0, -4., -1.25, 1.25), (0, 4., -1.25, 1.25), (1, -1.25, -4., 4.), (1, 1.25, -4., 4.)):
             for v in np.arange(lo+.15, hi-.1, .05):
                 target = np.array([wall, v] if axis == 0 else [v, wall])
                 direction = target-origins
@@ -407,8 +398,8 @@ def main():
     parser.add_argument('--real-time-factor', type=float, default=.5)
     parser.add_argument('--record-bag', action='store_true')
     parser.add_argument('--scan-lines', type=int, choices=[16, 32], default=16)
-    parser.add_argument('--scene', choices=['room', 'features'], default='features',
-                        help='两箱体房间，或增加不同方位近距离结构的对照场景')
+    parser.add_argument('--scene', choices=['corridor'], default='corridor',
+                        help='唯一走廊场景，视觉测试仅增加相机与目标码')
     parser.add_argument('--observation-sigma-floor', type=float, default=.03,
                         help='仅估计节点的 map 观测噪声下限（米），正式配置不变')
     args = parser.parse_args()

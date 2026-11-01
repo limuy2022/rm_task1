@@ -1,94 +1,46 @@
-# Gazebo 雷达、IMU 与 Small Point-LIO 仿真
+# Gazebo 走廊模型与实时防撞建议验证
 
-本页是从仿真原始雷达/IMU运行实际LIO的开发验收；实机操作及源图/比赛图的区别统一见[底盘定位与点云建图](底盘定位与点云建图.md)。
+唯一场景为 `src/team43_gazebo/worlds/corridor.sdf`：长8m、宽2.5m，两侧墙和两端墙有碰撞几何。8m是测试长度，不是实测两门间距；2.5m用于对照生产配置中从上午两图估计的约2.494m墙宽。
 
-链路：Gazebo Fortress三维雷达和IMU → Livox消息 → Small Point-LIO原始核心
-→ 世界系点云、IMU body位姿 → 生产建图节点。真值只用于评价，不输入定位算法。
+链路为 Gazebo Fortress 三维雷达和IMU → 官方格式PointCloud2 → 未修改核心的Small Point-LIO → 生产 `corridor_map_node` 与 `chassis_advisor_node`。规则16线雷达每40Hz采样，四次快照按真实时刻组合为约10Hz输入；不是MID360非重复扫描。
 
-仿真固定使用PointCloud2，将 Gazebo 快照按真实采样时刻组合为官方 Livox PointXYZRTLT，
-仿真与生产后端都固定使用PointCloud2，不提供输入格式或后端模式选择。
+## 运行
 
-## 1 算法与环境
-
-普通包 `src/team43_lio_backend` 直接包含 Small Point-LIO ROS 2 提交
-`131fb586dc609521e7acf11a9c833121b2d49141`，直接编译未修改的核心，项目接口
-负责消息、固定外参和入口审核。
-来源和许可证见[接口说明](../../src/team43_lio_backend/README.md)及
-[迁移验证记录](../记录/SmallPointLIO迁移验证.md)。
-
-Livox驱动和消息单独归档于 `archives/livox_ros_driver2.tar.gz`，保留原始内容与
-许可证；镜像不启动硬件驱动。所有构建产物位于容器临时目录，不用pip覆盖系统库。
-
-可选 `gazebo-sim` 镜像从 `archives/ros_gz-humble.tar.gz` 编译桥接覆盖层，
-固定上游 Humble 提交 `28e586a3d41f80f4a91e81902b8618c9d506022c`，
-包含 [上游 #956](https://github.com/gazebosim/ros_gz/pull/956) 的节点循环引用修复，
-并用 `ros_gz-shutdown.patch` 回移 [#977](https://github.com/gazebosim/ros_gz/pull/977)
-的 ROS→Gazebo 回调引用修复与显式 shutdown。
-apt 0.244.25 在 SIGINT 收尾时可能因中间件未释放而段错误；仍要求所有进程
-退出码为零。归档来源与校验和见同目录 `.source.json`，入口自动加载
-`/opt/ros_gz/install/setup.bash`，不修改实机 ROS 环境。
-
-## 2 标准场景与自定义场景
-
-标准回归使用 `src/team43_gazebo/worlds/lio_room_regression.sdf`：8×6m房间、地面、天花板、
-两箱体，平台初始IMU高度0.7m。它与用户编辑的 `lio_room.sdf` 和Blender模型分开。
-视觉联合的features场景在标准房间中增加箱体。
-
-场景和模型由 `team43_gazebo` 包安装；脚本通过 ament 索引读取安装资源，
-默认场景为包内 `worlds/lio_room.sdf`。Blender 源文件保留在包的 `blender/`，
-运行用 `meshes/scene.stl` 通过 `package://team43_gazebo/meshes/scene.stl` 引用。
-source 工作区时自动将安装前缀的 `share/` 加入 `IGN_GAZEBO_RESOURCE_PATH`，
-生成 SDF 移到输出目录后仍能找到模型；无需在 `.bashrc` 中配置源码绝对路径。
-运动插件仍由可选镜像单独编译，通过 `IGN_GAZEBO_SYSTEM_PLUGIN_PATH` 查找库名。
-
-平台通过力/力矩运动，保证IMU测到实际加减速，不模拟轮胎和悬架。
-雷达默认16线、每线180个方向、40Hz快照，四个快照按真实时间组成约10Hz
-Livox帧；IMU为200Hz。这不是MID360非重复扫描，也未模拟材质、噪声和时延。
-
-雷达到IMU固定外参读取 `small_point_lio_mid360.yaml`；接口先把点统一到IMU，
-核心使用单位外参，世界系原点为初始IMU。仿真配置副本中把IMU参数换算为m/s²，
-体素与地图栅格参数不会改写实车配置。核心使用IMU测量更新，没有input/output切换。
-
-`RM_LIO_WORLD` 可选择源SDF。自定义场景可用于RViz观察，但标准房间的墙面覆盖率、
-边界和盒体回波检查不适用，脚本在评价阶段会明确拒绝，而不是认定算法定位失败。
-报告记录源文件与生成场景的SHA256；对新模型验收需要另外定义几何评价。
-
-## 3 运行
-
-先确认子模块已检出。仓库根目录执行：
+仓库根目录构建根Dockerfile的可选镜像：
 
 ```bash
 docker build --target gazebo-sim -t rm-task1-gazebo-sim .
 docker run --rm -v "$PWD":/workspace -w /workspace \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -e ROS_DOMAIN_ID=89 -e ROS_LOCALHOST_ONLY=1 \
-  -e IGN_PARTITION=rm_task1_gazebo_01 -e LIBGL_ALWAYS_SOFTWARE=1 \
+  -e ROS_DOMAIN_ID=94 -e ROS_LOCALHOST_ONLY=1 \
+  -e IGN_PARTITION=rm_task1_corridor_trial -e LIBGL_ALWAYS_SOFTWARE=1 \
   rm-task1-gazebo-sim bash -c '
     source /opt/ros/humble/setup.bash &&
     colcon --log-base /tmp/clog build --build-base /tmp/cb \
            --install-base /tmp/ci --symlink-install &&
     source /tmp/ci/setup.bash &&
-    export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
-    python3 -B tools/simulate_gazebo_lio.py \
-      --output-dir build/offline/gazebo_lio_01 --record-bag'
+    python3 -B tools/simulate_gazebo_corridor.py \
+      --output-dir build/offline/gazebo_corridor_新编号 \
+      --real-time-factor 0.25 --timeout 900'
 ```
 
-输出目录必须不存在，重复运行换新编号。软件渲染不传显卡或宿主显示器；不要
-增加 `/dev/dri`。默认墙钟超时600秒，请求倍率0.5；CI用0.25和900秒，不代表实时
-吞吐通过。`--scan-lines 32` 可改光束数，但当前通过结果仅覆盖16线。
+输出目录必须为新目录。软件渲染不传宿主显卡或显示器，不安装pip库。请求倍率0.25给渲染留出时间，不能代表真实NUC实时吞吐通过。
 
-## 4 验收与产物
+## 场景与判据
 
-等待有效定位后静止3秒，沿约1.05m边长方形运动，最后静止3秒。
-位置RMSE须小于15cm、最大误差35cm、最大yaw误差0.15rad、静止误差5cm、
-估计返回误差20cm；墙体覆盖率大于85%，墙外未知比例大于98%。
-还检查原始回波、IMU与物理运动一致性、输入时间/接收完整性、PGM与ROS地图一致性，
-以及所有进程正常退出。没有放宽原精度和地图门槛。
+平台独立按预设轨迹运动，模拟主办方控制底盘；**建议速度不控制平台**。目标为合成有效TargetState，不运行ArUco视觉或评分CSV。本试验map与LIO初始系重合，不替代正式replay_start链验收。
 
-输出目录包含 `result.json`、`overview.png`、`trajectory.csv`、实际 `world.sdf`、
-实际算法参数、节点日志、`maps/43_slam_map.pgm/yaml` 和可选 `sensor_bag/`。
-报告的 `point_lio_image_build` 保存源码来源、固定提交和二进制SHA256。
-这些均为仿真证据，不作为真实雷达数据或官方评分提交。
+- 真实LIO输出和两线模型必须存在；宽度估计与2.5m几何差不超过10cm，示意图不生成虚假端墙。
+- 实际运动先靠近侧墙，再靠近端墙，确认建议可用且受到约束。
+- 对每条有效建议，以独立Gazebo真值和真实墙面计算1.5秒路径。生产保护距离保持40cm，仿真评价允许5cm定位误差，真实墙面净距不得小于35cm。
+- 仅中断防撞点云输入，底盘与目标数据继续，检查建议归零；恢复点云后须恢复非零建议。
+- LIO最大位置误差须小于20cm。防撞通过而LIO误差超标时，整轮仍判失败，不能只汇报通过项。
+- 所有子进程必须正常退出。
 
-最新结果和测试边界以[迁移记录](../记录/SmallPointLIO迁移验证.md)为准。
-真实MID360、32线、旋转雷达外参和NUC实时性能仍需各自验收。
+输出包括 `result.json`、`overview.png`、真实 `world.sdf`、生产节点参数和日志、`model/corridor_model.json`、`truth.csv`、`lio.csv`、`advice.csv`。真值从不输入定位；所有数据为仿真证据，不是真实场地采样。
+
+## 边界
+
+悬浮刚性平台不模拟轮胎、悬架、真实制动或完整电机闭环。当前无额外噪声注入。几何为简单走廊，不能保证稀疏走廊的实机LIO精度。Gazebo通过也不能保证主办方底盘会遵循建议。
+
+雷达独立位姿/栅格和视觉联合入口也使用同一个 `corridor.sdf`；前者沿走廊往返，后者仅加入相机和目标码，不额外生成箱体房间。

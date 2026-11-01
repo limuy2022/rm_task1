@@ -1,0 +1,9 @@
+{
+  "created": "2026-11-01T10:52:02.506825",
+  "source": "/home/dut0bug/ws_championship/src/43-MyDuo/records/survey_9kCzK3sg/source_map",
+  "sha256": {
+    "43_slam_map.pgm": "5bd2aadf98935c9e489f72f07e61648f358d37c51d1651c154cb8f10db91b17b",
+    "43_slam_map.yaml": "6362151f7bbeec1755c90e3d1af4f6d986b1c20f764720d5174402d1c783ac9f"
+  },
+  "frame": "survey_world：上午源图独立会话"
+}

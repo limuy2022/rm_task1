@@ -5,8 +5,8 @@
 默认镜像使用固定提交的 Small Point-LIO 原始核心和项目接口层，
 算法与场景选择见[雷达教程当前版本说明](Gazebo雷达惯性定位仿真.md)。
 标准回归须在 source 工作区后设置
-`RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf"`；
-`room/features` 都以此原始房间为基础。自定义 Blender 场景不能沿用本页的几何验收。
+`RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/corridor.sdf"`；
+唯一走廊为基础，仅增加相机和目标码。
 
 `tools/simulate_gazebo_vision.py` 复用[雷达惯性定位仿真](Gazebo雷达惯性定位仿真.md)，
 增加真实渲染相机、静止 ArUco 码和跨进程视觉估计。它主要检查：移动底盘观察
@@ -38,8 +38,7 @@ Gazebo 真值只用于离线误差评价和阶段记录，不送给定位或目�
 
 ## 2 场景和参数
 
-- 房间沿用 8×6m 的雷达场景，默认 `--scene features` 增加五个不同方位的近距离箱体；
-  `--scene room` 保留原来的两个箱体，用于比较场景几何的影响。
+- 使用8×2.5m走廊，`--scene corridor`，不增加箱体；
 - 静止目标为 `DICT_4X4_50` 的 ID 0，黑色码边长 **0.1m**，白边外尺寸 0.14m。
   黑白格用真实三维薄片构成，无外部纹理依赖。评分参考点是黑色码平面中心，
   不是厚板背面或板模型原点。
@@ -76,7 +75,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace \
     colcon --log-base /tmp/clog build --build-base /tmp/cb \
            --install-base /tmp/ci --symlink-install &&
     source /tmp/ci/setup.bash &&
-    export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/lio_room_regression.sdf" &&
+    export RM_LIO_WORLD="$(ros2 pkg prefix --share team43_gazebo)/worlds/corridor.sdf" &&
     python3 -B tools/simulate_gazebo_vision.py \
       --output-dir build/offline/gazebo_vision_01 --record-bag'
 ```
@@ -107,16 +106,15 @@ RMSE 应 <20cm。独立使用 Gazebo 位姿审核原始 PnP 的三维几何，RM
 此项只用于评分，不构成生产 TF 输入。所有有效 PnP 的 stamp 必须来自实际收到
 的图像。定位、原始测量物理一致性和地图保存检查复用雷达仿真的既有门槛。
 
-增加箱体会遮住部分墙面，因此 `features` 场景按 SDF 箱体和独立真值轨迹，在
+走廊场景按实际SDF几何和独立真值轨迹，在
 雷达高度的水平面计算视线遮挡，评价至少一次几何可见的墙面。可见墙面10cm邻域
 覆盖率仍须 >85%，并至少有100个可评价样本。报告同时保留**全墙面原始覆盖率**和
 可见比例；此几何近似没有模拟逐条激光束，也不等于所有可见点都一定被扫描。
-`room` 对照仍使用原来的全墙面检查。两个场景均检查墙外区域是否保持未知。
+同时检查墙外区域是否保持未知。
 
 ## 5 产物与验证结果
 
 产物包含雷达教程的报告、地图和轨迹，以及 `vision_metrics`、图像内参、观测与
 目标状态记录、故障窗口记录和 `vision_overview.png`。启用录包时保存仿真数据。
 算法版本、当前测试成绩与边界见[迁移验证记录](../记录/SmallPointLIO迁移验证.md)。
-当前联合验收只覆盖标准features
-场景、16线和指定运动；用户自定义场景及真实MID360需要各自验证。
+本入口仅运行走廊、16线和指定运动。新的走廊视觉成绩需单独验收，历史房间结果不当作本场景通过；真实MID360也需要独立验证。

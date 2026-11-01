@@ -34,7 +34,7 @@ def _setup(context):
              ('team43_grid_mapper', 'grid_mapper_node'), ('team43_chassis_advisor', 'chassis_advisor_node')]
     if LaunchConfiguration('with_perception').perform(context).lower() != 'true':
         nodes = [(pkg, exe) for pkg, exe in nodes if pkg != 'team43_perception']
-    result = [LogInfo(msg='仅处理已有数据；地图生产、LIO、IMU反馈和实测TF是外部前置条件；不输出电机指令')]
+    result = [LogInfo(msg='处理已有LIO、IMU反馈与几何变换；direct建议模式不依赖地图；此处理链不输出电机指令')]
     parent = str(params['localization.odom_frame_id'])
     if parent != 'odom':
         xyz = params['localization.source_parent_in_output_xyz']

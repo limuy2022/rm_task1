@@ -84,7 +84,7 @@ def generate_launch_description():
 
 
 class MatchProbe(Probe):
-    def __init__(self, master, launch):
+    def __init__(self, master, launch, corridor=False):
         super().__init__(master,launch)
         from array import array
         from verify_perception_offline import render_marker
@@ -116,6 +116,17 @@ class MatchProbe(Probe):
         for a in range(-12,13):
             for b in range(-12,13):points.append((a*.15,b*.15,floor))
         self.points=np.asarray(points)@rotation-np.asarray(cfg['extrinsic_T'])
+        if corridor:
+            points=[]
+            for y in np.linspace(-6.,6.,121):
+                for z in np.linspace(floor,floor+1.8,11):
+                    points.extend(((1.25,y,z),(-1.25,y,z)))
+            for x in np.linspace(-1.25,1.25,26):
+                for z in np.linspace(floor,floor+1.8,11):
+                    points.extend(((x,-6.,z),(x,6.,z)))
+            for x in np.linspace(-1.25,1.25,26):
+                for y in np.linspace(-6.,6.,61):points.append((x,y,floor))
+            self.points=np.asarray(points)@rotation-np.asarray(cfg['extrinsic_T'])
         self.last_lidar=self.last_lidar_imu=0.
         self.tick_stamps=[];self.visible_latencies=[];self.rows_seen=[]
 
@@ -194,6 +205,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--count',type=int,default=30)
+    parser.add_argument('--map-mode',choices=('live','corridor','none'),default='live')
     args=parser.parse_args()
     if not Path('/.dockerenv').exists() or ROOT!=Path('/workspace'):
         parser.error('只允许在挂载到/workspace的隔离Docker容器运行')
@@ -210,12 +222,13 @@ def main():
         master,slave=os.openpty();tty.setraw(slave);os.set_blocking(master,False)
         log=(output/'match.log').open('w')
         launch=subprocess.Popen(['bash',str(project/'tools/start_match.bash'),'port:='+os.ttyname(slave),
-                                 'map_mode:=live',  # 本工具专测实时建图链；跨会话旧图另有专项DDS验证。
+                                 *(['map_mode:='+args.map_mode] if args.map_mode!='corridor' else []),
                                  'output_dir:='+str(work/'score')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
-        rclpy.init();probe=MatchProbe(master,launch)
-        probe.wait(lambda: len(probe.statuses)>5 and any(json.loads(s.data).get('accepted_scans',0)>5 for s in probe.map_status),30.)
+        rclpy.init();probe=MatchProbe(master,launch,corridor=args.map_mode=='corridor')
+        probe.wait(lambda: len(probe.statuses)>5 and (args.map_mode!='live' or
+                   any(json.loads(s.data).get('accepted_scans',0)>5 for s in probe.map_status)),30.)
         assert not any(y!=0. or p!=0. for _,y,p in probe.commands),'裁判未通知ID就发出了非零运动指令'
-        report['checks']['default_start_waits_for_target_and_maps_without_manual_gates']=True
+        report['checks']['start_waits_for_target_without_manual_confirmation']=True
         probe.run_command(['bash',str(project/'tools/set_target.bash'),'3'],output/'set_target.log')
         probe.wait(lambda:any(y<0<p for _,y,p in probe.commands),20.)
         status=json.loads(probe.statuses[-1].data)
@@ -223,14 +236,21 @@ def main():
         report['checks']['actual_set_target_script_enables_default_continuous_tracking']=True
         probe.wait(lambda:probe.tick_pub.get_subscription_count()>=1 and probe.start_pub.get_subscription_count()>=2,10.)
         probe.score_round(args.count,work/'score/43.csv')
-        assert probe.bases and probe.grids and any(t.valid for t in probe.targets),'没有产生有效比赛坐标状态'
+        assert probe.bases and any(t.valid for t in probe.targets),'没有产生有效比赛坐标状态'
         assert any(a.valid for a in probe.advice),'没有有效方向建议'
         assert max(probe.visible_latencies)<=.08,'完整链路下存在超过80ms才可见的CSV行'
         tail=np.asarray([[float(v) for v in row.split(',')] for row in probe.rows_seen[-min(10,args.count):]])
         assert np.max(np.linalg.norm(tail[:,2:4]-[1.2625,-.03],axis=1))<.1,'目标坐标没有按本轮装车配置落到比赛起点系'
         assert np.max(np.linalg.norm(tail[:,4:6],axis=1))<.05,'静止底盘位置未归零'
-        assert (work/'score/43_map.pgm').is_file() and (work/'score/43_map.yaml').is_file(),'正式地图未保存'
-        report['checks']['replay_origin_target_base_advice_csv_and_final_map']=True
+        if args.map_mode!='none':
+            probe.wait(lambda: bool(probe.grids),15.)
+            assert (work/'score/43_map.pgm').is_file() and (work/'score/43_map.yaml').is_file(),'正式地图未保存'
+        else:
+            assert not probe.grids,'无图模式不应伪造地图'
+            report['checks']['csv_and_nonzero_advice_without_any_map']=bool(any(a.valid and np.hypot(a.cmd_vx,a.cmd_vy)>.02 for a in probe.advice))
+            assert report['checks']['csv_and_nonzero_advice_without_any_map']
+        report['checks']['replay_origin_target_base_advice_csv']=True
+        report['checks']['map_matches_requested_mode']=bool(probe.grids) == (args.map_mode!='none')
         first=len(probe.commands);probe.send_images=False;probe.check_stop(first)
         report['checks']['camera_loss_stops_real_cpp_bridge']=True
         probe.send_images=True;first=len(probe.commands)
@@ -242,7 +262,7 @@ def main():
         probe.arm(True);first=len(probe.commands)
         probe.wait(lambda:any(y<0<p for _,y,p in probe.commands[first:]))
         shutdown_armed=True
-        report.update(passed=True,ticks=args.count,csv_rows=len(probe.rows_seen),
+        report.update(passed=True,map_mode=args.map_mode,ticks=args.count,csv_rows=len(probe.rows_seen),
                       target_messages=len(probe.targets),valid_target_messages=sum(bool(t.valid) for t in probe.targets),
                       base_messages=len(probe.bases),map_messages=len(probe.grids),serial_commands=len(probe.commands),
                       max_visible_latency_s=max(probe.visible_latencies),

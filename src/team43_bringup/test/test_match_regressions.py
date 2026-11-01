@@ -185,7 +185,7 @@ def test_session_rejects_epoch_mismatch_and_unconfirmed_work_interval(tmp_path):
     with pytest.raises(ValueError, match='工作区间'): verified_match_params(path, 42)
 
 
-@pytest.mark.parametrize('map_mode', ['live', 'saved'])
+@pytest.mark.parametrize('map_mode', ['live', 'saved', 'corridor', 'none'])
 def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_mode):
     mod = load('match_launch_regression', 'src/team43_bringup/launch/match.launch.py')
     driver = tmp_path/'livox.json'
@@ -220,6 +220,7 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     assert executable.count('robo_bridge_node') == 1
     assert ('saved_map_node' in executable) == (map_mode == 'saved')
     assert ('cloud_mapping_node' in executable) == (map_mode == 'live')
+    assert ('corridor_map_node' in executable) == (map_mode == 'corridor')
     # robo_bridge 挂的是设备缺席重试处理器（on_exit 为可调用对象），
     # 而非其余关键进程的 _critical（on_exit 为含 Shutdown 的动作列表）。
     from launch.actions import RegisterEventHandler
@@ -238,6 +239,16 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     if map_mode == 'saved':
         assert yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']['chassis.map_timeout_s'] == 0.
     runtime = yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']
+    if map_mode in ('corridor','none'):
+        assert runtime['chassis.dir_mode'] == 'direct'
+        assert runtime['chassis.enable_avoidance'] is False
+        assert runtime['chassis.obstacle_guard_enabled'] is True
+        assert runtime['chassis.obstacle_floor_valid'] is True
+        assert not saved
+    if map_mode == 'corridor':
+        model = next(x for x in nodes if x.node_executable == 'corridor_map_node')
+        event_model = ProcessExited(action=model,returncode=1,name='model',cmd=['unused'],cwd=None,env=None,pid=2)
+        assert not any(a.event_handler.matches(event_model) for a in actions if isinstance(a,RegisterEventHandler))
     assert runtime['kinematics.require_confirmation'] is False
     assert runtime['kinematics.bind_current_epoch'] is True
     assert runtime['kinematics.calibration_confirmed'] is False

@@ -15,7 +15,9 @@
 射线最长 1 m、不与不可跨越地形相交、与目标方向夹角最小"的**连续**角度。
 旧的 13 方向 12.5° 量化会带来约 3.6° 的角度 RMSE（≈0.004 总分），
 改用 `free_dir.FreeDirSolver` 解析求解后可压到 <0.5°。
-`chassis.dir_mode='analytic'`（默认）走新路径，`'quantized'` 保留旧行为。
+`chassis.dir_mode='analytic'`（独立节点默认）走解析路径，`'quantized'` 保留离散行为。
+比赛direct路径不依赖地图，但默认用新鲜cloud_registered检查圆形车体前瞻碰撞；
+点云/TF无效时建议归零，CSV不因缺图而停写。
 另外：官方判定 `hypot(vx,vy) < 0.02` 为停车。速度下限仅用于已验证
 可行的方向；地图缺失、输入过期、目标丢失或全部受阻时，不会为了分数制造穿墙方向。
 解析与量化两种路径均考虑 OccupancyGrid 原点 yaw。
@@ -42,6 +44,9 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Odometry
+from sensor_msgs.msg import PointCloud2
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformListener, TransformException
 from team43_interfaces.msg import ChassisAdvice, TargetState
 
 from team43_common.time_utils import now
@@ -50,12 +55,15 @@ from team43_common.node_utils import declare_params
 from team43_common.qos_utils import latched_qos, sensor_qos
 
 from team43_common.frames import rotz2
+from team43_common.frames import quat_to_mat
+from team43_grid_mapper.cloud_grid import pointcloud2_xyz
 
 from .cost_raycast import (DIR_SPAN_DEG, LOOKAHEAD_M, N_DIRS, W_ANG, W_OBS,
                            W_UNK, CostRaycast, RayGridAdapter)
 from .free_dir import FREE_DIR_L_M, V_STOP_OFFICIAL, FreeDirSolver
 from .velocity_law import (A_MAX, D_SLOW, D_STOP, LOST_DECAY_S, LP_CUTOFF_HZ,
                            V_MAX, VelocityLaw)
+from .obstacle_guard import guard_velocity
 
 # 默认参数（DESIGN §6.13 `chassis.*`）
 DEFAULTS: Dict[str, Any] = {
@@ -89,6 +97,13 @@ DEFAULTS: Dict[str, Any] = {
     'chassis.future_tolerance_s': 0.05,
     # 静态地图可锁存，0 不按年龄失效；实时建图可显式设 5.0 等超时。
     'chassis.map_timeout_s': 0.0,
+    'chassis.obstacle_guard_enabled': False,  # 比赛入口显式开启；独立节点保持原模式。
+    'chassis.obstacle_floor_z': 0.0,
+    'chassis.obstacle_floor_valid': False,
+    'chassis.obstacle_timeout_s': .5,
+    'chassis.obstacle_clearance_m': .4,  # 长宽按30cm近似，中心到障碍的保护距离。
+    'chassis.obstacle_horizon_s': 1.5,
+    'chassis.obstacle_braking_mps2': .5,
 }
 
 
@@ -129,6 +144,8 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         self._base_stamp = self._target_stamp = -math.inf
         self._base_received = self._target_received = -math.inf
         self._observation_stamp = -math.inf
+        self._obstacle_stamp = self._obstacle_received = -math.inf
+        self._obstacle_points = None
         self._map_stamps = {'analytic': -math.inf, 'quantized': -math.inf}
         self._map_received = {'analytic': -math.inf, 'quantized': -math.inf}
         self._clean_adapter = None
@@ -138,6 +155,10 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             raise ValueError('chassis.frame_id must be nonempty')
         if str(self._params['chassis.cmd_frame']) not in ('map', 'base_link'):
             raise ValueError('chassis.cmd_frame must be map or base_link')
+        for key in ('chassis.obstacle_timeout_s','chassis.obstacle_clearance_m',
+                    'chassis.obstacle_horizon_s','chassis.obstacle_braking_mps2'):
+            if not math.isfinite(float(self._params[key])) or float(self._params[key]) <= 0:
+                raise ValueError(key+' must be positive and finite')
         for key in ('chassis.base_timeout_s', 'chassis.target_timeout_s',
                     'chassis.last_observation_timeout_s'):
             if not math.isfinite(float(self._params[key])) or float(self._params[key]) <= 0:
@@ -176,6 +197,10 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
         # 未膨胀三态栅格：方向项解析求解用（不可跨越地形 = 占用格 100）
         self.create_subscription(OccupancyGrid, '/map/grid',
                                  self._on_clean_grid, latched_qos())
+        self._obstacle_tf = Buffer()
+        self._obstacle_listener = TransformListener(self._obstacle_tf,self)
+        self.create_subscription(PointCloud2,'/red_standard_robot1/cloud_registered',
+                                 self._on_obstacles,sensor_qos(2))
         self._pub = self.create_publisher(ChassisAdvice, '/chassis/advice',
                                           qos)
 
@@ -188,6 +213,56 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
                        f'lookahead={float(self._params["chassis.lookahead_m"]):.2f}m')
 
     # -- 回调 -----------------------------------------------------------------
+    def _on_obstacles(self, msg):
+        # 裁判起点建立之前尚无map底盘位姿，正常等待，不把它打印成TF故障。
+        if not bool(self._params['chassis.obstacle_guard_enabled']) or not self._has_base:
+            return
+        try:
+            if msg.header.frame_id != 'lio_world' or not self._params['chassis.obstacle_floor_valid']:
+                raise ValueError('需要有效lio_world点云和地面近似')
+            stamp = self._source_stamp(msg.header)
+            age = self._clock_seconds()-stamp
+            if not -float(self._params['chassis.future_tolerance_s']) <= age <= float(self._params['chassis.obstacle_timeout_s']):
+                raise ValueError('障碍点云过期或时间无效')
+            if stamp <= self._obstacle_stamp:
+                return
+            xyz = pointcloud2_xyz(msg)
+            if len(xyz) < 40:
+                raise ValueError('有效点云不足，不能确认通道')
+            floor = float(self._params['chassis.obstacle_floor_z'])
+            xyz = xyz[(xyz[:,2]>floor+.15)&(xyz[:,2]<floor+1.8)]
+            if len(xyz) < 20:
+                raise ValueError('障碍高度范围内点数不足')
+            tf = self._obstacle_tf.lookup_transform(self._map_frame,'lio_world',Time.from_msg(msg.header.stamp))
+            q,t = tf.transform.rotation,tf.transform.translation
+            R = quat_to_mat([q.w,q.x,q.y,q.z])
+            mapped = xyz @ R.T+np.array([t.x,t.y,t.z])
+            self._obstacle_points = mapped[:,:2]
+            self._obstacle_stamp,self._obstacle_received = stamp,now()
+        except (TransformException,ValueError,TypeError,OverflowError) as exc:
+            self._obstacle_points = None
+            throttled(self._log,'warning',f'实时障碍保护未就绪，建议速度归零: {exc!r}','obstacles')
+
+    def _guard_command(self, cmd, t_now):
+        if not bool(self._params['chassis.obstacle_guard_enabled']):
+            return cmd,0.,False
+        timeout = float(self._params['chassis.obstacle_timeout_s'])
+        age = self._clock_seconds()-self._obstacle_stamp
+        if (self._obstacle_points is None or t_now-self._obstacle_received > timeout
+                or not -float(self._params['chassis.future_tolerance_s']) <= age <= timeout):
+            return np.zeros(2),0.,True
+        points = self._obstacle_points-self._base_xy
+        # 只保留足以覆盖当前速度的前瞻范围；不掩掉车体近处的障碍回波。
+        radius = (float(self._params['chassis.obstacle_clearance_m'])+
+                  float(self._params['chassis.v_max'])*float(self._params['chassis.obstacle_horizon_s'])+.3)
+        near = points[np.linalg.norm(points,axis=1)<=radius]
+        if not len(near):
+            return cmd,0.,False  # 有足量新鲜远处障碍点，近处未发现障碍。
+        return guard_velocity(cmd,near,
+            clearance=float(self._params['chassis.obstacle_clearance_m']),
+            horizon=float(self._params['chassis.obstacle_horizon_s']),
+            braking=float(self._params['chassis.obstacle_braking_mps2']))
+
     def _clock_seconds(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
@@ -336,6 +411,26 @@ class ChassisAdvisorNode(Node):  # type: ignore[misc]
             self._publish(np.zeros(2), 0., 0., False, valid=False)
             return
         mode = str(self._params['chassis.dir_mode']).lower()
+        if mode == 'direct':
+            # 比赛建议值，不接底盘执行器；不等待地图；默认比赛入口另用实时点云约束碰撞风险。
+            direction, distance = VelocityLaw.unit_direction(self._base_xy, self._cur_xy)
+            if distance < float(self._params['chassis.stop_radius_m']):
+                self._law.reset()
+                cmd = np.zeros(2)
+            else:
+                result = self._law.step(self._base_xy, self._cur_xy, dt, u_safe=direction,
+                                        blocked=False, track_status=self._track_status,
+                                        t_now=t_now, t_lost=None)
+                cmd = self._apply_v_floor(direction*float(np.linalg.norm(result['cmd'])), direction)
+            # 放在速度下限/平滑之后；后续不能再把受限速度放大到穿过障碍。
+            cmd,theta,blocked = self._guard_command(cmd,t_now)
+            if blocked:
+                self._law.reset()
+            if str(self._params['chassis.cmd_frame']) == 'base_link':
+                cmd = rotz2(-self._base_yaw) @ cmd
+            self._dist, self._theta, self._blocked = distance, theta, blocked
+            self._publish(cmd, distance, theta, blocked, valid=not blocked)
+            return
         adapter = self._clean_adapter if mode == 'analytic' else self._ray_adapter
         has_map = self._has_clean_grid if mode == 'analytic' else self._has_grid
         if mode not in ('analytic','quantized') or not bool(self._params['chassis.enable_avoidance']) or not has_map or adapter is None:

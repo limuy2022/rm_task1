@@ -57,6 +57,7 @@ def main():
         report['checks']['morning_can_stop_all_processes']=True
         log=(output/'afternoon.log').open('w')
         launch=subprocess.Popen(['bash',str(project/'tools/start_match.bash'),'port:='+os.ttyname(slave),
+                                 'map_mode:=saved','map_yaml:='+str(project/'maps/current/43_slam_map.yaml'),
                                  'output_dir:='+str(work/'score')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         probe=MatchProbe(master,launch)
         # 新会话对应原图中平移[.55,-.35]、旋转.65rad的位置，传感器不在上午原位。

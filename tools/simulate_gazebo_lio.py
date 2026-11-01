@@ -118,7 +118,7 @@ class GazeboLio(Node):
         self.lidar_offset = params['extrinsic_T']
         (output/'point_lio.yaml').write_text(yaml.safe_dump(config, allow_unicode=True))
         gazebo_share = Path(get_package_share_directory('team43_gazebo'))
-        self.world_source = Path(os.environ.get('RM_LIO_WORLD', str(gazebo_share/'worlds/lio_room.sdf'))).resolve()
+        self.world_source = Path(os.environ.get('RM_LIO_WORLD', str(gazebo_share/'worlds/corridor.sdf'))).resolve()
         self.world_source_sha256 = hashlib.sha256(self.world_source.read_bytes()).hexdigest()
         tree = ET.parse(self.world_source)
         tree.find('.//physics/real_time_factor').text = str(real_time_factor)
@@ -269,7 +269,7 @@ class GazeboLio(Node):
                 if phase < 4.:
                     cmd.linear.x = .3*envelope(phase)
                 else:
-                    cmd.angular.z = (math.pi/2/3.5)*envelope(phase-4.)
+                    cmd.linear.x = -.3*envelope(phase-4.)
         self.cmd_pub.publish(cmd)
 
     def pump(self):
@@ -304,7 +304,7 @@ class GazeboLio(Node):
             raise RuntimeError('仿真超过墙钟超时；保留传感器统计和日志')
         # 暂停物理世界后排空传感器/估计器队列，避免服务保存与地图定时发布
         # 恰好落在两帧之间，导致报告、PGM 和订阅地图对应不同快照。
-        pause = subprocess.run(['ign', 'service', '-s', '/world/lio_room/control',
+        pause = subprocess.run(['ign', 'service', '-s', '/world/corridor/control',
                     '--reqtype', 'ignition.msgs.WorldControl', '--reptype', 'ignition.msgs.Boolean',
                     '--timeout', '2000', '--req', 'pause: true'], capture_output=True, text=True, timeout=5.)
         (self.output/'pause.log').write_text(pause.stdout+pause.stderr)
@@ -331,9 +331,9 @@ class GazeboLio(Node):
         return self.evaluate(time.monotonic()-wall_start)
 
     def evaluate(self, elapsed_wall):
-        reference = Path(get_package_share_directory('team43_gazebo'))/'worlds/lio_room_regression.sdf'
+        reference = Path(get_package_share_directory('team43_gazebo'))/'worlds/corridor.sdf'
         if self.world_source_sha256 != hashlib.sha256(reference.read_bytes()).hexdigest():
-            raise ValueError('自定义 SDF 不适用标准房间的墙面/回波验收；不能据此判定算法失败。'
+            raise ValueError('自定义 SDF 不适用标准走廊的墙面/回波验收；不能据此判定算法失败。'
                              f'标准回归请设置 RM_LIO_WORLD={reference}')
         gt, estimate = np.asarray(self.truth), np.asarray(self.estimates)
         if len(gt) < 100 or len(estimate) < 100 or self.latest_map is None:
@@ -351,7 +351,7 @@ class GazeboLio(Node):
         msg = self.latest_map
         grid = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
         wall_coverage = []
-        for axis, wall, lo, hi in ((0, -4., -3., 3.), (0, 4., -3., 3.), (1, -3., -4., 4.), (1, 3., -4., 4.)):
+        for axis, wall, lo, hi in ((0, -4., -1.25, 1.25), (0, 4., -1.25, 1.25), (1, -1.25, -4., 4.), (1, 1.25, -4., 4.)):
             for v in np.arange(lo+.15, hi-.1, .05):
                 xy = [wall, v] if axis == 0 else [v, wall]
                 i, j = np.floor((np.array(xy)-ORIGIN)/RESOLUTION).astype(int)
@@ -359,7 +359,7 @@ class GazeboLio(Node):
         outside = []
         for y in np.arange(-3.8, 3.8, .1):
             for x in np.arange(-4.8, 4.8, .1):
-                if abs(x) > 4.2 or abs(y) > 3.2:
+                if abs(x) > 4.2 or abs(y) > 1.45:
                     i, j = np.floor((np.array([x, y])-ORIGIN)/RESOLUTION).astype(int)
                     outside.append(grid[j, i] == -1)
         imu = np.array(self.imus)
@@ -453,7 +453,7 @@ class GazeboLio(Node):
         def pixel(xy):
             x, y = (np.array(xy)-ORIGIN)/RESOLUTION
             return (float(x*scale), float((disk.shape[0]-y)*scale))
-        for a, b in (((-4, -3), (4, -3)), ((4, -3), (4, 3)), ((4, 3), (-4, 3)), ((-4, 3), (-4, -3))):
+        for a, b in (((-4, -1.25), (4, -1.25)), ((4, -1.25), (4, 1.25)), ((4, 1.25), (-4, 1.25)), ((-4, 1.25), (-4, -1.25))):
             draw.line([pixel(a), pixel(b)], fill=(30, 120, 240), width=2)
         draw.line([pixel(xy) for xy in gt_xy], fill=(20, 170, 60), width=4)
         draw.line([pixel(xy) for xy in estimated_xy], fill=(230, 60, 40), width=2)

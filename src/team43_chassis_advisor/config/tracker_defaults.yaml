@@ -17,7 +17,7 @@
     chassis.cmd_frame: map              # map | base_link
     chassis.rate_hz: 50.0
     # --- 赛题一方向项（权重 0.2，误差(度)/180）-------------------------
-    chassis.dir_mode: analytic          # analytic（连续解析）| quantized（旧 13 方向 12.5°）
+    chassis.dir_mode: analytic          # analytic（连续解析）| quantized（离散）| direct（无地图直接建议）
     chassis.dir_lookahead_m: 1.0        # 官方规定射线最长 1 m
     chassis.dir_block_unknown: true     # 未观测区域不当作可通过空地
     chassis.map_timeout_s: 0.0          # 静态锁存地图不失效；实时建图配置可设5秒
@@ -25,3 +25,9 @@
     chassis.v_floor: 0.30               # 远离目标时 |v| 下限（官方 <0.02 判停车记满分误差）
     chassis.stop_radius_m: 0.45         # 与官方 0.5 m 判据留 0.05 m 余量
 
+    # 比赛入口在direct模式显式开启；独立节点默认关闭此新增保护。
+    chassis.obstacle_guard_enabled: false
+    chassis.obstacle_clearance_m: 0.40
+    chassis.obstacle_timeout_s: 0.50
+    chassis.obstacle_horizon_s: 1.50
+    chassis.obstacle_braking_mps2: 0.50
