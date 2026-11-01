@@ -24,7 +24,7 @@
 CSV只追加，进程重启不得归档/覆盖已提交行；新轮由主办方清理。
 旧半行或损坏文件由写出器报错，不修改历史记录。
 目标和底盘按源stamp缓存，tick到来时外推到该tick及tick+0.1秒；过期或无效输入不继续
-冒充有效状态。建议只有来源有效时才使用，不在缺少绕障解时强造朝目标的速度。
+冒充有效状态。短时目标缺失仅对CSV位置作有界预测/保持，仍标记无效。建议只有来源有效时才使用，不在缺少绕障解时强造朝目标的速度。
 
 给定点（map 系原点）冻结：使用赛事明确提供的`/judge/replay_start`，向
 `/gimbal/origin_freeze` 发一条锁存 `Header`，由 `map_frame_broadcaster_node`
@@ -45,7 +45,9 @@ import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Header
+from std_msgs.msg import Header, UInt64
+from rcl_interfaces.msg import ParameterEvent
+from rclpy.qos import qos_profile_parameter_events
 from nav_msgs.msg import Odometry, OccupancyGrid
 from team43_interfaces.msg import ChassisAdvice, TargetState
 
@@ -67,6 +69,7 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     # 已确认当前赛题一输出九列。
     'judge.state_timeout_s': 0.2,
     'judge.observation_timeout_s': 0.5,
+    'judge.target_fallback_timeout_s': 0.5, # 仅CSV位置补偿，绝不使能运动或建议
     # 正式提交只能追加；新轮清理由主办方负责。自行测试使用新目录。
     'judge.fresh_run': False,
     # --- 运行时 -------------------------------------------------------------
@@ -126,7 +129,10 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._has_base = False
         self._has_advice = False
         self._sampler = TickSampler(float(self._params['judge.state_timeout_s']),
-                                    float(self._params['judge.observation_timeout_s']))
+                                    float(self._params['judge.observation_timeout_s']),
+                                    float(self._params['judge.target_fallback_timeout_s']))
+        self._epoch = None
+        self._n_target_fallback = 0
 
         # --- 拍状态 ---------------------------------------------------------
         self._tick_index: int = -1
@@ -150,6 +156,10 @@ class JudgeIoNode(Node):  # type: ignore[misc]
                                  self._on_tick, reliable_qos())
         self.create_subscription(Header, '/judge/replay_start',
                                  self._on_replay_start, latched_qos(1))
+        self.create_subscription(UInt64, '/task1/gimbal_reset_epoch',
+                                 self._on_epoch, latched_qos(1))
+        self.create_subscription(ParameterEvent, '/parameter_events',
+                                 self._on_target_parameters, qos_profile_parameter_events)
         self.create_subscription(TargetState, '/estimation/target_state',
                                  self._on_target, sensor_qos(10))
         self.create_subscription(Odometry, '/gimbal/base_pose',
@@ -174,6 +184,21 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         """回放起点信号 → 冻结给定点（map 系原点）。"""
         self._freeze_origin(msg)
 
+    def _on_epoch(self, msg: Any) -> None:
+        if self._epoch is not None and msg.data != self._epoch:
+            self._sampler.clear_target(self.get_clock().now().nanoseconds*1e-9)
+        self._epoch = msg.data
+
+    def _on_target_parameters(self, msg: Any) -> None:
+        if msg.node not in ('/aruco_detector_node', '/marker_pnp_node'):
+            return
+        stamp = _stamp_to_sec(msg.stamp)
+        if not math.isfinite(stamp) or stamp < self._replay_not_before:
+            return # 不用旧锁存参数事件清除当前目标。
+        if any(p.name == 'perception.target_digit' for p in
+               (*msg.new_parameters, *msg.changed_parameters, *msg.deleted_parameters)):
+            self._sampler.clear_target(stamp)
+
     def _freeze_origin(self, src_msg: Any) -> None:
         """向 /gimbal/origin_freeze 发锁存信号（只发一次）。"""
         stamp = _stamp_to_sec(src_msg.stamp)
@@ -188,6 +213,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             return
         self._origin_frozen = True
         self._replay_stamp = stamp
+        self._sampler.clear(not_before=stamp)
         self._log.info(f'接受本轮起点stamp={stamp:.6f}，通知地图冻结给定点')
         out = Header()
         out.stamp = src_msg.stamp
@@ -220,6 +246,10 @@ class JudgeIoNode(Node):  # type: ignore[misc]
             snap.prediction, snap.current, snap.base, snap.advice)
         self._has_target, self._has_base, self._has_advice = (
             snap.target_valid, snap.base_valid, snap.advice_valid)
+        if snap.target_fallback:
+            self._n_target_fallback += 1
+            if idx % 20 == 0:
+                self._log.warning('目标短时缺失：CSV使用有界预测/保持，观测仍无效，建议速度归零')
         if not all((self._has_target, self._has_base, self._has_advice)):
             if idx % 20 == 0:
                 self._log.warning(f'tick状态缺失/过期：target={self._has_target} '
@@ -238,7 +268,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         elif latency > float(self._params['judge.late_warn_s']):
             self._log.warning(f'第 {idx} 拍端到端 {latency*1e3:.1f} ms '
                               f'（接收前 {queue_age*1e3:.1f} ms，回调 {dt*1e3:.1f} ms；'
-                              '80 ms作废线，含评分端轮询须留余量）')
+                              '须在下一拍前可见，含评分端轮询须留余量）')
         if not ok:
             self._log.error(f'第 {idx} 拍写盘失败')
 
@@ -383,6 +413,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         self._writer.close()
         self._log.info(f'judge_io_node 退出: ticks={self._n_tick} rows={st["rows"]} '
                        f'guarded={st["n_guarded"]} dropped={st["n_dropped"]} '
+                       f'target_fallback={self._n_target_fallback} '
                        f'→ {st["path"]}')
 
 

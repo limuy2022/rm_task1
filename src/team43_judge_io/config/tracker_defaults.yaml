@@ -6,11 +6,12 @@
     judge.team_id: "43"
     judge.output_dir: ~/ws_championship/output
     judge.fresh_run: false            # 主办方赛前清理；节点重启必须继续追加
+    judge.target_fallback_timeout_s: 0.5 # CSV位置短时补偿；0关闭，不解除任何运动保护
     judge.enforce_v_floor: false        # advisor已保留非零速度；不把接近减速重新抬至0.30
     judge.v_floor: 0.30
     judge.stop_radius_m: 0.45
     judge.watchdog_period_s: 0.2
-    judge.late_warn_s: 0.05             # 单行写盘耗时告警（官方作废线80ms；此项只测回调写盘耗时）
+    judge.late_warn_s: 0.05             # tick到flush端到端50ms告警；题目要求下一拍前可见（10Hz约100ms）
     judge.map_save_period_s: 10.0       # 周期保存，防意外中断
     judge.map_idle_save_s: 0.7          # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
     judge.map_occupied_thresh: 0.65

@@ -195,6 +195,8 @@ def judge_node(output_dir):
     app._has_target = app._has_base = app._has_advice = False
     app._sampler = TickSampler(float(params['judge.state_timeout_s']),
                                 float(params['judge.observation_timeout_s']))
+    app._n_target_fallback = 0
+    app._epoch = None
     app._tick_index = -1
     app._n_tick = 0
     app._t_last_tick_mono = time.monotonic()
