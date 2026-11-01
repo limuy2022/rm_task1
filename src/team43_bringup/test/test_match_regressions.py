@@ -165,7 +165,8 @@ def test_queue_delay_is_included_even_when_callback_is_fast(tmp_path):
     app._writer.close()
 
 
-def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path):
+@pytest.mark.parametrize('target_id', [-1, 0, 49])
+def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, target_id):
     mod = load('match_launch_regression', 'src/team43_bringup/launch/match.launch.py')
     driver = tmp_path/'livox.json'
     # 使用CLI生成与现场相同的JSON，避免测试复制驱动配置。
@@ -177,7 +178,7 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path):
     data=yaml.safe_load((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_text())
     data['/**']['ros__parameters']={k:v for k,v in data['/**']['ros__parameters'].items() if not k.startswith('grid.')}
     config.write_text(yaml.safe_dump(data))
-    context.launch_configurations.update(target_id='-1',run_dir=str(tmp_path),
+    context.launch_configurations.update(target_id=str(target_id),run_dir=str(tmp_path),
         map_yaml=str(ROOT/'maps/43_map.yaml'),
         vehicle_config=str(config), livox_config=str(driver),
         camera_config=str(camera), controller_params=str(ROOT/'src/team43_control/config/visual_tracking.yaml'),
@@ -189,7 +190,11 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path):
     from launch_ros.utilities import evaluate_parameters
     for node in nodes:
         # 单模块创建后延后到父context执行；这里验证没有悬空的子launch参数。
-        evaluate_parameters(context, node._Node__parameters)
+        values = evaluate_parameters(context, node._Node__parameters)
+        if node.node_executable in ('aruco_detector_node', 'marker_pnp_node'):
+            selected = next(v['perception.target_digit'] for v in reversed(values)
+                            if isinstance(v, dict) and 'perception.target_digit' in v)
+            assert selected == target_id
     assert executable.count('aruco_detector_node') == executable.count('marker_pnp_node') == 1
     assert executable.count('robo_bridge_node') == 1
     assert not {'saved_map_node','cloud_mapping_node','corridor_map_node'} & set(executable)

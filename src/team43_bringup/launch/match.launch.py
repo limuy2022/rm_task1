@@ -144,7 +144,8 @@ def _setup(context):
         'bridge_respawn', default='true').perform(context).lower() in ('1', 'true', 'yes')
     bridge_watch = (_respawn_on_device_absent(bridge, robo_bridge) if respawn_bridge
                     else _critical(bridge))
-    return [LogInfo(msg='启动处理与控制链；复制固定地图，LIO和实时防撞独立运行；target_id=-1等待裁判通知')] + [
+    target_message = '等待裁判通知' if target == -1 else f'跟踪ID {target}'
+    return [LogInfo(msg=f'启动处理与控制链；复制固定地图，LIO和实时防撞独立运行；target_id={target}，{target_message}')] + [
         _critical(node) for node in hardware if isinstance(node,Node) and node is not bridge
     ] + [bridge_watch] + hardware + _ready(context)
 
