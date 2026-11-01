@@ -1,6 +1,6 @@
 # 工具入口
 
-走廊比赛：下午 `bash tools/start_match.bash` 默认 `map_mode=corridor`，不加载上午旧图或等待重定位；地图不参与评分链，建议速度不依赖地图，默认用实时点云避障，点云无效时建议归零。裁判给ID后 `bash tools/set_target.bash ID`，确认跟踪、LIO与参考对齐后开赛。`map_mode:=none` 可完全不生成地图。默认装车参数为已安装的 `team43_bringup/config/vehicle_field.yaml`。
+比赛：`bash tools/start_match.bash` 默认 `map_mode=copy`，从项目maps目录复制第一张选定地图到正式output，保留上午坐标，不启动运行时地图写出器。CSV、LIO和实时点云防撞独立运行；裁判给ID后 `bash tools/set_target.bash ID`。地图随源码一起上传。
 
 所有验证在根 `Dockerfile` 的 ROS 2 Humble 容器中运行，完整命令见
 [测试运行指南](../docs/教程/测试运行指南.md)。
@@ -15,7 +15,7 @@
 | NUC本队Livox驱动构建 | `bash tools/build_livox.bash`；网络配置用`ros2 run team43_bringup configure_livox`生成，见[整体部署](../docs/教程/整体部署.md#雷达驱动由谁启动) |
 | 原始录制专项验收 | `verify_record.py --output-dir 新目录`；包含真实DDS、分片、原样读回、播放、相机与锁存epoch，已纳入全量编排 |
 | 全量离线核验 | `verify_all_offline.py`；标准流程先跑 `pytest src`，再加 `--skip-pytest` |
-| 走廊默认链 / 完全无图链 | `verify_match_workflow.py --map-mode corridor` / `--map-mode none`；另传 `--count 100 --output-dir 新目录`，均仅限隔离容器 |
+| 走廊默认链 / 完全无图链 | `verify_match_workflow.py --map-mode copy` / `--map-mode none`；另传 `--count 100 --output-dir 新目录`，均仅限隔离容器 |
 | 从已有地图估计走廊宽度 | 容器内 `python3 -B tools/fit_corridor.py 地图1.yaml 地图2.yaml --output 新报告.json`；输出估计与源哈希，不覆盖地图 |
 | 分时赛程跨会话验证 | 容器内 `python3 -B tools/verify_split_session.py --count 9000 --output-dir build/offline/split_01`；上午实际保存/停机、下午换位重定位并验证15分钟写盘 |
 | 实时建图兼容路径演练 | 容器内 `python3 -B tools/verify_match_workflow.py --count 1800 --output-dir build/offline/match_workflow_01`；真实启动脚本、Point-LIO、视觉、控制、CSV、地图与串口PTY，硬件驱动替换为无SDK进程 |

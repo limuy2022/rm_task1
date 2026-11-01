@@ -22,6 +22,7 @@ def test_map_origin_yaw_preserved(tmp_path):
     log = NS(error=lambda *a: None, warning=lambda *a: None)
     obj = JudgeIoNode.__new__(JudgeIoNode)
     obj._log = log
+    obj._params = {'judge.map_write_enabled':True}
     q = Quaternion(w=math.cos(.4), x=0., y=0., z=math.sin(.4))
     msg = OccupancyGrid()
     msg.header.frame_id = 'map'

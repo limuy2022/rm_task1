@@ -185,7 +185,7 @@ def test_session_rejects_epoch_mismatch_and_unconfirmed_work_interval(tmp_path):
     with pytest.raises(ValueError, match='工作区间'): verified_match_params(path, 42)
 
 
-@pytest.mark.parametrize('map_mode', ['live', 'saved', 'corridor', 'none'])
+@pytest.mark.parametrize('map_mode', ['live', 'saved', 'corridor', 'none', 'copy'])
 def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_mode):
     mod = load('match_launch_regression', 'src/team43_bringup/launch/match.launch.py')
     driver = tmp_path/'livox.json'
@@ -204,7 +204,7 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
         saved = write_map(str(tmp_path/'morning'),gm)['yaml']
     else:saved = ''
     context.launch_configurations.update(target_id='-1', run_dir=str(tmp_path), map_mode=map_mode,
-        map_yaml=saved,
+        map_yaml=str(ROOT/'maps/43_map.yaml') if map_mode=='copy' else saved,
         vehicle_config=str(config), livox_config=str(driver),
         camera_config=str(camera), controller_params=str(ROOT/'src/team43_control/config/visual_tracking.yaml'),
         lio_config=str(ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml'),
@@ -239,12 +239,15 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     if map_mode == 'saved':
         assert yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']['chassis.map_timeout_s'] == 0.
     runtime = yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']
-    if map_mode in ('corridor','none'):
+    if map_mode in ('copy','corridor','none'):
         assert runtime['chassis.dir_mode'] == 'direct'
         assert runtime['chassis.enable_avoidance'] is False
         assert runtime['chassis.obstacle_guard_enabled'] is True
         assert runtime['chassis.obstacle_floor_valid'] is True
         assert not saved
+    if map_mode == 'copy':
+        assert runtime['judge.map_write_enabled'] is False
+        assert (tmp_path/'output/43_map.pgm').read_bytes() == (ROOT/'maps/43_map.pgm').read_bytes()
     if map_mode == 'corridor':
         model = next(x for x in nodes if x.node_executable == 'corridor_map_node')
         event_model = ProcessExited(action=model,returncode=1,name='model',cmd=['unused'],cwd=None,env=None,pid=2)

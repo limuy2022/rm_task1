@@ -76,6 +76,7 @@ PARAM_DEFAULTS: Dict[str, Any] = {
     'judge.watchdog_period_s': 0.2,    # 迟到/丢拍看门狗周期
     'judge.late_warn_s': 0.05,         # tick源stamp到flush完成的端到端告警阈值
     # --- 地图落盘 -----------------------------------------------------------
+    'judge.map_write_enabled': True,   # copy模式关闭，避免覆盖预先复制的地图。
     'judge.map_save_period_s': 10.0,   # 周期保存（防意外中断）
     'judge.map_idle_save_s': 0.7,      # 最后一拍后 0.7 s 内保存（官方 1 s 后复制）
     'judge.map_occupied_thresh': 0.65,
@@ -275,6 +276,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
 
     def _on_grid(self, msg: Any) -> None:
         """缓存栅格地图（干净三态，用于落盘）。"""
+        if not self._params.get('judge.map_write_enabled',True):return
         try:
             if msg.header.frame_id != 'map':
                 raise ValueError('提交地图必须已经换到比赛map，不能只改名')
@@ -347,7 +349,7 @@ class JudgeIoNode(Node):  # type: ignore[misc]
         Returns:
             bool：成功为 True。
         """
-        if self._grid is None:
+        if not self._params.get('judge.map_write_enabled',True) or self._grid is None:
             return False
         self._t_last_map_save = time.monotonic()
         from team43_grid_mapper.pgm_io import write_map_pair

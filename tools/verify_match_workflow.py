@@ -68,6 +68,8 @@ def generate_launch_description():
         SetRemap(src='/judge/replay_start',dst='/test/match/start'),*actual.entities])
 ''' % str(real_launch))
     project=work/'project';(project/'tools').mkdir(parents=True)
+    (project/'maps').mkdir()
+    for name in ('43_map.pgm','43_map.yaml'):shutil.copy2(ROOT/'maps'/name,project/'maps'/name)
     for name in ('start_match.bash','set_target.bash','set_target.py',
                  'start_mapping.bash','save_mapping.bash','save_mapping.py','record.bash','record.py'):
         shutil.copy2(ROOT/'tools'/name,project/'tools'/name)
@@ -205,7 +207,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--count',type=int,default=30)
-    parser.add_argument('--map-mode',choices=('live','corridor','none'),default='live')
+    parser.add_argument('--map-mode',choices=('live','corridor','none','copy'),default='live')
     args=parser.parse_args()
     if not Path('/.dockerenv').exists() or ROOT!=Path('/workspace'):
         parser.error('只允许在挂载到/workspace的隔离Docker容器运行')
@@ -222,7 +224,7 @@ def main():
         master,slave=os.openpty();tty.setraw(slave);os.set_blocking(master,False)
         log=(output/'match.log').open('w')
         launch=subprocess.Popen(['bash',str(project/'tools/start_match.bash'),'port:='+os.ttyname(slave),
-                                 *(['map_mode:='+args.map_mode] if args.map_mode!='corridor' else []),
+                                 *(['map_mode:='+args.map_mode] if args.map_mode!='copy' else []),
                                  'output_dir:='+str(work/'score')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         rclpy.init();probe=MatchProbe(master,launch,corridor=args.map_mode=='corridor')
         probe.wait(lambda: len(probe.statuses)>5 and (args.map_mode!='live' or
@@ -242,15 +244,20 @@ def main():
         tail=np.asarray([[float(v) for v in row.split(',')] for row in probe.rows_seen[-min(10,args.count):]])
         assert np.max(np.linalg.norm(tail[:,2:4]-[1.2625,-.03],axis=1))<.1,'目标坐标没有按本轮装车配置落到比赛起点系'
         assert np.max(np.linalg.norm(tail[:,4:6],axis=1))<.05,'静止底盘位置未归零'
-        if args.map_mode!='none':
+        if args.map_mode in ('live','corridor'):
             probe.wait(lambda: bool(probe.grids),15.)
             assert (work/'score/43_map.pgm').is_file() and (work/'score/43_map.yaml').is_file(),'正式地图未保存'
         else:
             assert not probe.grids,'无图模式不应伪造地图'
             report['checks']['csv_and_nonzero_advice_without_any_map']=bool(any(a.valid and np.hypot(a.cmd_vx,a.cmd_vy)>.02 for a in probe.advice))
             assert report['checks']['csv_and_nonzero_advice_without_any_map']
+            if args.map_mode=='copy':
+                import yaml
+                assert (work/'score/43_map.pgm').read_bytes() == (project/'maps/43_map.pgm').read_bytes(),'复制PGM被覆盖'
+                assert yaml.safe_load((work/'score/43_map.yaml').read_text()) == yaml.safe_load((project/'maps/43_map.yaml').read_text()),'复制YAML参数被改变'
+                report['checks']['selected_map_copied_and_not_overwritten']=True
         report['checks']['replay_origin_target_base_advice_csv']=True
-        report['checks']['map_matches_requested_mode']=bool(probe.grids) == (args.map_mode!='none')
+        report['checks']['map_matches_requested_mode']=bool(probe.grids) == (args.map_mode in ('live','corridor'))
         first=len(probe.commands);probe.send_images=False;probe.check_stop(first)
         report['checks']['camera_loss_stops_real_cpp_bridge']=True
         probe.send_images=True;first=len(probe.commands)

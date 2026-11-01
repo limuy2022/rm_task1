@@ -34,6 +34,8 @@ def _setup(context):
              ('team43_grid_mapper', 'grid_mapper_node'), ('team43_chassis_advisor', 'chassis_advisor_node')]
     if LaunchConfiguration('with_perception').perform(context).lower() != 'true':
         nodes = [(pkg, exe) for pkg, exe in nodes if pkg != 'team43_perception']
+    if LaunchConfiguration('with_map',default='true').perform(context).lower() != 'true':
+        nodes = [(pkg,exe) for pkg,exe in nodes if pkg != 'team43_grid_mapper']
     result = [LogInfo(msg='处理已有LIO、IMU反馈与几何变换；direct建议模式不依赖地图；此处理链不输出电机指令')]
     parent = str(params['localization.odom_frame_id'])
     if parent != 'odom':
@@ -64,6 +66,7 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_config', default_value=os.path.join(share,'config','camera_team43.yaml')),
         DeclareLaunchArgument('target_id', default_value='-1'),
         DeclareLaunchArgument('with_perception', default_value='true'),
+        DeclareLaunchArgument('with_map', default_value='true'),
         DeclareLaunchArgument('shutdown_on_exit', default_value='false'),
         DeclareLaunchArgument('submission', default_value='false'),
         DeclareLaunchArgument('team_id', default_value='43'),
