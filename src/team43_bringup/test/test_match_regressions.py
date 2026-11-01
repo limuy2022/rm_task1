@@ -165,28 +165,7 @@ def test_queue_delay_is_included_even_when_callback_is_fast(tmp_path):
     app._writer.close()
 
 
-def vehicle(tmp_path):
-    params = yaml.safe_load((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_text())['/**']['ros__parameters']
-    for key in params:
-        if key.endswith('confirmed') or key.endswith('joint_zero_known'): params[key] = True
-    params['kinematics.calibrated_epoch'] = 42
-    path = tmp_path/'vehicle.yaml'; path.write_text(yaml.safe_dump({'/**': {'ros__parameters': params}}))
-    return path
-
-
-def test_session_rejects_epoch_mismatch_and_unconfirmed_work_interval(tmp_path):
-    from team43_bringup.match_session import verified_match_params
-    path = vehicle(tmp_path)
-    assert verified_match_params(path, 42)
-    for epoch in (None, 41):
-        with pytest.raises(ValueError, match='世界对齐'): verified_match_params(path, epoch)
-    data = yaml.safe_load(path.read_text()); data['/**']['ros__parameters']['kinematics.joint_limits_confirmed'] = False
-    path.write_text(yaml.safe_dump(data))
-    with pytest.raises(ValueError, match='工作区间'): verified_match_params(path, 42)
-
-
-@pytest.mark.parametrize('map_mode', ['live', 'saved', 'corridor', 'none', 'copy'])
-def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_mode):
+def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path):
     mod = load('match_launch_regression', 'src/team43_bringup/launch/match.launch.py')
     driver = tmp_path/'livox.json'
     # 使用CLI生成与现场相同的JSON，避免测试复制驱动配置。
@@ -195,16 +174,11 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     camera = ROOT/'src/team43_bringup/config/camera_team43.yaml'
     context = LaunchContext()
     config = tmp_path/'measured_values.yaml'
-    config.write_bytes((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_bytes())
-    if map_mode == 'saved':
-        from team43_grid_mapper.grid_builder import GridMap
-        from team43_grid_mapper.pgm_io import write_map
-        grid = np.zeros((30,30), np.int8);grid[0,:] = 100
-        gm = GridMap.from_arrays(grid,.05,[0,0],inflation_radius_m=0.)
-        saved = write_map(str(tmp_path/'morning'),gm)['yaml']
-    else:saved = ''
-    context.launch_configurations.update(target_id='-1', run_dir=str(tmp_path), map_mode=map_mode,
-        map_yaml=str(ROOT/'maps/43_map.yaml') if map_mode=='copy' else saved,
+    data=yaml.safe_load((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_text())
+    data['/**']['ros__parameters']={k:v for k,v in data['/**']['ros__parameters'].items() if not k.startswith('grid.')}
+    config.write_text(yaml.safe_dump(data))
+    context.launch_configurations.update(target_id='-1',run_dir=str(tmp_path),
+        map_yaml=str(ROOT/'maps/43_map.yaml'),
         vehicle_config=str(config), livox_config=str(driver),
         camera_config=str(camera), controller_params=str(ROOT/'src/team43_control/config/visual_tracking.yaml'),
         lio_config=str(ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml'),
@@ -218,9 +192,7 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
         evaluate_parameters(context, node._Node__parameters)
     assert executable.count('aruco_detector_node') == executable.count('marker_pnp_node') == 1
     assert executable.count('robo_bridge_node') == 1
-    assert ('saved_map_node' in executable) == (map_mode == 'saved')
-    assert ('cloud_mapping_node' in executable) == (map_mode == 'live')
-    assert ('corridor_map_node' in executable) == (map_mode == 'corridor')
+    assert not {'saved_map_node','cloud_mapping_node','corridor_map_node'} & set(executable)
     # robo_bridge 挂的是设备缺席重试处理器（on_exit 为可调用对象），
     # 而非其余关键进程的 _critical（on_exit 为含 Shutdown 的动作列表）。
     from launch.actions import RegisterEventHandler
@@ -236,22 +208,13 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     assert 'match_session_gate' not in executable and 'visual_servo_node' in executable
     assert 'judge_io_node' not in executable
     snapshot = tmp_path/'vehicle_runtime.yaml'
-    if map_mode == 'saved':
-        assert yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']['chassis.map_timeout_s'] == 0.
     runtime = yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']
-    if map_mode in ('copy','corridor','none'):
-        assert runtime['chassis.dir_mode'] == 'direct'
-        assert runtime['chassis.enable_avoidance'] is False
-        assert runtime['chassis.obstacle_guard_enabled'] is True
-        assert runtime['chassis.obstacle_floor_valid'] is True
-        assert not saved
-    if map_mode == 'copy':
-        assert runtime['judge.map_write_enabled'] is False
-        assert (tmp_path/'output/43_map.pgm').read_bytes() == (ROOT/'maps/43_map.pgm').read_bytes()
-    if map_mode == 'corridor':
-        model = next(x for x in nodes if x.node_executable == 'corridor_map_node')
-        event_model = ProcessExited(action=model,returncode=1,name='model',cmd=['unused'],cwd=None,env=None,pid=2)
-        assert not any(a.event_handler.matches(event_model) for a in actions if isinstance(a,RegisterEventHandler))
+    assert runtime['chassis.dir_mode'] == 'direct'
+    assert runtime['chassis.enable_avoidance'] is False
+    assert runtime['chassis.obstacle_guard_enabled'] is True
+    assert runtime['chassis.obstacle_floor_valid'] is True
+    assert runtime['judge.map_write_enabled'] is False
+    assert (tmp_path/'output/43_map.pgm').read_bytes() == (ROOT/'maps/43_map.pgm').read_bytes()
     assert runtime['kinematics.require_confirmation'] is False
     assert runtime['kinematics.bind_current_epoch'] is True
     assert runtime['kinematics.calibration_confirmed'] is False
@@ -271,56 +234,6 @@ def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_
     assert overrides['bind_current_epoch'] is True
     assert overrides['calibrated_epoch'] == -1
 
-
-def test_gate_real_dds_waits_then_snapshots_current_epoch(tmp_path):
-    import time
-    import rclpy
-    from rclpy.context import Context
-    from rclpy.node import Node as RosNode
-    from rclpy.parameter import Parameter
-    from rclpy.executors import SingleThreadedExecutor
-    from std_msgs.msg import UInt64
-    from team43_common.qos_utils import latched_qos
-    from team43_bringup.match_session import MatchSessionGate
-    config = vehicle(tmp_path)
-    data = yaml.safe_load(config.read_text())
-    data['/**']['ros__parameters']['kinematics.calibrated_epoch'] = 41
-    config.write_text(yaml.safe_dump(data))
-    snapshot = tmp_path/'snapshot.yaml'
-    context = Context(); rclpy.init(context=context)
-    executor = SingleThreadedExecutor(context=context)
-    gate = MatchSessionGate(context=context, use_global_arguments=False,
-        cli_args=['--ros-args', '-r', '/task1/gimbal_reset_epoch:=/test/match_gate/epoch',
-                  '-r', '/team43/slam_map:=/test/match_gate/map',
-                  '-r', '/team43/match_session:=/test/match_gate/status'],
-        parameter_overrides=[Parameter('vehicle_config', value=str(config)),
-                             Parameter('snapshot', value=str(snapshot))])
-    source = RosNode('match_gate_test_source', context=context)
-    epoch_pub = source.create_publisher(UInt64, '/test/match_gate/epoch', latched_qos(1))
-    map_pub = source.create_publisher(OccupancyGrid, '/test/match_gate/map', latched_qos(1))
-    executor.add_node(gate); executor.add_node(source)
-    try:
-        epoch_pub.publish(UInt64(data=42))
-        msg = grid(); msg.header.frame_id = 'lio_world'; map_pub.publish(msg)
-        deadline = time.monotonic()+5.
-        while (gate.epoch is None or gate.map_received is None) and time.monotonic() < deadline:
-            executor.spin_once(timeout_sec=.05)
-        assert gate.epoch == 42 and gate.map_received is not None
-        gate.poll(); assert not gate.ready and not snapshot.exists()
-        # 首次部署尚无vehicle43.yaml，或人工编辑时文件暂为空/结构错误：
-        # 应继续发布waiting，不抛异常让launch关闭硬件；随后补齐同一文件即可交接。
-        config.unlink()
-        gate.poll(); assert not gate.ready and not snapshot.exists()
-        assert '配置文件不存在' in gate.last_reason
-        for invalid in ('', '[]', '/**: {}', '/**: ['):
-            config.write_text(invalid)
-            gate.poll(); assert not gate.ready and not snapshot.exists()
-        data['/**']['ros__parameters']['kinematics.calibrated_epoch'] = 42
-        config.write_text(yaml.safe_dump(data)); gate.poll()
-        assert gate.ready
-        assert yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']['kinematics.calibrated_epoch'] == 42
-    finally:
-        executor.shutdown(); gate.destroy_node(); source.destroy_node(); rclpy.shutdown(context=context)
 
 
 def test_simulator_rejects_default_domain_and_only_publishes_test_topics():
@@ -351,7 +264,8 @@ def test_shared_processing_has_no_second_detector_and_monitors_critical_nodes(tm
     processing = load('match_processing_regression', 'src/team43_bringup/launch/processing.launch.py')
     from launch.actions import RegisterEventHandler
     context = LaunchContext()
-    context.launch_configurations.update(vehicle_config=str(vehicle(tmp_path)),
+    context.launch_configurations.update(vehicle_config=str(ROOT/'src/team43_bringup/config/vehicle_field.yaml'),
+        require_confirmation='false',with_map='false',
         camera_config=str(ROOT/'src/team43_bringup/config/camera_team43.yaml'),
         target_id='3', submission='true', team_id='43', output_dir=str(tmp_path/'output'),
         with_perception='false', shutdown_on_exit='true')
@@ -360,6 +274,7 @@ def test_shared_processing_has_no_second_detector_and_monitors_critical_nodes(tm
     executables = [a.node_executable for a in nodes]
     assert 'aruco_detector_node' not in executables and 'marker_pnp_node' not in executables
     assert executables.count('judge_io_node') == 1
+    assert 'grid_mapper_node' not in executables
     assert len([a for a in actions if isinstance(a, RegisterEventHandler)]) == len(nodes)
 
 

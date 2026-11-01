@@ -7,12 +7,13 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+import yaml
 import rclpy
 from rclpy.parameter import Parameter
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_srvs.srv import Trigger
 from team43_common.qos_utils import sensor_qos,latched_qos
-from team43_grid_mapper.saved_map import SavedMap
+from team43_grid_mapper.pgm_io import read_pgm,pgm_to_grid
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -61,9 +62,12 @@ def main():
         assert len(poses)>20 and grids,'回放没有产生足够的LIO位姿和地图'
         future=client.call_async(Trigger.Request());rclpy.spin_until_future_complete(node,future,timeout_sec=5)
         assert future.done() and future.result().success
-        saved=SavedMap(output/'rebuilt/43_slam_map.yaml')
+        meta=yaml.safe_load((output/'rebuilt/43_slam_map.yaml').read_text())
+        pixels,maximum=read_pgm(str(output/'rebuilt'/meta['image']))
+        saved_grid=pgm_to_grid(pixels,meta['occupied_thresh'],meta['free_thresh'],meta['negate'],maximum)
+        assert (saved_grid==100).sum()>=20 and (saved_grid==0).sum()>=20,'重建地图缺少有效占用或空闲观测'
         report.update(passed=True,lio_poses=len(poses),maps_received=len(grids),
-                      occupied_cells=int((saved.grid==100).sum()),free_cells=int((saved.grid==0).sum()),
+                      occupied_cells=int((saved_grid==100).sum()),free_cells=int((saved_grid==0).sum()),
                       checks={'raw_record_complete':True,'new_lio_process_from_bag':True,'new_map_saved_from_raw_bag':True})
         if args.record_project:report['checks']['actual_record_bash_env_and_arguments']=True
     except Exception as exc:

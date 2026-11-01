@@ -33,7 +33,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'match_session_gate = team43_bringup.match_session:main',
             'configure_livox = team43_bringup.livox_config:main',
         ],
     },

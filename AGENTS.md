@@ -53,18 +53,18 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 - 文档、注释与 commit message 用中文；commit 走 conventional 前缀（`ci:` / `refactor:` / `test:` / `fix:` 等）。
 - 台架与独立节点保持运动默认关闭；按用户比赛操作要求，`start_match.bash`/`match.launch.py`直接启动全链并默认`motion_enabled=true`、`continuous=true`。只读采样和标定必须显式传`motion_enabled:=false`，故障/反馈/限位保护继续生效。
 
-比赛流程：先运行`tools/start_match.bash`（默认target_id=-1），裁判给ID后运行`tools/set_target.bash ID`，确认跟踪后裁判启动客户端。比赛入口不使用match_session_gate，不等待confirmed开关或预填epoch匹配；沿用文件中的几何和旋转数值，首次反馈绑定当前epoch，运行中复位仍锁停。
+比赛流程：先运行`tools/start_match.bash`（默认target_id=-1），裁判给ID后运行`tools/set_target.bash ID`，确认跟踪后裁判启动客户端。比赛入口不等待confirmed开关或预填epoch匹配；沿用文件中的几何和旋转数值，首次反馈绑定当前epoch，运行中复位仍锁停。
 
 评分起点：校内赛环境说明保证赛题一第0拍同时发布`/judge/replay_start`（Header、transient_local、frame_id为record或replay）。以本轮有效replay_start的stamp冻结原点，不用tick替代。保留旧锁存起点过滤，并允许tick与replay_start以任意回调顺序到达；CSV仍逐tick立即写行。
 
 本轮vehicle_field.yaml已由data/现场外参记录.md生成用户授权的近似配置：镜头前端/银圈代理传感器原点，固定轴向采用理想模型。该配置开启kinematics.align_world_at_start；启动前底盘静止、相机水平朝车头，首组同步姿态自动求世界对齐，运行中复位保护继续生效。start_match.bash固定默认加载本轮vehicle_field.yaml，其他配置通过vehicle_config显式指定；不要把近似标成独立精度验收通过。
 
-当前走廊比赛方案（2026-11-01）：用户确认地图不参与评分、建议速度仅输出，不依赖地图规划；随后要求建议应考虑撞墙。start_match/match.launch默认map_mode=copy，从maps/43_map.pgm/yaml复制交付文件，不读取maps/current，不启动saved_map_node或等待跨会话重定位。LIO、雷达到底盘中心外参、云台世界对齐、正式replay_start原点及逐tick CSV保持。运行快照设chassis.dir_mode=direct、enable_avoidance=false；缺图不阻塞建议。direct模式先算目标方向，再以实时cloud_registered（lio_world→map的实际TF）作障碍保护：启用obstacle_guard_enabled，地面沿用LIO近似，底盘长宽按用户20～30cm的上限近似，中心距障碍0.4m并计入点云离散误差。前瞻1.5秒、建议制动模型0.5m/s²，必要时限速/转向/归零；速度下限不得覆盖保护结果。点云0.5秒过期、坏包、无TF或地面无效时建议归零，但CSV继续；底盘/目标/观测过期与丢失、近距离停止、限速保持。显式corridor实验模式的corridor_map_node只用当前点云拟合平行墙生成可选示意图，不修改LIO、不参与建议；失败或退出不得关闭评分链。上午两图宽度估计2.500/2.487m，安装corridor_model.yaml用中值约2.494m筛选候选，不能标为实测验收。模型40m纵向范围仅是显示窗口，不是门间长度，不虚构端墙。
+当前比赛只有固定地图交付路径：start_match从maps/43_map.pgm与43_map.yaml复制到output，保留上午源坐标，不做跨会话重定位、两线模型生成或运行时建图。map_mode参数和其分支、saved_map与corridor模型节点、旧比赛会话门控已删除。processing固定with_map=false、judge.map_write_enabled=false，避免覆盖交付图。maps只保留两文件并随源码上传。LIO、安装外参、云台启动世界对齐、正式replay_start和逐tick CSV保持。
 
-map_mode=none可完全关闭地图输出；saved/live保留作显式实验模式。saved模式必须显式传map_yaml，运行快照仍设chassis.map_timeout_s=0.0；不通过重发伪造源stamp。旧图重定位测试须显式指定saved和地图路径，不得依赖比赛默认值。上午start_mapping/save_mapping及record仍可独立采集，既有原件保留。
+建议使用direct加实时cloud_registered障碍保护，底盘20～30cm按上限近似，中心保护距离0.4m并计离散误差，前瞻1.5秒、建议制动模型0.5m/s²；必要时限速/偏转/归零，不得用速度下限覆盖保护。点云0.5秒过期、坏包、TF/地面无效或底盘/目标过期丢失时归零，但CSV继续。独立start_mapping/record仍可采集，save_mapping归档到records/mapping_archives，不更新maps或旧链接。
 
 原始数据：tools/record.bash是只读ROS bag录制入口，默认完整点云/雷达IMU，--with-camera额外相机/云台；不会启动驱动或运动。必须在原始数据中保留5～10秒静止供离线初始化，结束等待Ctrl+C收尾和SQLite/metadata计数校验。verify_record已纳入verify_all_offline（20项），跨会话长测使用独立评分源match_tick_source和独立CSV观察器，不让大图像与评分共用DDS发送进程；时限不放宽。
 
 Gazebo仅保留src/team43_gazebo/worlds/corridor.sdf（8×2.5m测试走廊，非实测长度），删除原房间、Blender与STL模型。主要回归为tools/simulate_gazebo_corridor.py，CI的gazebo_lio运行此工具；视觉仿真也只以走廊为基础添加相机和目标码，不增加箱体场景。墙宽、防撞与LIO精度分项判断，任何必需判据失败均不得称全绿。
 
-当前地图交付方案：用户选定第一张data/survey_20261101_105202_506921，maps只保留43_map.pgm和43_map.yaml，image改为43_map.pgm，PGM像素、分辨率和上午origin保持。start_match/match.launch默认map_mode=copy，从本队maps复制到正式output，保留源坐标，不声称变成下午map。复制失败仅提示，不阻塞CSV。copy模式processing with_map=false、judge.map_write_enabled=false，停用运行地图生成/转换/写出，避免覆盖复制文件。LIO、replay_start、云台世界对齐和实时防撞保持；copy/corridor/none均使用direct加实时障碍保护。maps的这两个文件纳入源码交付，部署归档不得排除maps。corridor/saved/live仅作显式实验模式。
+Gazebo LIO参数必须由sensor_config.simulation_lio_parameters从装车配置生成，只适配坐标/单位/接口/量程，不静默覆盖map_resolution或space_downsample_leaf_size等估计器参数。此前0.15m覆盖曾产生82.2cm误差，恢复装车0.20m后同数据与实时Gazebo最大误差约2.02cm；实机仍需独立验收。上游核心保持未修改，无效PCA秩检查候选已撤销，仅审计目录保留失败证据。

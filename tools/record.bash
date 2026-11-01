@@ -7,8 +7,6 @@ if [[ ${1:-} == --help ]]; then
   python3 -B "$TRACK_WS/tools/record.py" --help
   exit 0
 fi
-source /opt/ros/humble/setup.bash
-source "$TRACK_WS/.livox/env.bash"
-source "$TRACK_WS/install/local_setup.bash"
+source "$TRACK_WS/tools/env.bash"
 export ROS_LOCALHOST_ONLY=1
 exec python3 -B "$TRACK_WS/tools/record.py" "$@"

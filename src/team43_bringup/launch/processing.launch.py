@@ -17,8 +17,9 @@ from team43_bringup.deployment_config import load_vehicle_config
 
 def _setup(context):
     require_confirmation = LaunchConfiguration('require_confirmation', default='true').perform(context).lower() == 'true'
+    with_map = LaunchConfiguration('with_map',default='true').perform(context).lower() == 'true'
     cfg, params = load_vehicle_config(LaunchConfiguration('vehicle_config').perform(context),
-                                    require_confirmation=require_confirmation)
+                                    require_confirmation=require_confirmation,require_map=with_map)
     camera = os.path.expanduser(LaunchConfiguration('camera_config').perform(context))
     if not os.path.isfile(camera): raise ValueError('camera_config不存在')
     target = int(LaunchConfiguration('target_id').perform(context))
@@ -34,7 +35,7 @@ def _setup(context):
              ('team43_grid_mapper', 'grid_mapper_node'), ('team43_chassis_advisor', 'chassis_advisor_node')]
     if LaunchConfiguration('with_perception').perform(context).lower() != 'true':
         nodes = [(pkg, exe) for pkg, exe in nodes if pkg != 'team43_perception']
-    if LaunchConfiguration('with_map',default='true').perform(context).lower() != 'true':
+    if not with_map:
         nodes = [(pkg,exe) for pkg,exe in nodes if pkg != 'team43_grid_mapper']
     result = [LogInfo(msg='处理已有LIO、IMU反馈与几何变换；direct建议模式不依赖地图；此处理链不输出电机指令')]
     parent = str(params['localization.odom_frame_id'])

@@ -11,9 +11,7 @@ if (( TARGET_ID > 49 )); then
   exit 2
 fi
 TRACK_WS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-source /opt/ros/humble/setup.bash
-source "$TRACK_WS/.livox/env.bash"
-source "$TRACK_WS/install/local_setup.bash"
+source "$TRACK_WS/tools/env.bash"
 export ROS_LOCALHOST_ONLY=1
 # 单一ROS参数客户端完成暂停、切换和读回，避免重复CLI图发现漏节点。
 exec python3 -B "$TRACK_WS/tools/set_target.py" "$TARGET_ID"

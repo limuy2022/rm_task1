@@ -8,9 +8,7 @@ if [[ ${1:-} == --help ]]; then
   echo '结束前另开终端bash tools/save_mapping.bash，成功后Ctrl+C。下午改用start_match.bash。'
   exit 0
 fi
-source /opt/ros/humble/setup.bash
-source "$TRACK_WS/.livox/env.bash"
-source "$TRACK_WS/install/local_setup.bash"
+source "$TRACK_WS/tools/env.bash"
 export ROS_LOCALHOST_ONLY=1
 mkdir -p "$TRACK_WS/records" "$TRACK_WS/config"
 SURVEY_RUN="$(mktemp -d "$TRACK_WS/records/survey_XXXXXXXX")"

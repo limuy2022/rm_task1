@@ -24,3 +24,24 @@ def test_inconsistent_si_saturation_is_rejected_before_launch():
 def test_invalid_acceleration_unit_scale_is_rejected(normal):
     with pytest.raises(ValueError):
         sensor_config.use_si_acceleration({'acc_norm': normal, 'satu_acc': 3.})
+
+
+def test_simulation_does_not_silently_retune_estimator():
+    from pathlib import Path
+    import copy
+    import yaml
+    source = yaml.safe_load((Path(__file__).resolve().parents[2]/'team43_lio_backend/config/small_point_lio_mid360.yaml').read_text())['/**']['ros__parameters']
+    before = copy.deepcopy(source)
+    result = sensor_config.simulation_lio_parameters(source,'/sim/lidar','/sim/imu','/tmp/audit')
+    for key in ('map_resolution','space_downsample_leaf_size','space_downsample','plane_threshold',
+                'match_sqaured','laser_point_cov','imu_meas_acc_cov','velocity_cov','acceleration_cov'):
+        assert result[key] == source[key]
+    assert source == before
+    assert result['map_resolution'] == result['space_downsample_leaf_size'] == .2
+
+
+def test_custom_estimator_voxel_sizes_are_preserved():
+    source = {'acc_norm':1.,'satu_acc':3.,'map_resolution':.35,'space_downsample_leaf_size':.12}
+    result = sensor_config.simulation_lio_parameters(source,'/sim/lidar','/sim/imu','/tmp/audit')
+    assert result['map_resolution'] == .35
+    assert result['space_downsample_leaf_size'] == .12

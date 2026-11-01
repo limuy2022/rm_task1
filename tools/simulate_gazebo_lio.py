@@ -37,7 +37,7 @@ from std_srvs.srv import Trigger
 from team43_common.qos_utils import latched_qos, reliable_qos, sensor_qos
 from team43_grid_mapper.cloud_grid import pointcloud2_xyz
 from team43_grid_mapper.pgm_io import read_pgm
-from team43_gazebo.sensor_config import use_si_acceleration
+from team43_gazebo.sensor_config import simulation_lio_parameters
 from team43_gazebo.input_audit import audit_received_inputs
 from team43_gazebo.process_shutdown import stop_processes
 from team43_gazebo.simulation_startup import wait_for_sensor_readers
@@ -110,11 +110,8 @@ class GazeboLio(Node):
         backend_share = Path(get_package_share_directory('team43_lio_backend'))
         config = yaml.safe_load((backend_share/'config/small_point_lio_mid360.yaml').read_text())
         params = config['/**']['ros__parameters']
-        params.update(output_world_up=[0., 0., 1.], approximate_floor_from_height=False, use_sim_time=True, lidar_topic=NS+'/livox/lidar', imu_topic=NS+'/imu',
-                      imu_qos_reliable=True,
-                      input_audit_path=str(self.output/'input_audit.csv'),
-                      space_downsample_leaf_size=.15, map_resolution=.15, max_distance=15.)
-        use_si_acceleration(params)
+        params = simulation_lio_parameters(params,NS+'/livox/lidar',NS+'/imu',self.output/'input_audit.csv')
+        config['/**']['ros__parameters'] = params
         self.lidar_offset = params['extrinsic_T']
         (output/'point_lio.yaml').write_text(yaml.safe_dump(config, allow_unicode=True))
         gazebo_share = Path(get_package_share_directory('team43_gazebo'))

@@ -13,3 +13,13 @@ def use_si_acceleration(mapping):
         raise ValueError('IMU饱和阈值会把静止重力误判为饱和，请核对加速度单位与量程')
     mapping['satu_acc'] = si_limit
     mapping['acc_norm'] = 9.81
+
+
+def simulation_lio_parameters(source, lidar_topic, imu_topic, audit_path):
+    """只适配仿真坐标、单位与接口；定位算法参数沿用装车配置。"""
+    result = dict(source)
+    result.update(output_world_up=[0.,0.,1.],approximate_floor_from_height=False,
+                  use_sim_time=True,lidar_topic=lidar_topic,imu_topic=imu_topic,
+                  imu_qos_reliable=True,input_audit_path=str(audit_path),max_distance=15.)
+    use_si_acceleration(result)
+    return result

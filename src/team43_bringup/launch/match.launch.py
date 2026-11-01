@@ -49,13 +49,13 @@ def _ready(context):
     motion = ParameterValue(LaunchConfiguration('motion_enabled', default='true'), value_type=bool).evaluate(context)
     continuous = ParameterValue(LaunchConfiguration('continuous', default='true'), value_type=bool).evaluate(context)
     snapshot = os.path.join(value('run_dir'), 'vehicle_runtime.yaml')
-    _, params = load_vehicle_config(snapshot, require_confirmation=False)
+    _, params = load_vehicle_config(snapshot, require_confirmation=False,require_map=False)
     share = get_package_share_directory('team43_bringup')
     processing = IncludeLaunchDescription(PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'processing.launch.py')),
         launch_arguments={'vehicle_config': snapshot, 'camera_config': value('camera_config'),
             'target_id': value('target_id'), 'with_perception': 'false', 'shutdown_on_exit': 'true',
             'submission': 'true', 'require_confirmation': 'false', 'team_id': '43', 'output_dir': value('output_dir'),
-            'with_map':str(value('map_mode')!='copy').lower()}.items())
+            'with_map':'false'}.items())
     controller = Node(package='team43_control', executable='visual_servo_node',
         name='visual_servo_node', namespace='team43_tracking', output='screen',
         parameters=[value('controller_params'), {'camera_config': value('camera_config'),
@@ -106,47 +106,14 @@ def _setup(context):
         name='team43_small_point_lio', namespace='red_standard_robot1', output='screen',
         parameters=[value('lio_config'), {'use_sim_time': False,
             'lidar_topic': '/red_standard_robot1/livox/lidar', 'imu_topic': '/red_standard_robot1/livox/imu'}])]
-    mode = LaunchConfiguration('map_mode', default='copy').perform(context)
-    optional_map = None
-    if mode == 'copy':
-        from team43_bringup.submission_map import copy_submission_map
-        import json
-        try:
-            report = copy_submission_map(value('map_yaml'),value('output_dir'))
-            (run_dir/'map_copy.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
-            hardware.append(LogInfo(msg='已复制选定地图到output；保留上午坐标，不做重定位：'+report['output_yaml']))
-        except (OSError,ValueError,TypeError,KeyError,yaml.YAMLError) as exc:
-            hardware.append(LogInfo(msg=f'地图未复制（评分链继续启动）：{exc!r}'))
-    elif mode == 'live':
-        hardware += setup('cloud_mapping', {'lio_params_file': value('lio_config'),
-            'params_file': package_config('team43_grid_mapper', 'cloud_mapping.yaml'),
-            'floor_z': 'auto', 'floor_confirmed': 'auto', 'output_dir': str(run_dir/'source_map')})
-    elif mode == 'corridor':
-        floor, confirmed, _ = approximate_floor(load_ros_params(value('lio_config')))
-        if confirmed:
-            optional_map = Node(package='team43_grid_mapper',executable='corridor_map_node',
-                name='corridor_map_node',output='screen',parameters=[
-                    package_config('team43_grid_mapper','corridor_model.yaml'),
-                    {'floor_z':floor,'run_dir':str(run_dir)}])
-            hardware.append(optional_map)
-        else:
-            hardware.append(LogInfo(msg='地面近似不可用，跳过可选走廊示意图；评分链继续运行'))
-    elif mode == 'none':
-        pass
-    elif mode == 'saved':
-        from team43_grid_mapper.saved_map import SavedMap
-        if not value('map_yaml'):raise ValueError('下午比赛需要上午地图map_yaml；请先运行start_mapping.bash和save_mapping.bash')
-        path = Path(value('map_yaml')).expanduser().resolve()
-        SavedMap(path)  # 开硬件前验证文件、原点和有效地图；不等待人工确认开关。
-        _, vehicle = load_vehicle_config(value('vehicle_config'), require_confirmation=False)
-        floor, confirmed, _ = approximate_floor(load_ros_params(value('lio_config')))
-        if not confirmed:raise ValueError('跨会话重定位需要同一下午LIO的有效地面配置')
-        hardware.append(Node(package='team43_grid_mapper',executable='saved_map_node',
-            name='saved_map_node',output='screen',parameters=[{'map_yaml':str(path),
-                'floor_z':floor, 'run_dir':str(run_dir),
-                'sensor_in_base_xyz':vehicle['localization.sensor_in_base_xyz'],
-                'sensor_in_base_rpy':vehicle['localization.sensor_in_base_rpy']}]))
-    else:raise ValueError('map_mode必须是copy、corridor、none、saved或live')
+    from team43_bringup.submission_map import copy_submission_map
+    import json
+    try:
+        report = copy_submission_map(value('map_yaml'),value('output_dir'))
+        (run_dir/'map_copy.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+        hardware.append(LogInfo(msg='已复制选定地图到output；保留上午坐标：'+report['output_yaml']))
+    except (OSError,ValueError,TypeError,KeyError,yaml.YAMLError) as exc:
+        hardware.append(LogInfo(msg=f'地图未复制（评分链继续启动）：{exc!r}'))
     common = [package_config('team43_perception'), os.path.join(share, 'config', 'tracker_params.yaml'),
         {'config.virtual_yaml': value('camera_config'), 'perception.target_digit': target,
          'perception.marker_corners_topic': '/perception/marker_corners',
@@ -156,26 +123,18 @@ def _setup(context):
         hardware.append(Node(package='team43_perception', executable=executable,
             name=executable, parameters=common, output='screen'))
     # 用户已经完成安装测量：直接使用数值，不等待人工确认开关、旧epoch或源图。
-    _, params = load_vehicle_config(value('vehicle_config'), require_confirmation=False)
+    _, params = load_vehicle_config(value('vehicle_config'), require_confirmation=False,require_map=False)
     params.update({'kinematics.require_confirmation': False,
                    'kinematics.bind_current_epoch': True,
                    'localization.sensor_extrinsics_confirmed': True,
                    'localization.parent_transform_confirmed': True,
                    'estimation.geometry_confirmed': True})
-    if mode in ('copy','corridor','none'):
-        # 建议值不接底盘执行器；不因缺图、旧图多解或门状态变化停住CSV建议输出。
-        params['chassis.dir_mode'] = 'direct'
-        params['chassis.enable_avoidance'] = False
-        params['chassis.map_timeout_s'] = 0.0
-        floor,confirmed,_ = approximate_floor(load_ros_params(value('lio_config')))
-        params.update({'chassis.obstacle_guard_enabled':True,
-                       'chassis.obstacle_floor_z':floor,
-                       'chassis.obstacle_floor_valid':confirmed})
-        if mode == 'copy':params['judge.map_write_enabled'] = False
-    elif mode == 'saved':
-        # 上午地图是静态证据；重发不能伪造新的采样stamp，也不能按实时图5秒过期。
-        # 只关闭地图年龄超时，目标/底盘/观测的新鲜度保护保持原值。
-        params['chassis.map_timeout_s'] = 0.0
+    # 唯一比赛路径：建议由实时点云保护，地图仅复制交付。
+    floor,confirmed,_ = approximate_floor(load_ros_params(value('lio_config')))
+    params.update({'chassis.dir_mode':'direct','chassis.enable_avoidance':False,
+                   'chassis.map_timeout_s':0.0,'chassis.obstacle_guard_enabled':True,
+                   'chassis.obstacle_floor_z':floor,'chassis.obstacle_floor_valid':confirmed,
+                   'judge.map_write_enabled':False})
     snapshot = run_dir/'vehicle_runtime.yaml'
     with snapshot.open('x', encoding='utf-8') as stream:
         stream.write('# 比赛运行参数；不作为实测或验收通过证据。\n')
@@ -185,8 +144,8 @@ def _setup(context):
         'bridge_respawn', default='true').perform(context).lower() in ('1', 'true', 'yes')
     bridge_watch = (_respawn_on_device_absent(bridge, robo_bridge) if respawn_bridge
                     else _critical(bridge))
-    return [LogInfo(msg=f'启动处理与控制链；map_mode={mode}；target_id=-1时等待裁判通知；copy/corridor/none不等待上午地图重定位')] + [
-        _critical(node) for node in hardware if isinstance(node,Node) and node is not bridge and node is not optional_map
+    return [LogInfo(msg='启动处理与控制链；复制固定地图，LIO和实时防撞独立运行；target_id=-1等待裁判通知')] + [
+        _critical(node) for node in hardware if isinstance(node,Node) and node is not bridge
     ] + [bridge_watch] + hardware + _ready(context)
 
 
@@ -197,7 +156,6 @@ def generate_launch_description():
         DeclareLaunchArgument('target_id', default_value='-1'), DeclareLaunchArgument('vehicle_config'),
         DeclareLaunchArgument('motion_enabled', default_value='true'),
         DeclareLaunchArgument('continuous', default_value='true'),
-        DeclareLaunchArgument('map_mode', default_value='copy'),
         DeclareLaunchArgument('map_yaml', default_value='maps/43_map.yaml'),
         DeclareLaunchArgument('livox_config'), DeclareLaunchArgument('run_dir'),
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),

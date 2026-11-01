@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Gazebo真实雷达/IMU→LIO→平行墙模型与实时防撞建议；真值只用于评价。"""
+"""Gazebo真实雷达/IMU→LIO→实时防撞建议；真值只用于评价。"""
 import argparse
 import copy
 import csv
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import time
@@ -14,9 +13,8 @@ import traceback
 import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped,Twist
-from nav_msgs.msg import Odometry,OccupancyGrid
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from PIL import Image,ImageDraw
 
@@ -27,23 +25,17 @@ from simulate_gazebo_lio import GazeboLio,NS,ROOT,envelope,seconds,point_lio_ima
 
 
 class CorridorTrial(GazeboLio):
-    def __init__(self,output,timeout,factor):
-        super().__init__(output,timeout,factor,False,16)
+    def __init__(self,output,timeout,factor,record_bag=False):
+        super().__init__(output,timeout,factor,record_bag,16)
         # 场景唯一来源为已安装的worlds/corridor.sdf，不在脚本中另造房间。
         self.base_pub = self.create_publisher(Odometry,NS+'/corridor/base',sensor_qos())
         self.target_pub = self.create_publisher(TargetState,NS+'/corridor/target',sensor_qos())
         self.guard_pub = self.create_publisher(PointCloud2,NS+'/corridor/guard_cloud',sensor_qos(2))
         self.create_subscription(PointCloud2,NS+'/lio/cloud_registered',self.on_registered,sensor_qos(5))
         self.create_subscription(ChassisAdvice,NS+'/corridor/advice',self.on_advice,sensor_qos(100))
-        self.create_subscription(OccupancyGrid,NS+'/corridor/model',self.on_model,latched_qos(1))
-        self.create_subscription(String,NS+'/corridor/status',self.on_model_status,latched_qos(1))
         self.tf_pub = self.create_publisher(TFMessage,NS+'/tf_static',latched_qos())
-        self.advice = [];self.models = [];self.model_reports = []
+        self.advice = []
         self.registered_count = self.relay_count = 0
-
-    def on_model(self,msg):self.models.append(msg)
-
-    def on_model_status(self,msg):self.model_reports.append(json.loads(msg.data))
 
     def elapsed(self):
         return -1. if self.motion_start is None else self.get_clock().now().nanoseconds*1e-9-self.motion_start
@@ -64,10 +56,6 @@ class CorridorTrial(GazeboLio):
                             int(msg.valid),int(msg.blocked)])
 
     def start(self):
-        self.launch_ros('corridor_model','team43_grid_mapper','corridor_map_node',
-            {'floor_z':-.7,'width_m':2.4937575280215114,'run_dir':str(self.output/'model')},
-            {'/red_standard_robot1/cloud_registered':NS+'/lio/cloud_registered',
-             '/team43/slam_map':NS+'/corridor/model','/team43/corridor/status':NS+'/corridor/status'})
         self.launch_ros('corridor_advisor','team43_chassis_advisor','chassis_advisor_node',
             {'chassis.dir_mode':'direct','chassis.enable_avoidance':False,
              'chassis.obstacle_guard_enabled':True,'chassis.obstacle_floor_valid':True,
@@ -104,7 +92,7 @@ class CorridorTrial(GazeboLio):
                 self.motion_start = now+2.
             if int(now//5)!=last:
                 last = int(now//5)
-                print(f'sim={now:.1f}s elapsed={self.elapsed():.1f} LIO={len(self.estimates)} advice={len(self.advice)} model={len(self.models)}',flush=True)
+                print(f'sim={now:.1f}s elapsed={self.elapsed():.1f} LIO={len(self.estimates)} advice={len(self.advice)}',flush=True)
             if self.elapsed() >= 44.:break
             if now>15 and not self.estimates:raise RuntimeError('15秒仿真时间内LIO无输出')
         else:raise RuntimeError('走廊仿真超时')
@@ -124,15 +112,10 @@ class CorridorTrial(GazeboLio):
         dropout = (a[:,1]>38.)&(a[:,1]<39.8)
         recovery = (a[:,1]>41.)&(a[:,1]<43.5)&valid
         straight = (a[:,1]>.5)&(a[:,1]<2.5)&valid
-        model = self.output/'model/corridor_model.json'
-        fitted = json.loads(model.read_text()) if model.exists() else {}
         match = np.c_[np.interp(est[:,0],gt[:,0],gt[:,1]),np.interp(est[:,0],gt[:,0],gt[:,2])]
         error = np.linalg.norm(est[:,1:3]-match,axis=1)
         checks = {
             'real_gazebo_and_lio':self.raw_scans>100 and len(est)>100,
-            'model_generated':bool(self.models) and bool(fitted),
-            'model_width_matches_independent_geometry':abs(fitted.get('width_m',0.)-2.5)<.10,
-            'model_has_no_fake_end_walls':bool(self.models) and np.count_nonzero(np.asarray(self.models[-1].data).reshape(self.models[-1].info.height,-1)[:,0]==100)==2,
             'actual_motion_approached_side_wall':float(gt[:,2].max())>.55,
             'actual_motion_approached_end_wall':float(gt[:,1].max())>3.2,
             'lio_position_max':float(error.max())<.20,
@@ -149,7 +132,7 @@ class CorridorTrial(GazeboLio):
         for name,rows in (('advice.csv',np.c_[a,gt_at,clearance]),('truth.csv',gt),('lio.csv',est)):
             with (self.output/name).open('w') as f:csv.writer(f).writerows(rows.tolist())
         self.preview_corridor(gt,a,gt_at)
-        return {'passed':all(checks.values()),'checks':checks,'model':fitted,'metrics':{
+        return {'passed':all(checks.values()),'checks':checks,'metrics':{
             'advice_messages':len(a),'valid_advice_messages':int(valid.sum()),
             'minimum_true_wall_clearance_m':float(clearance[valid].min()) if np.any(valid) else None,
             'lio_position_max_error_m':float(error.max()),'lio_position_rmse_m':float(np.sqrt(np.mean(error**2))),
@@ -165,7 +148,7 @@ class CorridorTrial(GazeboLio):
         for i in range(0,len(a),max(1,len(a)//100)):
             if a[i,4]:draw.line([px(*xy[i]),px(*(xy[i]+a[i,2:4]*1.5))],fill='red',width=1)
         draw.text((20,15),'Gazebo corridor 8 x 2.5m | black: actual walls | green: prescribed motion | red: 1.5s advice',fill='black')
-        draw.text((20,35),'Raw Gazebo LiDAR + IMU -> real Small Point-LIO -> production corridor model / obstacle guard',fill='black')
+        draw.text((20,35),'Raw Gazebo LiDAR + IMU -> real Small Point-LIO -> production realtime obstacle guard',fill='black')
         image.save(self.output/'overview.png')
 
     def close(self):
@@ -181,6 +164,7 @@ def main():
     p.add_argument('--output-dir',required=True,type=Path)
     p.add_argument('--timeout',type=float,default=900.)
     p.add_argument('--real-time-factor',type=float,default=.25)
+    p.add_argument('--record-bag',action='store_true',help='保留本次原始输入，供同数据前后对照')
     args = p.parse_args()
     if (not Path('/.dockerenv').exists() or ROOT!=Path('/workspace') or
             os.environ.get('ROS_LOCALHOST_ONLY')!='1' or os.environ.get('ROS_DOMAIN_ID') in (None,'0')
@@ -189,8 +173,8 @@ def main():
     from ament_index_python.packages import get_package_share_directory
     os.environ['RM_LIO_WORLD'] = str(Path(get_package_share_directory('team43_gazebo'))/'worlds/corridor.sdf')
     output = args.output_dir.resolve();output.mkdir(parents=True,exist_ok=False)
-    rclpy.init();app = CorridorTrial(output,args.timeout,args.real_time_factor)
-    report = {'kind':'gazebo_corridor_model_and_realtime_obstacle_guard','hardware_accessed':False,
+    rclpy.init();app = CorridorTrial(output,args.timeout,args.real_time_factor,args.record_bag)
+    report = {'kind':'gazebo_corridor_realtime_obstacle_guard','hardware_accessed':False,
               'ground_truth_used_as_odometry_input':False,'point_lio_image_build':point_lio_image_build(),
               'world_source':str(app.world_source),'world_source_sha256':app.world_source_sha256,
               'generated_world_sha256':hashlib.sha256((output/'world.sdf').read_bytes()).hexdigest(),

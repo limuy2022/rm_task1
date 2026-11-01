@@ -50,7 +50,7 @@
 | `team43_gimbal_io` | Python 仿真串口收发与实机消息适配 |
 | `team43_localization` | 底盘定位转换与云台运动学 |
 | `team43_lio_backend` | Small Point-LIO 接入 |
-| `team43_grid_mapper` | 点云建图、上午旧图重定位与栅格地图输出 |
+| `team43_grid_mapper` | 独立点云建图与栅格文件读写 |
 | `team43_chassis_advisor` | 底盘方向与速度建议 |
 | `team43_judge_io` | 评分与 CSV 提交 |
 | `team43_dataio` | 运行记录与轨迹标注 |
