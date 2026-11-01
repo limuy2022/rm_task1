@@ -58,3 +58,9 @@ RoboMaster 赛题一：云台视觉跟踪 + 底盘定位 + 评分提交链。链
 评分起点：校内赛环境说明保证赛题一第0拍同时发布`/judge/replay_start`（Header、transient_local、frame_id为record或replay）。以本轮有效replay_start的stamp冻结原点，不用tick替代。保留旧锁存起点过滤，并允许tick与replay_start以任意回调顺序到达；CSV仍逐tick立即写行。
 
 本轮vehicle_field.yaml已由data/现场外参记录.md生成用户授权的近似配置：镜头前端/银圈代理传感器原点，固定轴向采用理想模型。该配置开启kinematics.align_world_at_start；启动前底盘静止、相机水平朝车头，首组同步姿态自动求世界对齐，运行中复位保护继续生效。start_match.bash固定默认加载本轮vehicle_field.yaml，其他配置通过vehicle_config显式指定；不要把近似标成独立精度验收通过。
+
+新赛程（2026-11-01）：上午15分钟用tools/start_mapping.bash单独运行Livox/LIO/源建图，不开串口或控制。结束前tools/save_mapping.bash保存独立快照并更新maps/current；中午可关闭全部进程。下午start_match默认map_mode=saved，读取maps/current/43_slam_map.yaml，saved_map_node用当前点云在上午栅格图中一次二维重定位；多解用RViz /initialpose（survey_world中的底盘位置与车头方向）提示后仍匹配验证。固定跨会话对齐后，通过原有lio_world→map链提交。LIO不加载旧PCD、不持续融合旧图；不得描述为完成实物全局定位验收。map_mode=live仅用于独立实验室兼容调试；不作为分时比赛默认。
+
+下午saved模式的运行快照必须设chassis.map_timeout_s=0.0：上午地图为静态证据，不能沿用实时图5秒超时；不得通过周期重发伪造新采样stamp。目标、底盘及观测新鲜度保护保持原值。
+
+原始数据：tools/record.bash是只读ROS bag录制入口，默认完整点云/雷达IMU，--with-camera额外相机/云台；不会启动驱动或运动。必须在原始数据中保留5～10秒静止供离线初始化，结束等待Ctrl+C收尾和SQLite/metadata计数校验。verify_record已纳入verify_all_offline（20项），跨会话长测使用独立评分源match_tick_source和独立CSV观察器，不让大图像与评分共用DDS发送进程；时限不放宽。

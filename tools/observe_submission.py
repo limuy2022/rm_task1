@@ -29,6 +29,7 @@ def main():
                    help='真实比赛只校验九列数值/时间与可见延迟，不要求合成固定坐标')
     p.add_argument('--count', type=int, default=1800)
     p.add_argument('--timeout', type=float, default=240)
+    p.add_argument('--timings-json', type=Path, help='额外保存逐行可见延迟供全链验收汇总')
     args = p.parse_args()
     if args.count < 1 or args.timeout <= 0:
         p.error('count和timeout必须为正数')
@@ -73,6 +74,8 @@ def main():
               'over_80ms': sum(d > .080 for d in delays)}
     result['passed'] = (len(delays) == args.count and not errors and not pending
                         and result['over_60ms'] == 0)
+    if args.timings_json is not None:
+        args.timings_json.write_text(json.dumps(delays)+'\n')
     print(json.dumps(result, ensure_ascii=False, indent=2))
     raise SystemExit(0 if result['passed'] else 1)
 

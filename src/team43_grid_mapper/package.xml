@@ -16,6 +16,8 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>team43_common</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>python3-pil</exec_depend>
 

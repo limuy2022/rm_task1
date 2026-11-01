@@ -3,9 +3,11 @@
 # bash tools/start_match.bash target_id:=0
 set -eo pipefail
 TRACK_WS="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$TRACK_WS"
 if [[ ${1:-} == --help ]]; then
-  echo '用法：bash tools/start_match.bash [target_id:=本轮ID] [vehicle_config:=绝对路径] [camera_config:=绝对路径] [motion_enabled:=true|false] [continuous:=true|false]'
+  echo '用法：bash tools/start_match.bash [target_id:=本轮ID] [vehicle_config:=绝对路径] [camera_config:=绝对路径] [motion_enabled:=true|false] [continuous:=true|false] [map_yaml:=绝对路径] [map_mode:=saved|live]'
   echo '首次安装见docs/教程/整体部署.md；准备/启动/停止见docs/教程/比赛启动与收尾.md。'
+  echo '新赛程：默认map_mode:=saved，加载maps/current/43_slam_map.yaml；上午先运行start_mapping.bash并保存。'
   exit 0
 fi
 
@@ -28,5 +30,6 @@ printf '%s\n' "本次记录目录：$MATCH_RUN" '直接启动全链，默认等�
 # 终端日志与配置放本队目录，不向正式输出写入调试文件。
 export ROS_LOG_DIR="$MATCH_RUN/ros_log"
 exec ros2 launch team43_bringup match.launch.py \
+  map_mode:=saved map_yaml:="$TRACK_WS/maps/current/43_slam_map.yaml" \
   vehicle_config:="$VEHICLE_CONFIG" livox_config:="$LIVOX_JSON" \
   run_dir:="$MATCH_RUN" "$@"

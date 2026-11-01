@@ -68,7 +68,8 @@ def generate_launch_description():
         SetRemap(src='/judge/replay_start',dst='/test/match/start'),*actual.entities])
 ''' % str(real_launch))
     project=work/'project';(project/'tools').mkdir(parents=True)
-    for name in ('start_match.bash','set_target.bash','set_target.py'):
+    for name in ('start_match.bash','set_target.bash','set_target.py',
+                 'start_mapping.bash','save_mapping.bash','save_mapping.py','record.bash','record.py'):
         shutil.copy2(ROOT/'tools'/name,project/'tools'/name)
     (project/'.livox').mkdir();(project/'.livox/env.bash').write_text('# 无硬件测试，不加载SDK驱动进程。\n')
     (project/'install').mkdir()
@@ -118,7 +119,7 @@ class MatchProbe(Probe):
         self.last_lidar=self.last_lidar_imu=0.
         self.tick_stamps=[];self.visible_latencies=[];self.rows_seen=[]
 
-    def pump(self):
+    def pump_sensors(self):
         now=time.monotonic()
         if now-self.last_lidar_imu>=.005:
             imu=Imu();imu.header.stamp=self.get_clock().now().to_msg()
@@ -135,6 +136,9 @@ class MatchProbe(Probe):
             cloud.data=b''.join(struct.pack('<ffffBBd',*p,100.,0x10,0,float(begin+i*99_999_000/(len(self.points)-1)))
                                 for i,p in enumerate(self.points))
             self.lidar_pub.publish(cloud);self.last_lidar=now
+
+    def pump(self):
+        self.pump_sensors()
         super().pump()
 
     def run_command(self, command, log):
@@ -149,30 +153,41 @@ class MatchProbe(Probe):
         csv_path.write_text('old round to be removed\n');csv_path.unlink()
         self.run_for(.1)
         assert not csv_path.exists(),'首拍前不应提前占住CSV'
-        start=Header(stamp=self.get_clock().now().to_msg(),frame_id='record')
-        self.start_pub.publish(start)
-        next_tick=time.monotonic()
-        for index in range(count):
-            self.wait(lambda: time.monotonic()>=next_tick,.5)
-            msg=Header(stamp=self.get_clock().now().to_msg(),frame_id=str(index))
-            stamp=msg.stamp.sec+msg.stamp.nanosec*1e-9
-            self.tick_stamps.append(stamp);self.tick_pub.publish(msg);next_tick+=.1
-            # 独立读路径，必须在下一拍之前看见完整一行，不等程序退出。
-            def visible():
-                if not csv_path.exists():return False
-                text=csv_path.read_text()
-                if not text.endswith('\n'):return False
-                return len(text.splitlines())>=index+1
-            self.wait(visible,.09)
+        # 裁判和观察器为独立进程；大图像/雷达源不得共享评分DDS发送队列。
+        transcript=csv_path.parent/'tick_stamps.txt'
+        delays=csv_path.parent/'visible_delays.json'
+        observer_log=csv_path.parent/'observer.json'
+        observer=source=None
+        try:
+            with observer_log.open('w') as log:
+                observer=subprocess.Popen(['python3','-B',str(ROOT/'tools/observe_submission.py'),str(csv_path),
+                    '--live-state','--count',str(count),'--timeout',str(count*.1+30),
+                    '--timings-json',str(delays)],stdout=log,stderr=subprocess.STDOUT)
+                source=subprocess.Popen(['python3','-B',str(ROOT/'tools/match_tick_source.py'),
+                    '--count',str(count),'--transcript',str(transcript)])
+                self.wait(lambda:source.poll() is not None and observer.poll() is not None,count*.1+35)
+            assert source.returncode==0,'独立评分源退出异常'
+            observed=json.loads(observer_log.read_text())
+            assert observer.returncode==0 and observed['passed'],observed
+            stamps=transcript.read_text().splitlines()
             rows=csv_path.read_text().splitlines()
-            line=rows[index];fields=line.split(',')
-            assert len(fields)==9 and all(math.isfinite(float(v)) for v in fields),line
-            assert fields[8]=='%.6f'%stamp,line
-            self.rows_seen.append(line)
-            self.visible_latencies.append(self.get_clock().now().nanoseconds*1e-9-stamp)
-            if index%100==0:print(f'match_tick={index}/{count} targets={len(self.targets)} base={len(self.bases)} maps={len(self.grids)}',flush=True)
-        self.run_for(1.2)
-        assert len(csv_path.read_text().splitlines())==count
+            assert len(rows)==len(stamps)==count,'源拍数与实际CSV行数不一致'
+            for line,stamp in zip(rows,stamps):
+                fields=line.split(',')
+                assert len(fields)==9 and all(math.isfinite(float(v)) for v in fields),line
+                assert fields[8]==stamp,'CSV未使用相应tick的原始stamp'
+            self.rows_seen=rows
+            self.visible_latencies=json.loads(delays.read_text())
+            self.tick_stamps=[float(stamp) for stamp in stamps]
+            self.run_for(1.2)
+            assert len(csv_path.read_text().splitlines())==count
+        finally:
+            for process in (source,observer):
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    try:process.wait(timeout=5.)
+                    except subprocess.TimeoutExpired:process.kill();process.wait()
+
 
 
 def main():
@@ -195,6 +210,7 @@ def main():
         master,slave=os.openpty();tty.setraw(slave);os.set_blocking(master,False)
         log=(output/'match.log').open('w')
         launch=subprocess.Popen(['bash',str(project/'tools/start_match.bash'),'port:='+os.ttyname(slave),
+                                 'map_mode:=live',  # 本工具专测实时建图链；跨会话旧图另有专项DDS验证。
                                  'output_dir:='+str(work/'score')],stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         rclpy.init();probe=MatchProbe(master,launch)
         probe.wait(lambda: len(probe.statuses)>5 and any(json.loads(s.data).get('accepted_scans',0)>5 for s in probe.map_status),30.)

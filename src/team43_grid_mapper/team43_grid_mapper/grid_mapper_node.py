@@ -3,7 +3,8 @@
 地图来源由 grid.map_source 决定：
 - config：按显式给出的 field.yaml 栅格化，供离线/仿真使用。
 - topic：接收已生成的 OccupancyGrid；当前实机 vehicle43 配置订阅
-  /team43/slam_map（lio_world），按对应时刻 TF 转到 map。
+  /team43/slam_map（lio_world），按对应时刻 TF 转到 map。新赛程下午由
+  saved_map_node完成上午旧图到下午LIO的重定位后发布该话题；独立实时建图才由cloud_mapping发布。
 
 本节点不处理原始雷达点、不运行 LIO，也不重新扫描场地。topic 模式保留
 源格子、分辨率和时间，换算地图 origin 的平移/平面 yaw；不能只改 frame 标签。

@@ -1,4 +1,4 @@
-"""比赛直接启动：加载装车数值、启动全链，目标ID可以由裁判通知后设置。"""
+"""下午比赛：默认加载上午栅格并重定位；live仅供独立实验室调试。"""
 import os
 import yaml
 from pathlib import Path
@@ -16,6 +16,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 from team43_bringup.parameter_files import package_config
 from team43_bringup.deployment_config import load_vehicle_config
 from team43_bringup.livox_config import load_driver_config
+from team43_bringup.lio_geometry import approximate_floor
+from team43_common.config_loader import load_ros_params
 
 
 def _critical(node):
@@ -103,9 +105,25 @@ def _setup(context):
         name='team43_small_point_lio', namespace='red_standard_robot1', output='screen',
         parameters=[value('lio_config'), {'use_sim_time': False,
             'lidar_topic': '/red_standard_robot1/livox/lidar', 'imu_topic': '/red_standard_robot1/livox/imu'}])]
-    hardware += setup('cloud_mapping', {'lio_params_file': value('lio_config'),
-        'params_file': package_config('team43_grid_mapper', 'cloud_mapping.yaml'),
-        'floor_z': 'auto', 'floor_confirmed': 'auto', 'output_dir': str(run_dir/'source_map')})
+    mode = LaunchConfiguration('map_mode', default='saved').perform(context)
+    if mode == 'live':
+        hardware += setup('cloud_mapping', {'lio_params_file': value('lio_config'),
+            'params_file': package_config('team43_grid_mapper', 'cloud_mapping.yaml'),
+            'floor_z': 'auto', 'floor_confirmed': 'auto', 'output_dir': str(run_dir/'source_map')})
+    elif mode == 'saved':
+        from team43_grid_mapper.saved_map import SavedMap
+        if not value('map_yaml'):raise ValueError('下午比赛需要上午地图map_yaml；请先运行start_mapping.bash和save_mapping.bash')
+        path = Path(value('map_yaml')).expanduser().resolve()
+        SavedMap(path)  # 开硬件前验证文件、原点和有效地图；不等待人工确认开关。
+        _, vehicle = load_vehicle_config(value('vehicle_config'), require_confirmation=False)
+        floor, confirmed, _ = approximate_floor(load_ros_params(value('lio_config')))
+        if not confirmed:raise ValueError('跨会话重定位需要同一下午LIO的有效地面配置')
+        hardware.append(Node(package='team43_grid_mapper',executable='saved_map_node',
+            name='saved_map_node',output='screen',parameters=[{'map_yaml':str(path),
+                'floor_z':floor, 'run_dir':str(run_dir),
+                'sensor_in_base_xyz':vehicle['localization.sensor_in_base_xyz'],
+                'sensor_in_base_rpy':vehicle['localization.sensor_in_base_rpy']}]))
+    else:raise ValueError('map_mode必须是saved（上午旧图）或live（独立现场调试建图）')
     common = [package_config('team43_perception'), os.path.join(share, 'config', 'tracker_params.yaml'),
         {'config.virtual_yaml': value('camera_config'), 'perception.target_digit': target,
          'perception.marker_corners_topic': '/perception/marker_corners',
@@ -121,6 +139,10 @@ def _setup(context):
                    'localization.sensor_extrinsics_confirmed': True,
                    'localization.parent_transform_confirmed': True,
                    'estimation.geometry_confirmed': True})
+    if mode == 'saved':
+        # 上午地图是静态证据；重发不能伪造新的采样stamp，也不能按实时图5秒过期。
+        # 只关闭地图年龄超时，目标/底盘/观测的新鲜度保护保持原值。
+        params['chassis.map_timeout_s'] = 0.0
     snapshot = run_dir/'vehicle_runtime.yaml'
     with snapshot.open('x', encoding='utf-8') as stream:
         stream.write('# 比赛运行参数；不作为实测或验收通过证据。\n')
@@ -130,7 +152,7 @@ def _setup(context):
         'bridge_respawn', default='true').perform(context).lower() in ('1', 'true', 'yes')
     bridge_watch = (_respawn_on_device_absent(bridge, robo_bridge) if respawn_bridge
                     else _critical(bridge))
-    return [LogInfo(msg='直接启动全链；target_id=-1时等待裁判通知，不等待人工确认、epoch匹配或地图就绪')] + [
+    return [LogInfo(msg='启动处理与控制链；target_id=-1时等待裁判通知，不等待人工confirmed或预填epoch；下午开赛前确认旧图重定位完成')] + [
         _critical(node) for node in hardware if node is not bridge] + [bridge_watch] + hardware + _ready(context)
 
 
@@ -141,6 +163,8 @@ def generate_launch_description():
         DeclareLaunchArgument('target_id', default_value='-1'), DeclareLaunchArgument('vehicle_config'),
         DeclareLaunchArgument('motion_enabled', default_value='true'),
         DeclareLaunchArgument('continuous', default_value='true'),
+        DeclareLaunchArgument('map_mode', default_value='saved'),
+        DeclareLaunchArgument('map_yaml', default_value=''),
         DeclareLaunchArgument('livox_config'), DeclareLaunchArgument('run_dir'),
         DeclareLaunchArgument('port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('bridge_respawn', default_value='true'),

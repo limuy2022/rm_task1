@@ -185,7 +185,8 @@ def test_session_rejects_epoch_mismatch_and_unconfirmed_work_interval(tmp_path):
     with pytest.raises(ValueError, match='工作区间'): verified_match_params(path, 42)
 
 
-def test_match_launch_starts_without_confirmation_epoch_map_or_target(tmp_path):
+@pytest.mark.parametrize('map_mode', ['live', 'saved'])
+def test_match_launch_starts_without_confirmation_epoch_or_target(tmp_path, map_mode):
     mod = load('match_launch_regression', 'src/team43_bringup/launch/match.launch.py')
     driver = tmp_path/'livox.json'
     # 使用CLI生成与现场相同的JSON，避免测试复制驱动配置。
@@ -195,7 +196,15 @@ def test_match_launch_starts_without_confirmation_epoch_map_or_target(tmp_path):
     context = LaunchContext()
     config = tmp_path/'measured_values.yaml'
     config.write_bytes((ROOT/'src/team43_bringup/config/vehicle_template.yaml').read_bytes())
-    context.launch_configurations.update(target_id='-1', run_dir=str(tmp_path),
+    if map_mode == 'saved':
+        from team43_grid_mapper.grid_builder import GridMap
+        from team43_grid_mapper.pgm_io import write_map
+        grid = np.zeros((30,30), np.int8);grid[0,:] = 100
+        gm = GridMap.from_arrays(grid,.05,[0,0],inflation_radius_m=0.)
+        saved = write_map(str(tmp_path/'morning'),gm)['yaml']
+    else:saved = ''
+    context.launch_configurations.update(target_id='-1', run_dir=str(tmp_path), map_mode=map_mode,
+        map_yaml=saved,
         vehicle_config=str(config), livox_config=str(driver),
         camera_config=str(camera), controller_params=str(ROOT/'src/team43_control/config/visual_tracking.yaml'),
         lio_config=str(ROOT/'src/team43_lio_backend/config/small_point_lio_mid360.yaml'),
@@ -209,6 +218,8 @@ def test_match_launch_starts_without_confirmation_epoch_map_or_target(tmp_path):
         evaluate_parameters(context, node._Node__parameters)
     assert executable.count('aruco_detector_node') == executable.count('marker_pnp_node') == 1
     assert executable.count('robo_bridge_node') == 1
+    assert ('saved_map_node' in executable) == (map_mode == 'saved')
+    assert ('cloud_mapping_node' in executable) == (map_mode == 'live')
     # robo_bridge 挂的是设备缺席重试处理器（on_exit 为可调用对象），
     # 而非其余关键进程的 _critical（on_exit 为含 Shutdown 的动作列表）。
     from launch.actions import RegisterEventHandler
@@ -224,6 +235,8 @@ def test_match_launch_starts_without_confirmation_epoch_map_or_target(tmp_path):
     assert 'match_session_gate' not in executable and 'visual_servo_node' in executable
     assert 'judge_io_node' not in executable
     snapshot = tmp_path/'vehicle_runtime.yaml'
+    if map_mode == 'saved':
+        assert yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']['chassis.map_timeout_s'] == 0.
     runtime = yaml.safe_load(snapshot.read_text())['/**']['ros__parameters']
     assert runtime['kinematics.require_confirmation'] is False
     assert runtime['kinematics.bind_current_epoch'] is True

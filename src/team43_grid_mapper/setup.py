@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             'grid_mapper_node = team43_grid_mapper.grid_mapper_node:main',
             'cloud_mapping_node = team43_grid_mapper.cloud_mapping_node:main',
+            'saved_map_node = team43_grid_mapper.saved_map_node:main',
         ],
     },
 )

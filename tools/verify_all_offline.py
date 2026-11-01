@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -45,6 +46,10 @@ def main():
     jobs.append(('aiming_robustness',
                  [sys.executable,'-B',str(ROOT/'tools'/'verify_aiming_robustness.py'),
                   '--quick']))
+    record_output=Path(tempfile.mkdtemp(prefix='record_check_',dir=output))/'result'
+    jobs.append(('verify_record',[sys.executable,'-B',str(ROOT/'tools/verify_record.py'),
+                                  '--output-dir',str(record_output)]))
+    timeouts['verify_record']=90
     result = []
     for name, command in jobs:
         begin = time.perf_counter()
